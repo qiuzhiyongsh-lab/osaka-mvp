@@ -87,6 +87,43 @@
         </div>
       </div>
     </div>
+
+    {# v1.8.6（修正）：勇哥要的是这三项跟「关键词/区/物件種目」在**第 1 行**（图上红箭头指的就是
+       第 1 行右侧那片空白）。上一版我错插到了第 2 行（价格/面积/日期行）的末尾，所以看起来还在下面。
+       margin-left:auto = 整组推到第 1 行最右；元素 ID 保持原样，既有 JS 一行都不用改。 #}
+    <div class="field" style="min-width:170px;margin-left:auto">
+      <span data-i18n="search.trade_type">取引態様</span>
+      <div class="msp" id="ttMsp">
+        <button type="button" class="msp-btn" id="ttBtn" aria-expanded="false" onclick="msToggle('trade_type',event)">
+          <span class="msp-txt" id="ttTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="ttPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="search.trade_type">取引態様</b>
+            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
+          </div>
+          <div class="msp-body" id="ttBody"></div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="msSelectAll('trade_type')" data-i18n="cat.select_all">全选</button>
+            <button type="button" class="ghost" onclick="msClear('trade_type')" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="ttSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
+      <select id="has_pdf">
+        <option value="" data-i18n="search.has_pdf.all">不限</option>
+        <option value="1" data-i18n="search.has_pdf.yes">仅带 PDF</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="search.limit">每页条数</span>
+      <select id="limit">
+        <option value="50" selected data-i18n="search.limit.50">50 条</option>
+        <option value="100" data-i18n="search.limit.100">100 条</option>
+        <option value="200" data-i18n="search.limit.200">200 条</option>
+      </select>
+    </label>
   </div>
   <div class="row" style="margin-top:8px">
     <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
@@ -108,43 +145,6 @@
       </select>
     </label>
 
-    {# v1.8.6：这三项**并进本行右端**（勇哥圈选「要合并成同一行」）。
-       margin-left:auto 把它们整体推到行尾；元素 ID 全部保持原样
-       （ttMsp/ttBtn/ttPanel/ttBody/ttSum/has_pdf/limit），既有 JS 一行都不用改。 #}
-    <div class="field" style="min-width:170px;margin-left:auto">
-      <span data-i18n="search.trade_type">取引態様</span>
-      <div class="msp" id="ttMsp">
-        <button type="button" class="msp-btn" id="ttBtn" aria-expanded="false" onclick="msToggle('trade_type',event)">
-          <span class="msp-txt" id="ttTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
-        </button>
-        <div class="msp-panel" id="ttPanel" hidden>
-          <div class="msp-head">
-            <b data-i18n="search.trade_type">取引態様</b>
-            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
-          </div>
-          <div class="msp-body" id="ttBody"></div>
-          <div class="msp-foot">
-            {# v1.8.6：「全选」（勇哥要求）—— 原来只有「清空」，想整组勾上要一个个点 #}
-            <button type="button" class="ghost" onclick="msSelectAll('trade_type')" data-i18n="cat.select_all">全选</button>
-            <button type="button" class="ghost" onclick="msClear('trade_type')" data-i18n="cat.clear">清空</button>
-            <span class="msp-sum" id="ttSum"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-    <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
-      <select id="has_pdf">
-        <option value="" data-i18n="search.has_pdf.all">不限</option>
-        <option value="1" data-i18n="search.has_pdf.yes">仅带 PDF</option>
-      </select>
-    </label>
-    <label class="field"><span data-i18n="search.limit">每页条数</span>
-      <select id="limit">
-        <option value="50" selected data-i18n="search.limit.50">50 条</option>
-        <option value="100" data-i18n="search.limit.100">100 条</option>
-        <option value="200" data-i18n="search.limit.200">200 条</option>
-      </select>
-    </label>
   </div>
   <!-- v1.8.6：取引態様 / 只看带PDF / 每页条数 三项已**并入下面 #filterForm 的第一行右端**
        （勇哥圈选「要合并成同一行」）。此处**不能再渲染一遍** ——
