@@ -7,8 +7,36 @@
 """
 from __future__ import annotations
 
-VERSION = "1.8.9"
-BUILD_AT = "2026-09-18 01:25"
+VERSION = "1.9.0"
+BUILD_AT = "2026-09-18 02:10"
+# ============================================================================
+# v1.9.0（2026-09-18 · 5 项修复 + VULN-01/02/03 安全加固）
+#   - A 降价字段裸 HTML 真根因修复：compare.html 字段构造器 F() 旧版漏转 `opt.html`
+#     → 价格/降价徽标里的 <span> 被 esc() 成文本，列表/对比页显示
+#     `<span class="qrate...">↓ 2.3%</span> 1,260 万円` 原样文本。F() 现正确透传
+#     html:!!opt.html，带 {html:1} 的字段走 raw（不再 esc）；v1.8.6 的 else-if 分支是空跑。
+#   - B 全站「REINS 物件番号検索」按钮：search/detail/compare 三页所有物件番号旁各加
+#     搜索按钮（window.bukkenBtn 委托渲染），点击走 fieldmap.openBukkenSearch ——
+#     跨域限制下用 REINS 番号検索 URL + 番号参数预填 + 剪贴板兜底（自动填表不可跨域），
+#     底部 toast 提示；同时消除 detail.html 内联 onclick 注入 property_no 的 XSS（VULN-03）。
+#   - C 对比页开关文案统一：对比页「隐藏其他详情」按钮与查询/详情页同款
+#     （id=agency-toggle / cmpToggleAgency），文案随 i18n 状态切换。
+#   - D 对比栏清空复现真根因修复（勇哥复现「清空后又复活 / 删到最后一个又全出现」）：
+#     两条真因 ① noOf() 每次读 ?nos= URL 旧值当主源 → setAll 复活已删项；
+#     改为 _urlNosTaken 一次性采纳 URL 后只用本地栏；② cmpNotify 防重入静默丢弃空态
+#     通知 → UI 卡旧列表；改为 _cmpNotifyAgain 排队补一次 + clear 强制写空。
+#     tools/test_compare_restore.js 确定性复现：旧逻辑删 6→复活 6，新逻辑删 6→剩 0（PASS）。
+#   - E VULN 安全加固：
+#     · VULN-01（中）：core/config.py save() 现剥离凭据（SECRET_KEYS/SECRET_PARTS 含
+#       access_code/token/cookie…）→ 本地 config.yaml 入库不再带真值（真值在 config.local.yaml）。
+#     · VULN-02（高）：tools/sync_to_publish.py 的 SECRET_KEYS 补齐 access_code/accesscode，
+#       sync --dry 已验证剔除 ['publish.token','ai.api_key','public.access_code']。
+#     · VULN-03（中）：detail.html 内联 openBukkenSearch('{{row.property_no}}') 改为
+#       data-bukken 委托（property_no 不再进 JS 字符串）→ 消除 XSS。
+#   - 门禁：node --check app.js/fieldmap.js/i18n.js 全过；I18N_KEYS_OK / FIELD_LABELS_OK /
+#     VALUE_SANITY_OK 全绿；director_audit 红 0；test_compare_restore.js PASS；
+#     sync --dry 验证凭据剔除。REINS 番号検索「自动填表」受跨域限制为 URL 参数+剪贴板兜底，
+#     待勇哥晨间真机确认（非 bug）。
 # ============================================================================
 # v1.8.9（2026-09-18 · 修对比栏「清空/删到最后一个又全部恢复」竞态回归）
 #   - 🔴 对比栏竞态真根因修复（勇哥复现「点清空→其他几个又回来 / 删到最后一个→全出现」）：
