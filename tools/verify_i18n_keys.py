@@ -117,6 +117,15 @@ def _strip_comments(txt: str) -> str:
     return re.sub(r"(?<![:\"'/])//[^\n]*", "", txt)
 
 
+# ⚠ v1.8.6 补盲区：静态正则**扫不到**的「数据驱动前缀」，手工登记后纳入同一套校验。
+#   背景：取引態様面板的选项标签不是 `t('search.trade_type.' + x)` 这种字面拼接，
+#   而是把 key 写在 MS_OPTS[].i18n 数据里、再由 msOptLabel() 去 t() —— DYN 正则扫不到，
+#   于是首版门禁**完全漏检**，导致 search.trade_type.* 只有繁体字典有、简体字典 ZH 没有，
+#   简体界面直接显示裸 key（2026-09-18 勇哥截图发现）。
+#   → 以后凡是「key 来自数据而不是源码字面量」的，都要在这里登记。
+EXTRA_DYN_PREFIXES = ("search.trade_type.",)
+
+
 def scan_usage() -> tuple[dict[str, set[str]], set[str], set[str]]:
     literal: dict[str, set[str]] = {}
     dynamic_prefix: dict[str, set[str]] = {}
@@ -141,6 +150,9 @@ def main() -> int:
         return 1
     zh, others, all_keys = parse_i18n()
     literal, dyn_prefix, attrs = scan_usage()
+    # 把「数据驱动前缀」（正则扫不到的那批）并进来，走同一套 ②③④ 校验
+    for p in EXTRA_DYN_PREFIXES:
+        dyn_prefix.setdefault(p, set()).add("(数据驱动前缀 · 手工登记)")
 
     red: list[str] = []
     warn: list[str] = []

@@ -96,13 +96,25 @@
   <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">暂无 AI 解读 · 点「重新生成」由本房源 PDF 提取。</div>
   <div class="row" style="margin-top:10px">
     <button class="btn ghost" id="aiRegen" onclick="aiRegenerate()" data-i18n="detail.ai_regen">重新生成</button>
-    {% if row.pdf_path %}
-    <a class="btn ghost" href="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
-       target="_blank" data-i18n="detail.openpdf">打开本地 PDF</a>
-    {% endif %}
     <span class="muted" id="aiMeta"></span>
   </div>
 </div>
+
+{# v1.8.6：PDF **直接在页面里完整展示**（勇哥要求）—— 替掉原来「重新生成」旁那个
+   只做跳转的「打开本地 PDF」按钮。
+   ① 宽度 = 网页内容宽度（100%）  ② 高度随窗口自适应（78vh，内部可滚动翻页）
+   ③ 位置 = AI 解读**下方** / 变更历史**上方**
+   实现：浏览器内置 PDF 查看器（iframe，零依赖），可翻页 / 缩放 / 打印。
+   ⚠ PDF 只存在本机，线上站不传 PDF，所以这块线上不会出现。 #}
+{% if row.pdf_path %}
+<div class="card sec" id="pdfCard">
+  <h2><span data-i18n="detail.pdf_h">房源図面 PDF</span>
+    <span class="hint" data-i18n="detail.pdf_hint">本机 PDF 原件（不会上传到线上）</span></h2>
+  <iframe class="pdf-frame"
+          src="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
+          title="物件図面 PDF"></iframe>
+</div>
+{% endif %}
 
 <!-- ③ 变更历史 / 快照：默认收起，避免把页面撑长 -->
 <details class="card sec">

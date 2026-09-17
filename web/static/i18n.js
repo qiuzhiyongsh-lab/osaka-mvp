@@ -966,6 +966,51 @@
   DICT['ja']['roundplan.plus_backfill']='＋ 前日補完（選択済）：前日さらに 12 回';
   DICT['ja']['filter.toggle_tip']='検索条件を展開 / 折りたたむ';
 
+  /* ---- v1.8.6：修「取引態様面板显示裸 key」 ----
+     ⚠ 根因：search.trade_type.* 这几个键**只存在于繁体字典**（上面 line 108-110 的 zh-TW 块），
+     简体字典 ZH（line 514）里没有 → 简体界面 t() 查不到 → 回退显示 `search.trade_type.seller`。
+     这与 v1.8.1 的 sort.* 是同一个坑。门禁（verify_i18n_keys.py）的动态前缀没覆盖它 → 漏检，
+     已同步把 search.trade_type. 加进门禁。
+     值保留「日文原名 + 中文释义」的写法（用户要能对应回 REINS 上的原文）。 */
+  ZH['search.trade_type.all']='全部';
+  ZH['search.trade_type.seller']='売主（业主直售）';
+  ZH['search.trade_type.sennin']='専任（专任媒介）';
+  ZH['search.trade_type.senzoku']='専属（专属媒介）';
+  ZH['search.trade_type.dairi']='代理（卖方代理）';
+  ZH['search.trade_type.ippan']='一般（一般媒介）';
+  // 多选面板「全选」（勇哥要求：除了清空，还要能一键全选）
+  ZH['cat.select_all']='全选'; ZH['cat.selected_all']='已全选 {n} 项';
+
+  DICT['zh-TW']['search.trade_type.all']='全部';
+  DICT['zh-TW']['search.trade_type.seller']='売主（業主直售）';
+  DICT['zh-TW']['search.trade_type.sennin']='専任（專任媒介）';
+  DICT['zh-TW']['search.trade_type.senzoku']='専属（專屬媒介）';
+  DICT['zh-TW']['search.trade_type.dairi']='代理（賣方代理）';
+  DICT['zh-TW']['search.trade_type.ippan']='一般（一般媒介）';
+  DICT['zh-TW']['cat.select_all']='全選'; DICT['zh-TW']['cat.selected_all']='已全選 {n} 項';
+
+  DICT['en']['search.trade_type.all']='All';
+  DICT['en']['search.trade_type.seller']='売主 (direct from owner)';
+  DICT['en']['search.trade_type.sennin']='専任 (exclusive agency)';
+  DICT['en']['search.trade_type.senzoku']='専属 (sole agency)';
+  DICT['en']['search.trade_type.dairi']='代理 (seller agency)';
+  DICT['en']['search.trade_type.ippan']='一般 (open listing)';
+  DICT['en']['cat.select_all']='Select all'; DICT['en']['cat.selected_all']='All {n} selected';
+
+  DICT['ja']['search.trade_type.all']='すべて';
+  DICT['ja']['search.trade_type.seller']='売主（元付・直接取引）';
+  DICT['ja']['search.trade_type.sennin']='専任（専任媒介）';
+  DICT['ja']['search.trade_type.senzoku']='専属（専属専任媒介）';
+  DICT['ja']['search.trade_type.dairi']='代理（売主代理）';
+  DICT['ja']['search.trade_type.ippan']='一般（一般媒介）';
+  DICT['ja']['cat.select_all']='すべて選択'; DICT['ja']['cat.selected_all']='{n} 件を全選択';
+
+  /* ---- v1.8.6：详情页内嵌 PDF 卡片（替掉原来的「打开本地 PDF」跳转按钮）---- */
+  ZH['detail.pdf_h']='房源図面 PDF'; ZH['detail.pdf_hint']='本机 PDF 原件（不会上传到线上）';
+  DICT['zh-TW']['detail.pdf_h']='房源図面 PDF'; DICT['zh-TW']['detail.pdf_hint']='本機 PDF 原件（不會上傳到線上）';
+  DICT['en']['detail.pdf_h']='Property floorplan PDF'; DICT['en']['detail.pdf_hint']='Local PDF original (never uploaded to the public site)';
+  DICT['ja']['detail.pdf_h']='物件図面 PDF'; DICT['ja']['detail.pdf_hint']='ローカル PDF 原本（公開サイトにはアップロードしません）';
+
   // 补充 key（按钮文案含动态态 / 切换提示）
   ZH['step4.btn_run']='保存并启动自动更新'; ZH['step4.btn_upd']='保存并更新自动更新'; ZH['collect.sw_msg']='已切换到：{mode}';
   DICT['zh-TW']['step4.btn_run']='保存並啟動自動更新'; DICT['zh-TW']['step4.btn_upd']='保存並更新自動更新'; DICT['zh-TW']['collect.sw_msg']='已切換到：{mode}';

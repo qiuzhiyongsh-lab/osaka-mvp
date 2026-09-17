@@ -8,55 +8,19 @@
     <!-- v1.8.0 R21：本机库概况（「本机库共 N 条 ｜ 今天 … ｜ 最近 …」）并到标题行右侧，
          整行省掉约 40px；窄屏自动换到第二行。警告/运行中/操作按钮仍走下方 #libhint-extra。 -->
     <div id="libhint" class="libhint-inline" style="display:none"></div>
-  </div>
-  {# v1.8.5 #237（勇哥截图 图5 + 图2）：取引態様 / 只看带PDF / 每页条数 三项**移到右上角**，
-     与「修改条件」单键一起**常驻显示** —— 筛选区折叠后这三项仍然能直接改，不用先展开。
-     元素 ID 全部保持原样（ttMsp/ttBtn/ttPanel/ttBody/ttSum/has_pdf/limit），
-     因此 msToggle / msClear / msValues / buildParams / 条件回填 等既有 JS 一行都不用改。 #}
-  <div class="row filter-tr" style="margin-top:8px;justify-content:flex-end;align-items:flex-end">
-    <div class="field" style="min-width:170px">
-      <span data-i18n="search.trade_type">取引態様</span>
-      <div class="msp" id="ttMsp">
-        <button type="button" class="msp-btn" id="ttBtn" aria-expanded="false" onclick="msToggle('trade_type',event)">
-          <span class="msp-txt" id="ttTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
-        </button>
-        <div class="msp-panel" id="ttPanel" hidden>
-          <div class="msp-head">
-            <b data-i18n="search.trade_type">取引態様</b>
-            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
-          </div>
-          <div class="msp-body" id="ttBody"></div>
-          <div class="msp-foot">
-            <button type="button" class="ghost" onclick="msClear('trade_type')" data-i18n="cat.clear">清空</button>
-            <span class="msp-sum" id="ttSum"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-    <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
-      <select id="has_pdf">
-        <option value="" data-i18n="search.has_pdf.all">不限</option>
-        <option value="1" data-i18n="search.has_pdf.yes">仅带 PDF</option>
-      </select>
-    </label>
-    <label class="field"><span data-i18n="search.limit">每页条数</span>
-      <select id="limit">
-        <option value="50" selected data-i18n="search.limit.50">50 条</option>
-        <option value="100" data-i18n="search.limit.100">100 条</option>
-        <option value="200" data-i18n="search.limit.200">200 条</option>
-      </select>
-    </label>
-    {# v1.8.5 #235：单键**双向**收合（勇哥截图 图4：原来「修改条件 ▾」只能展开、收不回去，
-       两个按钮来回顶替很别扭）。此键常驻右上角，箭头随状态翻转：▾=点开、▴=收起。
-       文案由 syncFilterToggle() 按状态写，故**不加 data-i18n**（否则切语言会被字典覆盖回固定值），
-       语言切换改由 i18n:changed 事件重新 sync。 #}
+    {# v1.8.6：三项已并进筛选行，这个单键改挂**标题行右侧** ——
+       它必须在 #filterForm 之外，否则筛选区一折叠就再也展不开（v1.8.2 踩过的坑）。
+       文案由 syncFilterToggle() 按状态写，故不加 data-i18n（切语言走 i18n:changed 重新 sync）。 #}
     <button type="button" class="ghost" id="filterToggle" onclick="toggleFilters()"
             data-i18n-title="filter.toggle_tip" title="展开 / 收起查询条件"
-            style="align-self:flex-end;white-space:nowrap">
+            style="margin-left:auto;align-self:center;white-space:nowrap">
       <span id="filterToggleTxt">收起条件</span>
       <span id="filterToggleCare">▴</span>
     </button>
   </div>
+  {# v1.8.6：勇哥圈选「要合并成同一行」—— 原来这三项（取引態様 / 只看带PDF / 每页条数）
+     是**单独一行**右对齐，现在并进下面 #filterForm 的第一行右端（与 关键词/区/物件種目 同一行）。
+     「收起条件」单键改挂到卡片标题行右侧（见下方 hrow），保证筛选区折叠后**仍点得到**。 #}
   <div id="filterForm">
 <div class="row">
     {# v1.4.1：标签只留「关键词」两字，匹配范围与规则改悬停提示。
@@ -79,6 +43,8 @@
           </div>
           <div class="msp-body" id="wardBody"></div>
           <div class="msp-foot">
+            {# v1.8.6：加「全选」（勇哥要求）—— 原来只有「清空」，想整组勾上要一个个点 #}
+            <button type="button" class="ghost" onclick="msSelectAll('ward')" data-i18n="cat.select_all">全选</button>
             <button type="button" class="ghost" onclick="msClear('ward')" data-i18n="cat.clear">清空</button>
             <span class="msp-sum" id="wardSum"></span>
           </div>
@@ -141,9 +107,48 @@
         <option value="download" data-i18n="search.date_caliber.dl">下载日（本地抓到）</option>
       </select>
     </label>
+
+    {# v1.8.6：这三项**并进本行右端**（勇哥圈选「要合并成同一行」）。
+       margin-left:auto 把它们整体推到行尾；元素 ID 全部保持原样
+       （ttMsp/ttBtn/ttPanel/ttBody/ttSum/has_pdf/limit），既有 JS 一行都不用改。 #}
+    <div class="field" style="min-width:170px;margin-left:auto">
+      <span data-i18n="search.trade_type">取引態様</span>
+      <div class="msp" id="ttMsp">
+        <button type="button" class="msp-btn" id="ttBtn" aria-expanded="false" onclick="msToggle('trade_type',event)">
+          <span class="msp-txt" id="ttTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="ttPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="search.trade_type">取引態様</b>
+            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
+          </div>
+          <div class="msp-body" id="ttBody"></div>
+          <div class="msp-foot">
+            {# v1.8.6：「全选」（勇哥要求）—— 原来只有「清空」，想整组勾上要一个个点 #}
+            <button type="button" class="ghost" onclick="msSelectAll('trade_type')" data-i18n="cat.select_all">全选</button>
+            <button type="button" class="ghost" onclick="msClear('trade_type')" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="ttSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
+      <select id="has_pdf">
+        <option value="" data-i18n="search.has_pdf.all">不限</option>
+        <option value="1" data-i18n="search.has_pdf.yes">仅带 PDF</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="search.limit">每页条数</span>
+      <select id="limit">
+        <option value="50" selected data-i18n="search.limit.50">50 条</option>
+        <option value="100" data-i18n="search.limit.100">100 条</option>
+        <option value="200" data-i18n="search.limit.200">200 条</option>
+      </select>
+    </label>
   </div>
-  <!-- v1.8.5 #237：取引態様 / 只看带PDF / 每页条数 三项已上移到右上角常驻区（.filter-tr）。
-       此处**不能再渲染一遍** —— 同一 ID 出现两次时 JS 只会取到第一个，右上角那套就失效了。 -->
+  <!-- v1.8.6：取引態様 / 只看带PDF / 每页条数 三项已**并入下面 #filterForm 的第一行右端**
+       （勇哥圈选「要合并成同一行」）。此处**不能再渲染一遍** ——
+       同一 ID 出现两次时 JS 只会取到第一个，后面那套会静默失效（v1.8.5 踩过这个坑）。 -->
   <div class="row" style="margin-top:8px">
     <!-- 起>止 自动交换的提示（v1.7.4 功能保留；原挂在已删除的「日期快捷」行上，挪到这里） -->
     <span class="muted" id="date-swap-hint" style="align-self:center;display:none;color:#a15c00"></span>
@@ -439,6 +444,17 @@ function msSync(k){
 function msClear(k){
   MS_SEL[k] = {};
   msRender(k);
+}
+/* v1.8.6：多选面板「全选」（勇哥反馈：原来只有「清空」，想整组勾上得一个个点）。
+   注意：不勾 = 不限（后端不筛选）；全选 = 显式把每个值都 OR 上，结果等价但**看得见**，
+   对「我想明确指定这几个，而不是漏掉」这种心智更友好。 */
+function msSelectAll(k){
+  var opts = MS_OPTS[k] || [];
+  MS_SEL[k] = {};
+  opts.forEach(function(o){ MS_SEL[k][o.v] = 1; });
+  msRender(k);
+  // 与 msClear / msPick **完全一致**：只改勾选状态，不自动查询（统一由「查询」按钮触发）。
+  // 别在这里自作主张加 doQuery —— 会和「点选 → 再点查询」的既有交互打架。
 }
 function msPlace(k){
   var p = msEl(k, 'Panel'), b = msEl(k, 'Btn');
@@ -816,7 +832,11 @@ function buildParams(page){
   msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
   // v1.7.0：按取得日期倒序（最新在上）—— 用户在查询页要"最新放最上面"
   // v1.7.4：dto 现在是字符串（旧版是 element），判断要跟着改 —— 只填「止」时也要倒序
-  if(dfrom || dto || ALL_DATES) p.set('order', 'date_desc');
+  // v1.8.6 修「排序方向点了完全没反应」的**前端一半责任**：
+  // 旧代码无条件发 order=date_desc，后端 store.search() 会拿它**覆盖** sort/sort_dir
+  // （强制回 updated/desc）→ 用户选的排序键和方向全部失效。
+  // 现在只在「用户没自定义排序」时才发，保留旧默认行为（最新在上）。
+  if((dfrom || dto || ALL_DATES) && CUR_SORT === 'updated' && CUR_DIR === 'desc') p.set('order', 'date_desc');
   // R20：排序键 + 方向（服务端 SQL 排序）。默认 updated/desc 与旧 order=date_desc 一致。
   p.set('sort', CUR_SORT);
   p.set('sort_dir', CUR_DIR);

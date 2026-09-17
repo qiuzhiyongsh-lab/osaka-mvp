@@ -350,7 +350,9 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));
   gap:2px 14px;font-size:12.5px}
 .df{display:flex;gap:7px;padding:1px 0;border-bottom:1px dotted #eef1f7;min-width:0}
-.df .dk{color:var(--sub);flex:0 0 auto;min-width:76px}
+/* v1.8.6：勇哥要求「详细信息里所有分类标签名称全部用粗体」——
+   只加字重，**不动字体、不动字号**（其余属性保持原样）。 */
+.df .dk{color:var(--sub);flex:0 0 auto;min-width:76px;font-weight:700}
 .df .dv{color:var(--ink);word-break:break-word;min-width:0}
 .dactions{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap}
 .dactions .btn{font-size:12.5px;padding:6px 12px}
@@ -765,3 +767,8 @@ details.sec > .secbody{padding:10px 18px 14px}
 .tag-cause.truncated{background:#fff4e0;color:#a15c00}
 .tag-cause.missed{background:#fdecea;color:#c0392b}
 .seg-note{font-size:11.5px;color:#666;margin-top:6px;line-height:1.5}
+/* v1.8.6：详情页**内嵌** PDF（替掉原来的「打开本地 PDF」跳转按钮）
+   宽度 100% = 与网页内容同宽；高度 78vh = 随窗口自适应（vh 随视口伸缩），
+   再给 min-height 兜底，小窗口下也不会压成一条。 */
+.pdf-frame{display:block;width:100%;height:78vh;min-height:520px;
+  border:1px solid #d8e3f7;border-radius:8px;background:#f6f7f9}

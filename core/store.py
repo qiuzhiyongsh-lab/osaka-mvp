@@ -891,7 +891,13 @@ class Store:
         #     不用在此重复注册，避免多线程下「只有首线程有、其余报 no such function」。
         sort = (f.get("sort") or "updated").strip().lower()
         sdir = (f.get("sort_dir") or "").strip().lower()
-        if f.get("order") == "date_desc":          # 兼容旧前端（始终倒序）
+        # ⚠ v1.8.6 修「排序方向点了完全没反应」的真根因：
+        #   旧代码是 `if f.get("order") == "date_desc": sort, sdir = "updated", "desc"`，
+        #   **无条件**把排序键和方向硬覆盖掉。而前端 buildParams 每次都带 order=date_desc
+        #   → 用户在界面上选的任何 sort / sort_dir 都被后端强制回 updated/desc，
+        #   表现就是「改排序、改方向都没反应」（前后端各有一半责任）。
+        #   修法：order 只作为**兜底**——调用方**没有显式给 sort** 时才生效。
+        if f.get("order") == "date_desc" and not (f.get("sort") or "").strip():
             sort, sdir = "updated", "desc"
         if sort not in _SORT_COLS:
             sort = "updated"
