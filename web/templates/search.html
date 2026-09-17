@@ -1,0 +1,1377 @@
+{% extends "base.html" %}
+{% block title %}查询 · 大阪房源（本地版）{% endblock %}
+{% block body %}
+
+<div class="card">
+  <div class="hrow">
+    <h2><span data-i18n="search.h">查询本地房源</span> <span class="hint" data-i18n="search.hint">数据全部来自本机库（检索 + 详情 + PDF）</span></h2>
+    <!-- v1.8.0 R21：本机库概况（「本机库共 N 条 ｜ 今天 … ｜ 最近 …」）并到标题行右侧，
+         整行省掉约 40px；窄屏自动换到第二行。警告/运行中/操作按钮仍走下方 #libhint-extra。 -->
+    <div id="libhint" class="libhint-inline" style="display:none"></div>
+  </div>
+  {# v1.8.5 #237（勇哥截图 图5 + 图2）：取引態様 / 只看带PDF / 每页条数 三项**移到右上角**，
+     与「修改条件」单键一起**常驻显示** —— 筛选区折叠后这三项仍然能直接改，不用先展开。
+     元素 ID 全部保持原样（ttMsp/ttBtn/ttPanel/ttBody/ttSum/has_pdf/limit），
+     因此 msToggle / msClear / msValues / buildParams / 条件回填 等既有 JS 一行都不用改。 #}
+  <div class="row filter-tr" style="margin-top:8px;justify-content:flex-end;align-items:flex-end">
+    <div class="field" style="min-width:170px">
+      <span data-i18n="search.trade_type">取引態様</span>
+      <div class="msp" id="ttMsp">
+        <button type="button" class="msp-btn" id="ttBtn" aria-expanded="false" onclick="msToggle('trade_type',event)">
+          <span class="msp-txt" id="ttTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="ttPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="search.trade_type">取引態様</b>
+            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
+          </div>
+          <div class="msp-body" id="ttBody"></div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="msClear('trade_type')" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="ttSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
+      <select id="has_pdf">
+        <option value="" data-i18n="search.has_pdf.all">不限</option>
+        <option value="1" data-i18n="search.has_pdf.yes">仅带 PDF</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="search.limit">每页条数</span>
+      <select id="limit">
+        <option value="50" selected data-i18n="search.limit.50">50 条</option>
+        <option value="100" data-i18n="search.limit.100">100 条</option>
+        <option value="200" data-i18n="search.limit.200">200 条</option>
+      </select>
+    </label>
+    {# v1.8.5 #235：单键**双向**收合（勇哥截图 图4：原来「修改条件 ▾」只能展开、收不回去，
+       两个按钮来回顶替很别扭）。此键常驻右上角，箭头随状态翻转：▾=点开、▴=收起。
+       文案由 syncFilterToggle() 按状态写，故**不加 data-i18n**（否则切语言会被字典覆盖回固定值），
+       语言切换改由 i18n:changed 事件重新 sync。 #}
+    <button type="button" class="ghost" id="filterToggle" onclick="toggleFilters()"
+            data-i18n-title="filter.toggle_tip" title="展开 / 收起查询条件"
+            style="align-self:flex-end;white-space:nowrap">
+      <span id="filterToggleTxt">收起条件</span>
+      <span id="filterToggleCare">▴</span>
+    </button>
+  </div>
+  <div id="filterForm">
+<div class="row">
+    {# v1.4.1：标签只留「关键词」两字，匹配范围与规则改悬停提示。
+       v1.7.6：关键词框**缩短**（勇哥反馈太长），腾出的横向空间给后面的多选控件。 #}
+    <label class="field" style="flex:0 1 240px"><span data-i18n="search.q" data-i18n-title="search.q.tip" title="地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り，模糊匹配，含即命中；空格分隔多词＝都要命中">关键词</span>
+      <input id="q" data-i18n-ph="search.q.ph" placeholder="例：中之島 / グランドメゾン / 3001407">
+    </label>
+    <!-- v1.7.6：区改为**多选**（勇哥要求：像物件種目那样点选即生效，不需要再确认）。
+         交互与物件種目一致：点 chip 即勾/消，底部「清空」+「已选 N 项」，不弹确认框。 -->
+    <div class="field" style="min-width:150px">
+      <span data-i18n="search.ward">区</span>
+      <div class="msp" id="wardMsp">
+        <button type="button" class="msp-btn" id="wardBtn" aria-expanded="false" onclick="msToggle('ward',event)">
+          <span class="msp-txt" id="wardTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="wardPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="search.ward">区</b>
+            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
+          </div>
+          <div class="msp-body" id="wardBody"></div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="msClear('ward')" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="wardSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="field" style="min-width:200px">
+      <span data-i18n="search.subtype">物件種目</span>
+      <div class="msp" id="msp">
+        <button type="button" class="msp-btn" id="mspBtn" aria-expanded="false" onclick="mspToggle(event)">
+          <span class="msp-txt" id="mspTxt">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="mspPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="cat.title">两级目录</b>
+            <span class="muted" data-i18n="cat.hint">一级、二级都可多选</span>
+          </div>
+          <!-- ① 一级类目（物件種別）：每项一个复选框，勾上后其下二级才可选 -->
+          <div class="msp-sec">
+            <div class="msp-sec-h">
+              <span class="msp-lv" data-i18n="cat.lv1">一级类目</span>
+              <span class="muted" data-i18n="cat.lv1sub">物件種別</span>
+            </div>
+            <div class="msp-body" id="mspL1"></div>
+          </div>
+          <!-- ② 二级类目（物件種目）：按一级分组，对应一级勾选后才可勾 -->
+          <div class="msp-sec msp-sec-l2">
+            <div class="msp-sec-h">
+              <span class="msp-lv" data-i18n="cat.lv2">二级类目</span>
+              <span class="muted" data-i18n="cat.lv2sub">物件種目</span>
+              <span class="msp-need" id="mspNeed" data-i18n="cat.needlv1" hidden>先勾选①一级类目，二级才可选</span>
+            </div>
+            <div class="msp-body" id="mspL2"></div>
+          </div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="mspPickAll()" data-i18n="cat.pickall">全选</button>
+            <button type="button" class="ghost" onclick="mspClear()" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="mspSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
+    <label class="field"><span data-i18n="search.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="search.price_max.ph" placeholder="例：5000"></label>
+    <label class="field"><span data-i18n="search.area_min">面积下限(㎡)</span><input id="area_min" data-i18n-ph="search.area_min.ph" placeholder="例：50"></label>
+    <label class="field"><span data-i18n="search.area_max">面积上限(㎡)</span><input id="area_max" data-i18n-ph="search.area_max.ph" placeholder="例：80"></label>
+    <label class="field"><span data-i18n="search.date">日期(起)</span>
+      <input type="date" id="date" value="{{ today }}">
+    </label>
+    <label class="field"><span data-i18n="search.date_to">日期(止)</span>
+      <input type="date" id="date_to">
+    </label>
+    <label class="field"><span data-i18n="search.date_caliber">日期口径</span>
+      <select id="date_caliber">
+        <option value="any" selected data-i18n="search.date_caliber.any">登録日或変更日</option>
+        <option value="change" data-i18n="search.date_caliber.change">変更日（平台变更）</option>
+        <option value="registration" data-i18n="search.date_caliber.reg">登録日（平台新建）</option>
+        <option value="download" data-i18n="search.date_caliber.dl">下载日（本地抓到）</option>
+      </select>
+    </label>
+  </div>
+  <!-- v1.8.5 #237：取引態様 / 只看带PDF / 每页条数 三项已上移到右上角常驻区（.filter-tr）。
+       此处**不能再渲染一遍** —— 同一 ID 出现两次时 JS 只会取到第一个，右上角那套就失效了。 -->
+  <div class="row" style="margin-top:8px">
+    <!-- 起>止 自动交换的提示（v1.7.4 功能保留；原挂在已删除的「日期快捷」行上，挪到这里） -->
+    <span class="muted" id="date-swap-hint" style="align-self:center;display:none;color:#a15c00"></span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button data-i18n="search.btn" onclick="doQuery(1)">查询</button>
+    <button class="ghost" data-i18n="search.reset" onclick="resetForm()">重置</button>
+    <!-- v1.8.5 #235：旧版「收起条件 ▴」（filterCollapseBtn）已**删除** ——
+         它与摘要里的「修改条件 ▾」互相顶替，勇哥截图反馈「只有下拉、没有上滑，很别扭」。
+         收合入口统一到右上角常驻的 #filterToggle（单键双向），见 toggleFilters()。 -->
+    <button class="ghost" id="agency-toggle" data-i18n="search.other_detail"
+            onclick="toggleAgency(this)">隐藏其他详情</button>
+    <span class="muted" id="result-summary" style="align-self:center"></span>
+    <span class="muted" id="dl-status" style="align-self:center;display:none;color:#1b7f3a;font-weight:600"></span>
+    <span class="muted" id="qstate-hint" style="align-self:center;display:none">
+      <span data-i18n="search.qstate">当前为上次的查询条件</span>
+      <a href="javascript:resetForm()" data-i18n="search.qstate_reset">重置为默认</a>
+    </span>
+    <span class="muted" style="align-self:center;margin-left:auto" data-i18n="search.cmp.tip">
+      勾几套房 → 底部「对比栏」→ 点「开始对比」可横向比 2–6 套
+    </span>
+  </div>
+</div><!-- /#filterForm -->
+<!-- R22 A：查询后筛选表单折叠成一行摘要；点「修改条件」展开 -->
+<div id="filterSummary" class="filter-summary" hidden></div>
+<!-- 本机库概况的「警告/运行中/操作按钮」分支（R21：从标题行拆出，单独占一行更醒目） -->
+<div id="libhint-extra" class="libhint-extra" style="display:none"></div>
+
+<div class="card list-card">
+  <!-- R20 排序工具条 + R22 B 详细⇄简洁切换；首屏查询成功后显示 -->
+  <div class="toolbar" id="toolbar" hidden>
+    <span class="muted" id="toolbar-count"></span>
+    <span class="tool-group">
+      <label class="tool-lbl" data-i18n="sort.h">排序</label>
+      <select id="sortKey" class="tool-sel"></select>
+      <!-- v1.8.2：方向由「一个 ↓ 图标按钮」改成**显式下拉**（勇哥 2026-09-17 要求
+           「加升序或降序的选择」）—— 图标按钮只显示当前态、看不出可点，且不知道点一下会变什么。 -->
+      <label class="tool-lbl" for="sortDirSel" data-i18n="sort.dir">方向</label>
+      <select id="sortDirSel" class="tool-sel tool-sel-dir"
+              data-i18n-title="sort.dir_tip"
+              title="降序：数值/日期 由大到小（新→旧）；升序：由小到大（旧→新）">
+        <option value="desc" selected data-i18n="sort.dir_desc">降序 ↓</option>
+        <option value="asc" data-i18n="sort.dir_asc">升序 ↑</option>
+      </select>
+      <button id="sortClear" class="tool-btn ghost" type="button" data-i18n="sort.clear">清除排序</button>
+    </span>
+    <span class="tool-group">
+      <button id="viewToggle" class="tool-btn" type="button" data-i18n="view.toggle">详细 ⇄ 简洁</button>
+    </span>
+  </div>
+  <!-- 本机库概况已上移到副标题下方（v1.7.6）；这里只留结果区 -->
+  <div id="result">
+    <div class="empty" data-i18n="search.loading">正在加载当天数据…</div>
+  </div>
+  <div class="pager" id="pager" style="display:none"></div>
+</div>
+
+<!-- ============ 底部固定「对比栏」：选中后从下方浮出 ============ -->
+<div class="cmpbar" id="cmpbar">
+  <div class="cmpbar-in">
+    <div class="cmpbar-h">
+      <b data-i18n="cmp.name">对比栏</b>
+      <span class="muted"><span data-i18n="cmp.sel">已选</span> <b id="cmpsel" class="hot">0</b>/6</span>
+    </div>
+    <div class="cmpslots" id="cmpslots"></div>
+    <div class="cmpacts">
+      <a class="btn primary" id="cmpgo" href="/compare" data-i18n="cmp.go">开始对比</a>
+      <button class="ghost" id="cmpclear" data-i18n="cmp.clear">清空</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var PAGE = 1, PAGES = 1, LIMIT = 50;
+var CMAX = 6;
+var LIB = null;          // 本机库概况（总条数 / 最近有数据的日期 / 今天条数 / 上轮运行）
+var CUR_SORT = 'updated', CUR_DIR = 'desc';   // R20：当前排序键 + 方向
+var COMPACT = false;                            // R22 B：简洁模式
+var LAST_ROWS = null;                           // 当前结果行（切换视图时重渲染用）
+// R20：9 个排序键（与后端 _SORT_COLS 对应）
+var SORT_OPTS = [
+  ['updated',   'sort.updated'],
+  ['price',     'sort.price'],
+  ['area',      'sort.area'],
+  ['unit_sqm',  'sort.unit_sqm'],
+  ['unit_tsubo', 'sort.unit_tsubo'],
+  ['drop_amt',  'sort.drop_amt'],
+  ['drop_pct',  'sort.drop_pct'],
+  ['drop_date', 'sort.drop_date'],
+  ['built',     'sort.built'],
+  ['bukken',    'sort.bukken']
+];
+
+/* ---------- 物件種目：两级目录 · 复选框联动（一级类目 → 二级类目）----------
+   ① 一级类目（物件種別）：一戸建 / 公寓（マンション）/ 土地（+「其他」兜底），每项前面一个复选框。
+   ② 二级类目（物件種目）：REINS 原始種目名称，按对应的一级分组排在**下面**：
+        一戸建            → 新築戸建 / 中古戸建 / 新築テラス / 中古テラス
+        公寓（マンション）→ 新築マンション / 中古マンション / 新築タウン / 中古タウン
+   规则：**先勾一级，其下二级才可选**（某组一级一个都没勾 → 该组二级置灰、点不动）；
+        勾一级 = 默认把其下二级整组勾上，可再单独取消某一个（此时一级变「半选」）；
+        取消一级 = 其下二级一并取消。一个都不勾 = 不限（全部）。
+   筛选用的是叶子 key（house_new / apt_town_old …），后端按关键词匹配原始種目文字。 */
+var MSP_TREE = {{ (opts.tree if (opts.tree is defined and opts.tree) else [])|tojson }};
+var MSP_SEL = {};                        // 已选中的叶子 key
+
+function mspLeaves(){                    // 按目录顺序拍平所有叶子（含"一级即叶子"的）
+  var out = [];
+  MSP_TREE.forEach(function(n){
+    if(n.children && n.children.length) n.children.forEach(function(c){ out.push(c); });
+    else out.push(n);
+  });
+  return out;
+}
+function mspKids(grpKey){                // 某个「一级」下面的「二级」列表（一级即叶子时返回空）
+  var out = [];
+  MSP_TREE.forEach(function(n){ if(n.key === grpKey && n.children) out = n.children; });
+  return out;
+}
+function mspLabel(n){ return n.i18n ? t(n.i18n) : (n.text || n.key); }
+function mspLeafLabel(leaf){             // 叶子名＝自身名称（二级已是完整種目名，如「新築マンション」；
+                                         // 土地等「一级即叶子」取一级名；不拼一级前缀，避免「一戸建新築戸建」这种重复）
+  return mspLabel(leaf);
+}
+function mspSelected(){                  // 按目录顺序返回已选叶子 key
+  return mspLeaves().filter(function(l){ return !!MSP_SEL[l.key]; })
+                    .map(function(l){ return l.key; });
+}
+/* 渲染：上半＝「一级类目」（复选框列表）；下半＝「二级类目」（按一级分组排在下面） */
+function mspRender(){
+  var b1 = document.getElementById('mspL1'), b2 = document.getElementById('mspL2');
+  if(!b1 || !b2) return;
+  var h1 = '', h2 = '';
+  MSP_TREE.forEach(function(n){
+    var kids = (n.children && n.children.length) ? n.children : null;
+    if(kids){
+      h1 += '<label class="msp-l1">'
+        +    '<input type="checkbox" data-grp="' + esc(n.key) + '" onchange="mspGroup(this)">'
+        +    '<span>' + esc(mspLabel(n)) + '</span></label>';
+      h2 += '<div class="msp-g2"><div class="msp-g2h">' + esc(mspLabel(n)) + '</div><div class="msp-g2b">';
+      kids.forEach(function(c){
+        h2 += '<label class="msp-chip"><input type="checkbox" data-leaf="' + esc(c.key) + '"'
+          +  (MSP_SEL[c.key] ? ' checked' : '') + ' onchange="mspLeaf(this)">'
+          +  '<span>' + esc(mspLabel(c)) + '</span></label>';
+      });
+      h2 += '</div></div>';
+    }else{
+      h1 += '<label class="msp-l1">'
+        +    '<input type="checkbox" data-grp="' + esc(n.key) + '" data-single="1"'
+        +    (MSP_SEL[n.key] ? ' checked' : '') + ' onchange="mspSingle(this)">'
+        +    '<span>' + esc(mspLabel(n)) + '</span></label>';
+      h2 += '<div class="msp-g2 msp-g2-flat"><div class="msp-g2h">' + esc(mspLabel(n)) + '</div>'
+        +  '<div class="msp-g2b"><span class="msp-nosub">' + t('cat.nosub') + '</span></div></div>';
+    }
+  });
+  b1.innerHTML = h1;
+  b2.innerHTML = h2;
+  mspSync();
+}
+function mspLeaf(el){                    // 二级：单独勾 / 消一个二级（一级会随之变「半选」）
+  var k = el.getAttribute('data-leaf');
+  if(el.checked) MSP_SEL[k] = 1; else delete MSP_SEL[k];
+  mspSync();
+}
+function mspSingle(el){                  // 一级本身就是叶子（土地 / 其他里的单项）：直接勾 / 消
+  var k = el.getAttribute('data-grp');
+  if(el.checked) MSP_SEL[k] = 1; else delete MSP_SEL[k];
+  mspSync();
+}
+function mspGroup(el){                   // 一级：勾＝把其下二级整组勾上；取消＝整组取消
+  var grp = el.getAttribute('data-grp'), on = el.checked;
+  mspKids(grp).forEach(function(c){ if(on) MSP_SEL[c.key] = 1; else delete MSP_SEL[c.key]; });
+  mspSync();
+}
+function mspSync(){                      // 同步：一级勾选 / 半选态、二级可用态、按钮文案、已选计数
+  document.querySelectorAll('#mspL1 input[data-grp]').forEach(function(cb){
+    var key = cb.getAttribute('data-grp');
+    if(cb.hasAttribute('data-single')){ cb.checked = !!MSP_SEL[key]; cb.indeterminate = false; return; }
+    var kids = mspKids(key), on = 0;
+    kids.forEach(function(c){ if(MSP_SEL[c.key]) on++; });
+    cb.checked = kids.length > 0 && on === kids.length;        // 全勾才勾
+    cb.indeterminate = on > 0 && on < kids.length;              // 部分勾 = 半选
+  });
+  // 二级跟着一级走：该组一个二级都没勾 = 整组置灰、不可点（"先勾一级，二级才可选"）
+  document.querySelectorAll('#mspL2 .msp-g2').forEach(function(g){
+    var cbs = g.querySelectorAll('input[data-leaf]'), on = 0;
+    cbs.forEach(function(cb){ if(MSP_SEL[cb.getAttribute('data-leaf')]) on++; });
+    var off = (cbs.length > 0 && on === 0);
+    g.classList.toggle('off', off);
+    cbs.forEach(function(cb){
+      cb.checked = !!MSP_SEL[cb.getAttribute('data-leaf')];
+      cb.disabled = off;
+    });
+  });
+  var sel = mspSelected();
+  var need = document.getElementById('mspNeed');
+  if(need) need.hidden = sel.length > 0;            // 已经有选中 → 收起"先勾一级"提示
+  var names = mspLeaves().filter(function(l){ return !!MSP_SEL[l.key]; }).map(mspLeafLabel);
+  var txt = t('search.all');                       // 一个都没勾 = 全部（不限）
+  if(names.length === 1 || names.length === 2) txt = names.join('、');
+  else if(names.length > 2) txt = names.slice(0, 2).join('、') + tf('cat.more', {n: names.length});
+  var txtEl = document.getElementById('mspTxt');
+  txtEl.textContent = txt;
+  txtEl.setAttribute('title', sel.length ? names.join('、') : '');   // 选得多时鼠标悬停看全
+  document.getElementById('mspSum').textContent = sel.length ? tf('cat.n', {n: sel.length}) : '';
+  document.getElementById('mspBtn').classList.toggle('on', sel.length > 0);
+}
+/* 面板贴着右边窗口时改为向左展开，避免被窗口边缘裁掉 */
+function mspPlace(){
+  var p = document.getElementById('mspPanel'), b = document.getElementById('mspBtn');
+  if(!p || !b) return;
+  var r = b.getBoundingClientRect();
+  var w = p.offsetWidth || 300;
+  var over = (r.left + w) > (window.innerWidth - 8);
+  p.classList.toggle('msp-right', over);
+}
+function mspPickAll(){
+  mspLeaves().forEach(function(l){ MSP_SEL[l.key] = 1; });
+  mspRender();
+}
+function mspClear(quiet){
+  MSP_SEL = {};
+  if(quiet) mspSync(); else mspRender();   // 两个分支都会把 DOM 勾选态同步回去
+}
+function mspToggle(ev){
+  if(ev) ev.stopPropagation();
+  var p = document.getElementById('mspPanel');
+  if(!p) return;
+  var open = p.hasAttribute('hidden');
+  if(open) p.removeAttribute('hidden'); else p.setAttribute('hidden', '');
+  document.getElementById('mspBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if(open) mspPlace();                            // 展开时按需向左翻
+}
+/* ---------- v1.7.6：通用「多选面板」（区 / 取引態様）----------
+   勇哥要求：像物件種目那样**点选即生效、可多选、不需要再确认**。
+   与 msp 的差别：只有一级（无父子联动），所以实现极简 ——
+     点 chip → 切换该值 → 同步按钮文案/已选计数；查询仍由页面「查询」按钮发起。
+   复用 .msp-* 的样式，保证两个控件长得一样（一致性）。 */
+var MS_PREFIX = { ward: 'ward', trade_type: 'tt' };
+var MS_SEL = { ward: {}, trade_type: {} };
+var MS_OPTS = {
+  ward: [],                                   // 下面用模板里的 opts.wards 填充
+  trade_type: [
+    { v: '売主', i18n: 'search.trade_type.seller' },
+    { v: '専任', i18n: 'search.trade_type.sennin' },
+    { v: '専属', i18n: 'search.trade_type.senzoku' },
+    { v: '代理', i18n: 'search.trade_type.dairi' },
+    { v: '一般', i18n: 'search.trade_type.ippan' }
+  ]
+};
+function msEl(k, suffix){
+  return document.getElementById(MS_PREFIX[k] + suffix);
+}
+function msOptVal(o){ return (typeof o === 'string') ? o : o.v; }
+function msOptLabel(o){ return (typeof o === 'string') ? o : t(o.i18n); }
+function msRender(k){
+  var body = msEl(k, 'Body');
+  if(!body) return;
+  var h = '';
+  (MS_OPTS[k] || []).forEach(function(o){
+    var v = msOptVal(o);
+    h += '<label class="msp-chip"><input type="checkbox" data-ms="' + esc(k) + '" data-v="' + esc(v) + '"'
+      +  (MS_SEL[k][v] ? ' checked' : '') + ' onchange="msPick(this)">'
+      +  '<span>' + esc(msOptLabel(o)) + '</span></label>';
+  });
+  body.innerHTML = h;
+  msSync(k);
+}
+function msPick(el){
+  var k = el.getAttribute('data-ms'), v = el.getAttribute('data-v');
+  if(el.checked) MS_SEL[k][v] = 1; else delete MS_SEL[k][v];
+  msSync(k);
+}
+function msValues(k){ return Object.keys(MS_SEL[k] || {}); }
+function msSync(k){
+  var vs = msValues(k);
+  var txtEl = msEl(k, 'Txt'), btn = msEl(k, 'Btn'), sum = msEl(k, 'Sum');
+  if(txtEl){
+    if(vs.length){
+      var names = vs.map(function(v){
+        var hit = (MS_OPTS[k] || []).filter(function(o){ return msOptVal(o) === v; })[0];
+        return hit ? msOptLabel(hit) : v;
+      });
+      txtEl.textContent = names.join('、');
+      txtEl.setAttribute('title', names.join('、'));   // 选得多时悬停看全
+    }else{
+      txtEl.textContent = t('search.all');
+      txtEl.removeAttribute('title');
+    }
+  }
+  if(sum) sum.textContent = vs.length ? tf('cat.n', {n: vs.length}) : '';
+  if(btn) btn.classList.toggle('on', vs.length > 0);
+}
+function msClear(k){
+  MS_SEL[k] = {};
+  msRender(k);
+}
+function msPlace(k){
+  var p = msEl(k, 'Panel'), b = msEl(k, 'Btn');
+  if(!p || !b) return;
+  var r = b.getBoundingClientRect();
+  var w = p.offsetWidth || 220;
+  p.classList.toggle('msp-right', (r.left + w) > (window.innerWidth - 8));
+}
+function msToggle(k, ev){
+  if(ev) ev.stopPropagation();
+  var p = msEl(k, 'Panel');
+  if(!p) return;
+  var open = p.hasAttribute('hidden');
+  if(open) p.removeAttribute('hidden'); else p.setAttribute('hidden', '');
+  var b = msEl(k, 'Btn');
+  if(b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if(open) msPlace(k);
+}
+/* 点面板外面收起（已选条件不受影响 —— 只是把面板收起来） */
+document.addEventListener('click', function(ev){
+  ['ward', 'trade_type'].forEach(function(k){
+    var box = msEl(k, 'Msp'), p = msEl(k, 'Panel');
+    if(!box || !p || p.hasAttribute('hidden')) return;
+    if(box.contains(ev.target)) return;
+    p.setAttribute('hidden', '');
+    var b = msEl(k, 'Btn');
+    if(b) b.setAttribute('aria-expanded', 'false');
+  });
+});
+/* 区选项来自本机库实际出现的区（模板注入）；面板立即渲染，不需等查询 */
+MS_OPTS.ward = {{ (opts.wards if (opts.wards is defined and opts.wards) else [])|tojson }};
+function msInitAll(){ msRender('ward'); msRender('trade_type'); }
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', msInitAll);
+}else{
+  msInitAll();
+}
+
+/* 点面板外面就收起（不是"关掉就清空"：已选条件一直在） */
+document.addEventListener('click', function(ev){
+  var box = document.getElementById('msp');
+  if(!box || box.contains(ev.target)) return;
+  var p = document.getElementById('mspPanel');
+  if(p && !p.hasAttribute('hidden')){
+    p.setAttribute('hidden', '');
+    document.getElementById('mspBtn').setAttribute('aria-expanded', 'false');
+  }
+});
+
+/* ---------- 查询条件保留（v1.2.0） ----------
+   用户诉求：查完一次 → 去「房源对比」等别的页面 → 再回「房源查询」，
+   原来的条件要还在，不要被清空回默认。
+   做法：条件存 localStorage['qstate']；进页面先回填，并给一个
+   「当前为上次的查询条件 · 重置为默认」提示条，避免用户想重置却重置不了。 */
+var QSTATE_KEY = 'qstate';
+function saveQState(){
+  try{
+    localStorage.setItem(QSTATE_KEY, JSON.stringify({
+      q:         document.getElementById('q').value,
+      ward:      document.getElementById('ward').value,
+      // 容错：某些分支（线上对外版）刻意不放「只看带 PDF」字段，读不到不能抛错，
+      // 否则整段条件都存不进 localStorage（「切页回来条件还在」直接失效）。
+      has_pdf:   (document.getElementById('has_pdf') || {}).value || '',
+      price_min: document.getElementById('price_min').value,
+      price_max: document.getElementById('price_max').value,
+      area_min:  document.getElementById('area_min').value,
+      area_max:  document.getElementById('area_max').value,
+      date:      document.getElementById('date').value,
+      // v1.7.4 §3.3 #9：起止**两值**都要进条件记忆（旧版只存了「起」，刷新后「止」丢失）
+      date_to:   (document.getElementById('date_to') || {}).value || '',
+      caliber:   document.getElementById('date_caliber').value,
+      // v1.7.6：区 / 取引態様 都是多选 → 存**数组**（原来存单值）
+      wards:     msValues('ward'),
+      tts:       msValues('trade_type'),
+      limit:     document.getElementById('limit').value,
+      subs:      mspSelected()
+    }));
+  }catch(e){ /* 隐私模式等场景静默降级 */ }
+  var hint = document.getElementById('qstate-hint');
+  if(hint) hint.style.display = 'none';
+}
+function restoreQState(){
+  var raw = null;
+  try{ raw = localStorage.getItem(QSTATE_KEY); }catch(e){}
+  if(!raw) return false;
+  var st = null;
+  try{ st = JSON.parse(raw); }catch(e){ return false; }
+  if(!st || typeof st !== 'object') return false;
+  ['q','has_pdf','price_min','price_max','area_min','area_max','limit'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el && st[id] != null) el.value = st[id];
+  });
+  // v1.7.6：区 / 取引態様 多选回填（旧格式 st.trade_type 单值也兼容）
+  MS_SEL['ward'] = {};
+  (st.wards || []).forEach(function(v){ MS_SEL['ward'][v] = 1; });
+  MS_SEL['trade_type'] = {};
+  (st.tts || (st.trade_type ? [st.trade_type] : [])).forEach(function(v){ MS_SEL['trade_type'][v] = 1; });
+  msRender('ward'); msRender('trade_type');
+  if(st.date) document.getElementById('date').value = st.date;
+  // v1.7.4：回填「止」与「取引態様」（旧版漏了，刷新后区间后半段丢失）
+  if(st.date_to != null){
+    var _dto = document.getElementById('date_to');
+    if(_dto) _dto.value = st.date_to;
+  }
+  if(st.caliber) document.getElementById('date_caliber').value = st.caliber;
+  MSP_SEL = {};
+  (st.subs || []).forEach(function(k){ MSP_SEL[k] = 1; });
+  var hint = document.getElementById('qstate-hint');
+  if(hint) hint.style.display = '';
+  return true;
+}
+
+/* ---------- v1.4.0：URL 参数优先（从概览 KPI 卡片点过来） ----------
+   概览的 KPI 卡片（本地房源总数 / 今日更新 / 已落盘 PDF …）点了会跳到本页并带上条件，
+   例：/search?date=all（看全库）、/search?has_pdf=1（只看带 PDF）。
+   URL 参数**优先于** localStorage 里上次的条件 —— 用户是点了卡片才来的，
+   他想看的是卡片说的那一批，不是上次随手查的那批。
+   注意：date=all 不能写进 <input type="date">（浏览器会把它当成非法值清成空），
+   所以单独用 ALL_DATES 标记，由 buildParams 决定发给后端什么。 */
+var ALL_DATES = false;
+function applyUrlParams(){
+  var qs = new URLSearchParams(location.search || '');
+  var touched = false;
+  ['q','has_pdf'].forEach(function(id){
+    var v = qs.get(id);
+    if(v != null && v !== ''){
+      var el = document.getElementById(id);
+      if(el){ el.value = v; touched = true; }
+    }
+  });
+  // v1.7.6：区 / 取引態様 支持 URL 多值（?ward=北区&ward=中央区）
+  [['ward', 'ward'], ['trade_type', 'trade_type']].forEach(function(pair){
+    var vs = qs.getAll(pair[0]).filter(function(x){ return x; });
+    if(vs.length){
+      MS_SEL[pair[1]] = {};
+      vs.forEach(function(v){ MS_SEL[pair[1]][v] = 1; });
+      touched = true;
+    }
+  });
+  if(touched) msInitAll();
+  var d = qs.get('date');
+  if(d === 'all'){
+    ALL_DATES = true;                       // 看全库：日期清空、不回填今天
+    var de = document.getElementById('date');
+    if(de) de.value = '';
+    touched = true;
+  } else if(d){
+    var de2 = document.getElementById('date');
+    if(de2){ de2.value = d; touched = true; }
+  }
+  // R20：排序键 + 方向（来自分享链接）
+  var sk = qs.get('sort');
+  if(sk && SORT_OPTS.some(function(o){ return o[0] === sk; })){
+    CUR_SORT = sk; touched = true;
+  }
+  // v1.8.2 修：buildParams 写进 URL 的参数名是 `sort_dir`，这里却读 `dir`
+  //   → 刷新/分享链接回来时**方向永远丢**（静默退回 desc）。两个都认，向后兼容旧链接。
+  var sd = qs.get('sort_dir') || qs.get('dir');
+  if(sd === 'asc' || sd === 'desc'){ CUR_DIR = sd; touched = true; }
+  return touched;
+}
+
+/* ---------- 指定日期：默认就是当天（本地时区） ---------- */
+function todayLocal(){
+  var d = new Date();
+  function p(n){ return (n < 10 ? '0' : '') + n; }
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+/* v1.7.6：日期快捷档（今天/近3天/近7天/近30天/全部）已按勇哥要求**移除**。
+   日期时间段（起~止两框）+「起>止自动交换」保留不动。 */
+function ensureToday(){                 // 后端 {{ today }} 为空时（例如服务没重启）由前端兜底
+  if(ALL_DATES) return;                 // v1.4.0：看全库时日期就是空的，别回填成今天
+  var el = document.getElementById('date');
+  if(el && !el.value) el.value = todayLocal();
+}
+
+function resetForm(){
+  ALL_DATES = false;                    // v1.4.0：重置 = 回到"看当天"，不再是全库
+  ['q','price_min','price_max','area_min','area_max'].forEach(function(id){
+    document.getElementById(id).value='';
+  });
+  ['has_pdf'].forEach(function(id){
+    var el = document.getElementById(id);   // 容错：字段不存在就跳过（线上对外版无 has_pdf）
+    if(el) el.value='';
+  });
+  mspClear(true);                       // 物件種目：清空多选
+  msClear('ward'); msClear('trade_type');   // v1.7.6：区 / 取引態様 也清空
+  document.getElementById('date').value = todayLocal();
+  var _dto = document.getElementById('date_to'); if(_dto) _dto.value = '';   // v1.7.4：重置也要清「止」
+  document.getElementById('date_caliber').value='any';
+  document.getElementById('limit').value='50';
+  try{ localStorage.removeItem(QSTATE_KEY); }catch(e){}
+  var hint = document.getElementById('qstate-hint');
+  if(hint) hint.style.display = 'none';
+  doQuery(1, true);                     // 重置 = 恢复默认，不必再回写"上次条件"
+}
+
+function num(v){ return v==null||v==='' ? '—' : v; }
+
+/* ---------- R20：排序工具条 ---------- */
+function initSortUI(){
+  var sel = document.getElementById('sortKey');
+  sel.innerHTML = SORT_OPTS.map(function(o){
+    // ⚠ 这里的 t() 走的是「zh-CN 只查 ZH 字典」那条路（元素原文兜底不生效）——
+    //   v1.8.1 曾因为只把 sort.* 写进 EXT['zh-TW']，简体界面直接显示 `sort.area`。
+    //   门禁：tools/verify_i18n_keys.py（别再靠肉眼验收）。
+    return '<option value="' + o[0] + '">' + esc(t(o[1])) + '</option>';
+  }).join('');
+  sel.value = CUR_SORT;
+  reflectSortDir();
+}
+function reflectSortDir(){
+  // v1.8.2：方向控件由按钮改为下拉（见模板注释）
+  var dsel = document.getElementById('sortDirSel');
+  if(dsel) dsel.value = (CUR_DIR === 'asc') ? 'asc' : 'desc';
+  var arrow = (CUR_DIR === 'desc') ? '↓' : '↑';
+  // 状态可见：不点开也知道「哪个字段 + 什么方向」
+  var lbl = t('sort.' + CUR_SORT);
+  var sk = document.getElementById('sortKey');
+  if(sk) sk.setAttribute('title', tf('sort.now', {k: lbl, d: arrow}));
+}
+function onSortKey(){
+  var v = document.getElementById('sortKey').value;
+  if(v !== CUR_SORT){ CUR_SORT = v; doQuery(1); }
+}
+function onSortDirChange(){
+  var v = (document.getElementById('sortDirSel') || {}).value || 'desc';
+  if(v !== CUR_DIR){ CUR_DIR = v; reflectSortDir(); doQuery(1); }
+}
+function onSortClear(){
+  CUR_SORT = 'updated'; CUR_DIR = 'desc';
+  document.getElementById('sortKey').value = CUR_SORT;
+  reflectSortDir();
+  doQuery(1);
+}
+
+/* ---------- R22 A：查询后筛选表单折叠成一行摘要 ---------- */
+function buildFilterSummary(){
+  var parts = [];
+  var subs = mspSelected().map(mspLeafLabel);
+  if(subs.length) parts.push(subs.join('、'));
+  var ws = msValues('ward'); if(ws.length) parts.push(ws.join('、'));
+  var pmn = document.getElementById('price_min').value.trim();
+  var pmx = document.getElementById('price_max').value.trim();
+  if(pmn || pmx) parts.push((pmn || '0') + '–' + (pmx || '∞') + '万');
+  var amn = document.getElementById('area_min').value.trim();
+  var amx = document.getElementById('area_max').value.trim();
+  if(amn || amx) parts.push((amn || '0') + '–' + (amx || '∞') + '㎡');
+  var dfrom = document.getElementById('date').value;
+  var dto = (document.getElementById('date_to') || {}).value || '';
+  if(dfrom || dto){
+    var cal = document.getElementById('date_caliber').value;
+    parts.push((dfrom || '…') + (dto ? '~' + dto : '') + (cal && cal !== 'any' ? '(' + t('search.date_caliber.' + cal) + ')' : ''));
+  } else if(ALL_DATES){
+    parts.push(t('search.all_dates'));
+  } else {
+    parts.push(t('search.today_short') || '今天');
+  }
+  var tt = msValues('trade_type'); if(tt.length) parts.push(tt.join('、'));
+  return parts.join(' · ');
+}
+/* ---------- v1.8.5 #235：筛选区**单键双向**收合 ----------
+   旧实现是两个按钮互相顶替：折叠态在摘要里塞一个「修改条件 ▾」、展开态在按钮行塞一个
+   「收起条件 ▴」—— 勇哥 2026-09-17 截图反馈「只有下拉、没有上滑，很别扭」。
+   现在统一成右上角**常驻**的一个 #filterToggle：箭头随状态翻转（▾=点开 / ▴=收起），
+   任何状态下都能一键来回切，且筛选区折叠后依然看得到这个键。 */
+function toggleFilters(){
+  var ff = document.getElementById('filterForm');
+  if(!ff) return;
+  if(ff.hidden) expandFilters(); else collapseFilters();
+}
+function collapseFilters(){
+  var sum = document.getElementById('filterSummary');
+  if(sum){
+    // 摘要里**不再内嵌按钮**（入口统一到右上角 #filterToggle），只留一行条件文字
+    sum.innerHTML = '<span class="fs-text">' + esc(buildFilterSummary()) + '</span>';
+    applyI18nSafe(sum);
+    sum.hidden = false;
+  }
+  var ff = document.getElementById('filterForm'); if(ff) ff.hidden = true;
+  syncFilterToggle();
+}
+function expandFilters(){
+  var sum = document.getElementById('filterSummary');
+  if(sum) sum.hidden = true;
+  var ff = document.getElementById('filterForm'); if(ff) ff.hidden = false;
+  syncFilterToggle();
+}
+/* 把右上角单键的文案 / 箭头同步到当前收合态。
+   注意：#filterToggleTxt 故意**不带 data-i18n**（否则 applyI18n 会用字典把它覆盖回固定值、
+   看不出状态），所以切语言时必须靠 i18n:changed 事件再 sync 一次（见文件末尾监听）。 */
+function syncFilterToggle(){
+  var ff = document.getElementById('filterForm');
+  var btn = document.getElementById('filterToggle');
+  if(!ff || !btn) return;
+  var collapsed = !!ff.hidden;
+  var txt = document.getElementById('filterToggleTxt');
+  var care = document.getElementById('filterToggleCare');
+  if(txt) txt.textContent = collapsed ? (window.t('filter.edit') || '修改条件')
+                                      : (window.t('filter.collapse') || '收起条件');
+  if(care) care.textContent = collapsed ? '▾' : '▴';
+  btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
+function applyI18nSafe(el){
+  try{ if(window.applyI18n) window.applyI18n(); }catch(e){}
+}
+
+/* ---------- R22 B：详细 ⇄ 简洁 切换 ---------- */
+function initViewMode(){
+  COMPACT = (localStorage.getItem('viewmode') === 'compact');
+}
+function onViewToggle(){
+  COMPACT = !COMPACT;
+  try{ localStorage.setItem('viewmode', COMPACT ? 'compact' : 'detailed'); }catch(e){}
+  renderRows(LAST_ROWS);   // 用当前结果重渲染（不必重新查询）
+}
+
+function buildParams(page){
+  var p = new URLSearchParams();
+  // 文本 / 下拉类：原样传（关键词支持空格分隔多词 / 模糊匹配）
+  // v1.7.6：ward 已改为多选面板，不走这里（见下方 msValues('ward')）
+  ['q','has_pdf'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(!el) return;                         // 容错：字段不存在＝不参与筛选（线上对外版无 has_pdf）
+    var v = el.value.trim(); if(v) p.set(id, v);
+  });
+  // 物件種目：两级目录多选 → 每个选中的「叶子」重复传一个 subtype
+  // （例：subtype=house_new&subtype=apt_old）
+  mspSelected().forEach(function(k){ p.append('subtype', k); });
+  // 价格：按「万円」输入 → 换算成円 再传（例：2000 万円 = 20000000 円）
+  ['price_min','price_max'].forEach(function(id){
+    var v = document.getElementById(id).value.trim().replace(/[,，\s]/g, '');
+    if(v){ var n = parseFloat(v); if(!isNaN(n)) p.set(id, Math.round(n*10000)); }
+  });
+  // 面积：原样传（㎡）
+  ['area_min','area_max'].forEach(function(id){
+    var v = document.getElementById(id).value.trim(); if(v) p.set(id, v);
+  });
+  // v1.7.0：日期时间段（起~止）。
+  // v1.7.4 修三处：
+  //  ① 旧版只有「止」填了才走范围 —— 只填「起」时退化成单日等值，与 PRD §3.3 #6 的开区间不符；
+  //  ② 起 > 止 应自动交换（§3.3 #7），旧版直接把反区间发给后端 → 查出 0 条还不给解释；
+  //  ③ date_caliber 旧版只在「单日」分支里传 —— 选「変更日 + 时间段」时口径根本没发给后端，
+  //     后端默认 any，用户以为在筛変更日，实际按任一筛（静默错口径，最难发现的那类）。
+  var dtoEl   = document.getElementById('date_to');
+  var dfromEl = document.getElementById('date');
+  var dfrom = dfromEl ? dfromEl.value : '';
+  var dto   = dtoEl ? dtoEl.value : '';
+  var swapHint = document.getElementById('date-swap-hint');
+  if(dfrom && dto && dfrom > dto){
+    var _tmp = dfrom; dfrom = dto; dto = _tmp;          // 字符串比较即日期比较（ISO YYYY-MM-DD）
+    if(dfromEl) dfromEl.value = dfrom;
+    if(dtoEl)   dtoEl.value   = dto;
+    if(swapHint){
+      swapHint.textContent = (typeof t === 'function' ? t('search.date_swap') : '起止日期已自动调换');
+      swapHint.style.display = '';
+    }
+  } else if(swapHint){ swapHint.style.display = 'none'; }
+
+  // v1.5.4：日期口径（登録日 / 変更日 / 任一 / 下载日）—— 四种口径都要传，与单日还是区间无关
+  var cal = document.getElementById('date_caliber');
+  if(cal && cal.value) p.set('date_caliber', cal.value);
+
+  if(dfrom || dto){
+    if(dfrom) p.set('date_from', dfrom);
+    if(dto)   p.set('date_to', dto);
+  } else if(ALL_DATES){
+    p.set('date', 'all');
+  } else {
+    if(dfrom) p.set('date', dfrom);
+  }
+  // v1.7.6：区 / 取引態様 改为**多选** —— 每个选中值重复传一个参数
+  //（与物件種目 subtype 同一套约定：后端 getlist 收，多值之间 OR）
+  msValues('ward').forEach(function(v){ p.append('ward', v); });
+  msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
+  // v1.7.0：按取得日期倒序（最新在上）—— 用户在查询页要"最新放最上面"
+  // v1.7.4：dto 现在是字符串（旧版是 element），判断要跟着改 —— 只填「止」时也要倒序
+  if(dfrom || dto || ALL_DATES) p.set('order', 'date_desc');
+  // R20：排序键 + 方向（服务端 SQL 排序）。默认 updated/desc 与旧 order=date_desc 一致。
+  p.set('sort', CUR_SORT);
+  p.set('sort_dir', CUR_DIR);
+  LIMIT = parseInt(document.getElementById('limit').value, 10) || 50;
+  p.set('page', page||1);
+  p.set('limit', LIMIT);
+  // R20：排序写进 URL（?sort=&dir=&page=…），刷新/发给同事条件不丢（PRD 要求可分享）
+  try{ history.replaceState(null, '', location.pathname + '?' + p.toString()); }catch(e){}
+  return p.toString();
+}
+
+var _libTimer = null;
+function scheduleLibRefresh(){
+  // 有一轮正在抓取时，每 20 秒自动刷新一次查询页：让「已落库 N 条」和房源列表
+  // 实时涨出来（v1.2.2 边抓边落库的直接体现），避免误判成「下载成功但没数据」。
+  // 跑完（LIB.running 消失）就停止轮询。noSave=true：不覆盖用户已存的条件。
+  if(_libTimer){ clearTimeout(_libTimer); _libTimer = null; }
+  if(LIB && LIB.running){
+    _libTimer = setTimeout(function(){ doQuery(PAGE, true); }, 20000);
+  }
+}
+
+/* v1.7.0：下载即时态横幅 —— 所有下载入口都显示「当前正在抓的日期 + 累计 + 待补」。
+   轮询 /api/phase（与概览同源），有轮次在跑且带了目标日期才显式。 */
+function renderDlStatus(pj){
+  var el = document.getElementById('dl-status');
+  if(!el) return;
+  if(pj && pj.running && pj.target_date){
+    var cum = (pj.scanned || 0) + (pj.fetched || 0);
+    var pending = 0;
+    if(pj.groups) pj.groups.forEach(function(g){ pending += (g.need_detail || 0); });
+    el.innerHTML = '● 正在下载 <b>' + esc(pj.target_date) + '</b> · 累计 '
+      + cum + ' 条' + (pending ? ' · 待补 ' + pending + ' 条' : '');
+    el.style.display = '';
+  } else { el.style.display = 'none'; el.innerHTML = ''; }
+}
+function pollDlStatus(){
+  try{ fetch('/api/phase').then(function(r){ return r.json(); }).then(renderDlStatus); }catch(e){}
+}
+if(typeof window !== 'undefined'){
+  pollDlStatus();
+  setInterval(pollDlStatus, 5000);
+}
+
+async function doQuery(page, noSave){
+  PAGE = page || 1;
+  if(!noSave) saveQState();          // 用户主动查询 → 记住这套条件（切页回来还在）
+  var box = document.getElementById('result');
+  var sum = document.getElementById('result-summary');
+  box.innerHTML = '<div class="empty">'+t('search.loading')+'</div>';
+  sum.textContent = '';
+  renderLibHint(null);
+  try{
+    var j = await api('/api/query?' + buildParams(PAGE));
+    PAGES = j.pages || 1;
+    LIB = j.library || null;
+    window.CUR_DATE = j.date || '';       // v1.7.0：供行内「登録/変更」标判断
+    // v1.4.0：看全库时后端返回 date=''（不按日期过滤），要显示成「全部日期」，
+    // 否则摘要会写成"日期  共 N 条"，看着像漏了筛选条件。
+    var dlabel = (ALL_DATES || !j.date) ? t('search.all_dates') : j.date;
+    sum.textContent = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT,
+                    rows: (j.rows ? j.rows.length : 0)});
+    // R20：工具条显示 + 当前排序回显
+    var tb = document.getElementById('toolbar');
+    if(tb) tb.hidden = false;
+    var tbc = document.getElementById('toolbar-count');
+    if(tbc) tbc.textContent = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT, rows: (j.rows ? j.rows.length : 0)});
+    document.getElementById('sortKey').value = CUR_SORT;
+    reflectSortDir();
+    renderRows(j.rows);
+    renderPager(j.page, j.pages, j.total);
+    renderLibHint(j.date, j.total);
+    // R22 A：查询成功后把筛选表单折叠成一行摘要（首屏与切页都折叠；改条件才展开）
+    if(!document.getElementById('filterForm').hidden) collapseFilters();
+    scheduleLibRefresh();
+  }catch(e){ alertErr(e, t('search.btn')); box.innerHTML = '<div class="empty">'+t('search.fail')+'</div>'; }
+}
+
+/* ---------- 本机库概况 / 「今天没数据」提示 ----------
+   查询为空时，不再只甩一句"没有房源"，而是说清"为什么"，并给一键下一步。
+   线上实际踩过的坑：登录会话过期后，当天抓取会静默入库 0 条（整轮还标记成功），
+   于是查询页永远是空的——这里把它显式暴露出来。 */
+function fmtFreshness(iso){
+  var t0 = new Date(String(iso).replace(' ', 'T').replace(/\//g, '-')).getTime();
+  if (isNaN(t0)) return '';
+  var min = Math.max(0, Math.floor((Date.now() - t0) / 60000));
+  if (min < 1) return '刚刚更新';
+  if (min < 60) return '更新于 ' + min + ' 分钟前';
+  if (min < 1440) return '更新于 ' + Math.floor(min/60) + ' 小时前';
+  var d = Math.floor(min/1440);
+  return d > 0 && min > 360
+    ? '<span style="color:#c0791a">更新于 ' + d + ' 天前（偏旧）</span>'
+    : '更新于 ' + d + ' 天前';
+}
+function renderLibHint(date, total){
+  var el = document.getElementById('libhint');
+  var ex = document.getElementById('libhint-extra');
+  if(!el) return;
+  if(!LIB){
+    el.style.display = 'none'; el.innerHTML = '';
+    if(ex){ ex.style.display = 'none'; ex.innerHTML = ''; }
+    return;
+  }
+  var UC = t('unit.count');
+  // R21：基础统计（本机库共 N 条 ｜ 今天 … ｜ 最近 … ｜ 更新于 …）并到标题行右侧（#libhint，inline）。
+  var base = t('search.lib.base') + ' <b>' + LIB.total + '</b> ' + UC + ' ｜ ' + t('search.lib.today') + ' <b>' + LIB.today_count + '</b> ' + UC
+           + (LIB.latest_date ? ' ｜ ' + t('search.lib.latest') + '<b>' + esc(LIB.latest_date) + '</b>' : '');
+  if (LIB.data_updated_at) base += ' ｜ ' + fmtFreshness(LIB.data_updated_at);
+  el.innerHTML = base;
+  el.style.display = 'block';
+  // R21：警告 / 运行中 / 操作按钮拆到标题行下方单独占一行（#libhint-extra），更醒目，不与统计数字挤一行。
+  var extraHtml = '';
+  if(LIB.running){
+    extraHtml += '<div class="lh-run">' + tf('search.lib.running',
+                  {n: (LIB.running.fetched || 0), newn: (LIB.running.new_count || 0)}) + '</div>';
+  }
+  if(total === 0){
+    if(LIB.today_count === 0 && date === LIB.today){
+      if(LIB.running){
+        extraHtml += '<div class="lh-warn">' + t('search.lib.warn') + esc(LIB.today)
+               + t('search.lib.warn2') + ' ' + t('search.lib.runningtip') + '</div>';
+      }else{
+        extraHtml += '<div class="lh-warn">' + t('search.lib.warn') + esc(LIB.today) + t('search.lib.warn2') + '</div>';
+      }
+      var lr = LIB.last_run;
+      if(lr && lr.status === 'error'){
+        extraHtml += '<div class="lh-err">' + t('search.lib.err') + esc(lr.message || t('misc.nodetail')) + '</div>';
+      }
+      extraHtml += '<div class="lh-acts">'
+        + '<a class="btn ghost" href="/collect">' + t('search.lib.go') + '</a>';
+      if(LIB.latest_date){
+        extraHtml += '<button class="ghost" onclick="jumpToDate(\'' + esc(LIB.latest_date) + '\')">'
+              + t('search.lib.view') + esc(LIB.latest_date) + t('search.lib.viewclose') + '</button>';
+      }
+      extraHtml += '</div>';
+    }else{
+      extraHtml += '<div class="lh-warn">' + t('search.nodata') + '</div>';
+    }
+  }
+  if(ex){
+    if(extraHtml){ ex.innerHTML = extraHtml; ex.style.display = 'block'; }
+    else { ex.style.display = 'none'; ex.innerHTML = ''; }
+  }
+}
+
+function jumpToDate(d){
+  var el = document.getElementById('date');
+  if(el){ el.value = d; doQuery(1); }
+}
+
+/* ---------- 列表渲染：紧凑 + 核心信息在前的分层排版 ---------- */
+/* v1.5.3：REINS 列表右侧那三个小图标 —— 画(照片) / 図(間取図) / 所(所在図)。
+   有 = 彩色、无 = 灰；照片**张数**只有抓到详情才有（未知时不显示 0，避免误报"没照片"）。 */
+function mediaBadges(r){
+  var m = r.media || {};
+  function b(cls, label, on, title){
+    return '<span class="mdb ' + cls + (on ? ' on' : ' off') + '" title="' + esc(title) + '">'
+         + label + '</span>';
+  }
+  var hp = t(m.photo ? 'media.photo_yes' : 'media.no');
+  if(m.photo && m.count != null) hp = tf('media.photo_n', {n: num(m.count)});
+  var h = '<span class="mdbset">'
+        + b('ga',  '画', m.photo, hp)
+        + b('zu',  '図', m.plan,  t(m.plan ? 'media.plan_yes' : 'media.no'))
+        + b('sho', '所', m.map,   t(m.map  ? 'media.map_yes'  : 'media.no'))
+        + '</span>';
+  if(m.count != null) h += '<span>' + tf('row.imgs', {n: num(m.count)}) + '</span>';
+  return h;
+}
+
+function renderRows(rows){
+  LAST_ROWS = rows;             // R22 B：切换视图时用当前结果重渲染
+  var box = document.getElementById('result');
+  if(!rows || !rows.length){
+    // 具体原因交给上方 #libhint（它知道"今天本就没数据"还是"只是条件没命中"）
+    box.innerHTML = '<div class="empty">'+t('search.none')+'</div>';
+    return;
+  }
+  var html = '<div class="qlist' + (COMPACT ? ' compact' : '') + '">';
+  rows.forEach(function(r, i){
+    html += COMPACT ? renderCompactItem(r, i) : renderFullItem(r, i);
+  });
+  html += '</div>';
+  box.innerHTML = html;
+  rows.forEach(function(r, i){ fillDetail('d'+i, r); });
+  markRows();
+  refreshCmpBarInfo(rows);      // 顺手把对比栏里缺摘要的老条目补齐（槽位不再少一行）
+}
+
+/* 详细模式：三层信息（对比/地址/价格 → 核心指标 → 次要属性），与历史版一致。 */
+function renderFullItem(r, i){
+  var id = 'd' + i;
+  var no = r.property_no || '';
+  var badge = '';
+  if(window.CUR_DATE){
+    if(r.reg_date_iso === window.CUR_DATE) badge = '<span class="qtag qtag-reg">登録</span>';
+    else if(r.chg_date_iso === window.CUR_DATE) badge = '<span class="qtag qtag-chg">変更</span>';
+  }
+  // v1.7.4 R8：取引態様徽章 —— 「売主」用醒目色（客户最关心"哪套是卖主"），其余弱化处理
+  var ttBadge = '';
+  if(r.trade_type){
+    var isSeller = (r.trade_type.indexOf('売主') >= 0);
+    ttBadge = '<span class="qtag qtag-tt' + (isSeller ? ' qtag-seller' : '') + '"'
+            + ' title="' + esc(t('row.trade_type_tip')) + '：' + esc(r.trade_type) + '">'
+            + esc(r.trade_type) + '</span>';
+  }
+  var kindline = (r.kind && r.property_subtype) ? (r.kind + '／' + r.property_subtype)
+               : (r.kind || r.property_subtype || '');
+  var on = (window.CompareBox && CompareBox.has(no)) ? ' on' : '';
+  var drop = '', rate = '', up = false;
+  if(r.previous_price && r.price && r.price != r.previous_price){
+    // 平台历史变更（下载前已发生，来自 REINS「変更前価格」）→ 蓝底 + 「平台」标签 + 变更日
+    up = r.price > r.previous_price;
+    var arrow = up ? '↑ ' : '↓ ';
+    var diff = Math.abs(r.previous_price - r.price);
+    var pct = (diff / Number(r.previous_price) * 100).toFixed(1) + '%';
+    var src = '<span class="qsrc">' + t('row.src_platform')
+            + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
+    drop = '<span class="qdrop qdrop-platform">' + arrow + wan(diff) + ' ' + src + '</span>';
+    rate = arrow + pct;   // 降价/涨价比例（分母=修改前金额）
+  }
+  // 供底部「对比栏」槽位用的短信息（楼名/種目 + 間取り·面積·駅）
+  var cmpnm  = r.building_name || r.property_subtype || r.kind || '';
+  var cmparea = r.exclusive_area ? num(r.exclusive_area) + '㎡'
+              : (r.land_area ? num(r.land_area) + '㎡'
+              : (r.building_area ? num(r.building_area) + '㎡' : ''));
+  var cmpsub = [r.layout, cmparea, r.line_station].filter(function(x){ return !!x; }).join(' · ');
+  // v1.4.0：两阶段下载后，列表会先落库、详情慢慢补。这里必须给出明确视觉区分，
+  // 否则用户分不清"这套房压根没下下来"和"下了、但详情还在排队补"——后者是正常的。
+  var pending = (r.has_detail === false);
+  return '<div class="qitem' + (pending ? ' nodetail' : '') + '" data-no="' + esc(no) + '"'
+    +   ' data-nm="' + esc(cmpnm) + '" data-sub="' + esc(cmpsub) + '"'
+    +   ' data-addr="' + esc(r.address || '') + '" data-ward="' + esc(r.ward || '') + '"'
+    +   ' data-area="' + esc(cmparea) + '">'
+    + '<div class="qhead" onclick="toggleDetail(\'' + id + '\')">'
+    // 第 1 行：加入对比 · 地址/楼名（占满） · 价格 + 降价 + PDF
+    +   '<div class="qrow1">'
+    +     '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
+    +             ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
+    +     '<a class="qbtn" href="javascript:void(0)" onclick="openBukkenSearch(\'' + esc(no) + '\')">'+t('search.reins_search')+'</a>'
+    // 状态标：新增（本轮首次入库）/ 变更（本轮有变更记录）——直白一眼可见
+    +     (r.tag ? '<span class="qtag qtag-' + esc(r.tag) + '">' + t('row.tag_' + r.tag) + '</span>' : '')
+    +     (pending ? '<span class="qtag qtag-pending" title="' + esc(t('row.detail_pending_tip')) + '">'
+    +               esc(t('row.detail_pending')) + '</span>' : '')
+    +     badge
+    +     ttBadge
+    +     '<div class="qt">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '') + '</div>'
+    +     '<div class="qprice">'
+    +       drop
+    +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
+    +       '<span class="price">' + wan(r.price) + '</span>'
+    +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    +     '</div>'
+    +   '</div>'
+    // 第 2 行：核心指标（面积 / 間取り / 駅 / 区）—— 加粗、优先看
+    +   '<div class="qcore">'
+    +     (r.exclusive_area ? '<span class="k">' + t('row.excl') + ' ' + num(r.exclusive_area) + ' ㎡</span>' : '')
+    +     (r.land_area      ? '<span class="k">' + t('row.land') + ' ' + num(r.land_area) + ' ㎡</span>' : '')
+    +     (r.building_area  ? '<span class="k">' + t('row.bldg') + ' ' + num(r.building_area) + ' ㎡</span>' : '')
+    +     (r.layout         ? '<span class="k">' + esc(r.layout) + '</span>' : '')
+    +     (r.line_station   ? '<span class="k">' + esc(r.line_station) + '</span>' : '')
+    +     (r.ward           ? '<span class="k">' + esc(r.ward) + '</span>' : '')
+    +   '</div>'
+    // 第 3 行起：次要属性（可自动换到多行，窄屏也不硬挤）
+    +   '<div class="qsub">'
+    +     '<span class="mono">' + esc(no) + '</span>'
+    +     (kindline        ? '<span>' + esc(kindline) + '</span>' : '')
+    +     (r.floor         ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
+    +     (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
+    +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
+    +     mediaBadges(r)
+    +     (r.last_seen_at  ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0,10)) + '</span>' : '')
+    +   '</div>'
+    + '</div>'
+    + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
+    + '</div>';
+}
+
+/* R22 B 简洁模式：每行只留 价格 / 面積 / 間取り / 区 / 取得日（PRD 指定），行高 ~44px。
+   PDF / 徽章 / 番号 挪到详细模式或详情页，避免挤占首屏。点行展开看完整详情。 */
+function renderCompactItem(r, i){
+  var id = 'd' + i;
+  var no = r.property_no || '';
+  var on = (window.CompareBox && CompareBox.has(no)) ? ' on' : '';
+  var cmpnm  = r.building_name || r.property_subtype || r.kind || '';
+  var cmparea = r.exclusive_area ? num(r.exclusive_area) + '㎡'
+              : (r.land_area ? num(r.land_area) + '㎡'
+              : (r.building_area ? num(r.building_area) + '㎡' : ''));
+  var cmpsub = [r.layout, cmparea, r.line_station].filter(function(x){ return !!x; }).join(' · ');
+  var areaTxt = r.exclusive_area ? num(r.exclusive_area) + '㎡'
+              : (r.land_area ? num(r.land_area) + '㎡'
+              : (r.building_area ? num(r.building_area) + '㎡' : '—'));
+  var dateTxt = r.last_seen_at ? String(r.last_seen_at).slice(0,10) : '—';
+  return '<div class="qitem compact-item" data-no="' + esc(no) + '"'
+    +   ' data-nm="' + esc(cmpnm) + '" data-sub="' + esc(cmpsub) + '"'
+    +   ' data-addr="' + esc(r.address || '') + '" data-ward="' + esc(r.ward || '') + '"'
+    +   ' data-area="' + esc(cmparea) + '">'
+    + '<div class="qcompact" onclick="toggleDetail(\'' + id + '\')">'
+    +   '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
+    +           ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
+    +   '<span class="qc-price">' + wan(r.price) + '</span>'
+    +   '<span class="qc-area">' + areaTxt + '</span>'
+    +   (r.layout ? '<span class="qc-layout">' + esc(r.layout) + '</span>' : '')
+    +   (r.ward ? '<span class="qc-ward">' + esc(r.ward) + '</span>' : '')
+    +   '<span class="qc-date">' + dateTxt + '</span>'
+    +   '<span class="qc-addr">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '') + '</span>'
+    + '</div>'
+    + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
+    + '</div>';
+}
+
+/* 对比栏里已选中的房子，如果出现在本页结果里，就用行上的 data-* 把摘要（地址·区·専有面積 等）补进去。
+   老版本存进 localStorage 的条目缺这些字段 —— 不补的话每次刷新槽位就只有「名称 + 价格」。 */
+function refreshCmpBarInfo(rows){
+  if(!window.CompareBox || !CompareBox.count()) return;
+  rows.forEach(function(r){
+    var no = r.property_no;
+    if(!no || !CompareBox.has(no)) return;
+    var it = rowItem(no);
+    if(!it.name && !it.addr) return;
+    CompareBox.update(no, it);
+  });
+}
+
+/* ---------- 点开后的详细信息：多列密集网格（电脑一屏看得完） ---------- */
+function fillDetail(divId, r){
+  var el = document.getElementById(divId);
+  if(!el) return;
+  var h = '<div class="dgrid">';
+  var fields = [
+    ['cmp.f.no', r.property_no], ['cmp.f.kind', r.kind], ['cmp.f.sub', r.property_subtype],
+    ['cmp.f.loc', r.address], ['cmp.f.bname', r.building_name], ['cmp.f.line', r.line_station],
+    ['cmp.f.price', wan(r.price)], ['cmp.f.prev', r.previous_price ? wan(r.previous_price) : ''],
+    ['cmp.f.land', r.land_area != null ? num(r.land_area)+' ㎡' : ''],
+    ['cmp.f.excl', r.exclusive_area != null ? num(r.exclusive_area)+' ㎡' : ''],
+    ['cmp.f.barea', r.building_area != null ? num(r.building_area)+' ㎡' : ''],
+    ['cmp.f.layout', r.layout], ['cmp.f.floor', r.floor], ['cmp.f.floors', r.above_ground_floors],
+    ['cmp.f.year', r.built_year_month], ['cmp.f.reg', r.registration_date],
+    ['cmp.f.chg', r.change_date],
+    // v1.5.3：未知（-1）时留空，别把"还没抓详情"显示成 0 枚
+    ['cmp.f.imgs', (r.image_count != null && r.image_count >= 0) ? num(r.image_count)+' 枚' : ''],
+    ['cmp.f.first', r.first_seen_at], ['cmp.f.last', r.last_seen_at]
+  ];
+  fields.forEach(function(f){
+    if(f[1] != null && f[1] !== '')
+      h += '<div class="df"><span class="dk">'+t(f[0])+'</span><span class="dv">'+esc(f[1])+'</span></div>';
+  });
+  // 详情页抓到的额外字段
+  // v1.7.2：字段名与值统一走公共词典（fieldmap.js）——
+  //   ① 内部机器键（pdf_path/pdf_url/__fp__…）不显示；② 未收录的键不显示并在控制台告警
+  //   （旧写法是"未收录就原样露出英文键"，has_map / unit_price_sqm 就是这么漏到客户面前的）；
+  //   ③ 值做本地化：有/无、円/㎡ 千分位、REINS 枚举（専任→专任媒介）翻中文。
+  var d = r.detail || {};
+  Object.keys(d).forEach(function(k){
+    if(window.fieldSkip && window.fieldSkip(k)) return;
+    var v = window.fieldValue ? window.fieldValue(k, d[k]) : d[k];
+    if(v == null || v === '') return;
+    var _agency = (k === 'broker' || k === 'broker_tel' || /取扱|担当|仲介|電話|メール|取引/.test(k)) ? ' data-agency="1"' : '';
+    h += '<div class="df"' + _agency + '><span class="dk">'+esc(window.fieldLabel(k))+'</span><span class="dv">'+esc(v)+'</span></div>';
+  });
+  h += '</div>';
+  h += '<div class="dactions">';
+  if(r.pdf_url) h += '<a class="btn" href="'+r.pdf_url+'" target="_blank">'+t('detail.openpdf')+'</a>';
+  h += '<a class="btn ghost" href="/p/'+encodeURIComponent(r.property_no)+'" target="_blank">'+t('detail.srcpage')+'</a>';
+  // v1.5.19：勇哥 ——「单独对比这套」没意义（点进去是对比页里孤零零一套，比不了）。
+  //   要对比就先在每行左边「加入对比」勾选 2~6 套，再点底部「开始对比」；
+  //   这里原本那个 /compare?nos=单套 的入口就此去掉。
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function toggleDetail(id){
+  var el = document.getElementById(id);
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+/* ---------- 加入对比 / 底部对比栏 ---------- */
+function toggleCompare(btn, ev){
+  ev.stopPropagation();                       // 别顺带把详情展开了
+  var no = btn.getAttribute('data-no');
+  var item = rowItem(no);
+  if(CompareBox.has(no)){
+    CompareBox.remove(no);
+  }else{
+    var r = CompareBox.add(item);
+    if(!r.ok){
+      if(r.reason === 'full')
+        alert(tf('search.alert_full', {n: CMAX}));
+      return;
+    }
+  }
+  markRows();
+}
+
+function rowItem(no){
+  var box = document.querySelector('.qitem[data-no="'+CSS.escape(no)+'"]');
+  var it = { no: no, addr:'', name:'', sub:'', ward:'', area:'', price:null, pdf:false };
+  if(!box) return it;
+  // 优先用渲染时写进行上的 data-*（干净、不受语言/排版影响）
+  it.name = box.getAttribute('data-nm') || '';
+  it.sub  = box.getAttribute('data-sub') || '';
+  it.addr = box.getAttribute('data-addr') || '';
+  it.ward = box.getAttribute('data-ward') || '';
+  it.area = box.getAttribute('data-area') || '';
+  var qt = box.querySelector('.qt');
+  if(qt && !it.addr){
+    var txt = qt.textContent || '';
+    var parts = txt.split(' · ');
+    it.addr = parts[0] || txt;
+    if(!it.name) it.name = parts.slice(1).join(' · ');
+  }
+  var pr = box.querySelector('.qprice .price');
+  if(pr){
+    var pv = parseInt(pr.textContent.replace(/[^\d]/g,''), 10);
+    if(!isNaN(pv)) it.price = pv * 10000;      // 没价格就别写 NaN 进对比栏
+  }
+  it.pdf = !!box.querySelector('.qpdf');
+  return it;
+}
+
+function markRows(){
+  document.querySelectorAll('.qitem').forEach(function(box){
+    var no = box.getAttribute('data-no');
+    var on = CompareBox.has(no);
+    box.classList.toggle('picked', on);
+    var b = box.querySelector('.qcmp');
+    if(b){
+      b.classList.toggle('on', on);
+      b.textContent = on ? t('cmp.added_short') : t('detail.tobank');
+    }
+  });
+}
+
+function renderCmpBar(items){
+  var bar   = document.getElementById('cmpbar');
+  var slots = document.getElementById('cmpslots');
+  var sel   = document.getElementById('cmpsel');
+  var go    = document.getElementById('cmpgo');
+  if(!bar) return;
+  sel.textContent = items.length;
+  bar.classList.toggle('show', items.length > 0);
+  document.body.classList.toggle('has-cmpbar', items.length > 0);
+  // ① 先把「开始对比」按钮态定好（放在槽位渲染之前：万一槽位渲染出错，按钮仍然是可用的）
+  //    少于 2 套没法"比"，按钮置灰但仍可点（会提示）
+  go.classList.toggle('disabled', items.length < 2);
+  go.setAttribute('href', '/compare?nos=' + encodeURIComponent(CompareBox.nos().join(',')));
+  if(!items.length){ slots.innerHTML = ''; return; }
+  // ② 每套房一张小卡（v1.2.0 按用户口径）：「名称 / 地址(含区) / 専有面積 / 价格」。
+  //    ⚠ 这里的局部变量**不能叫 t**：会遮蔽全局 i18n 的 t()，导致下面的 t('cmp.drop') 抛
+  //      TypeError，整个 map 中断 → 槽位一片空白（v1.1.11 的真实 bug）。
+  slots.innerHTML = items.map(function(x){
+    var nm = x.name || x.addr || x.no;
+    var loc = x.addr || '';
+    if(x.ward && loc.indexOf(x.ward) < 0) loc = x.ward + ' ' + loc;   // 保证「哪个区」一定看得到
+    return '<div class="cmpslot" title="'+esc(loc || x.no)+'">'
+      + '<button class="x" onclick="removeCompare(\''+esc(x.no)+'\')" title="'+t('cmp.drop')+'">×</button>'
+      + '<div class="n">'+esc(nm)+'</div>'
+      + (loc  ? '<div class="s">'+esc(loc)+'</div>' : '')
+      + (x.area ? '<div class="s">'+esc(x.area)+'</div>' : '')
+      + '<div class="p">'+(x.price != null ? wan(x.price) : '—')+'</div>'
+      + '</div>';
+  }).join('');
+}
+
+function removeCompare(no){
+  CompareBox.remove(no);
+  markRows();
+}
+
+document.getElementById('cmpclear').addEventListener('click', function(){
+  if(!CompareBox.count()) return;
+  if(confirm(t('cmp.confirm_clear'))) CompareBox.clear();
+});
+document.getElementById('cmpgo').addEventListener('click', function(e){
+  if(CompareBox.count() < 2){
+    e.preventDefault();
+    alert(t('search.alert_min'));
+  }
+});
+
+/* ---------- 分页 ---------- */
+/* v1.5.3：页码按钮 —— 首页/上一页 + 一串可直接点的页码 + 下一页/末页。
+   页码窗口：当前页两边各留 2 页（共 5 个），两端固定显示 1 和末页，中间用 … 省略，
+   页再多也不会把底栏撑爆。 */
+function pageWindow(page, pages){
+  var win = 2, out = [];
+  for(var i = 1; i <= pages; i++){
+    if(i === 1 || i === pages || Math.abs(i - page) <= win) out.push(i);
+  }
+  // 去重 + 在断开处插入「…」（用 0 表示省略号，渲染时区分）
+  var res = [], prev = 0;
+  out.forEach(function(n){
+    if(prev && n - prev > 1) res.push(0);
+    res.push(n);
+    prev = n;
+  });
+  return res;
+}
+function renderPager(page, pages, total){
+  var p = document.getElementById('pager');
+  if(pages <= 1){
+    p.style.display = 'none'; p.innerHTML = '';
+    return;
+  }
+  p.style.display = 'flex';
+  var h = '';
+  h += '<button class="ghost"'+ (page > 1 ? ' onclick="doQuery(1)"' : ' disabled')
+     + '>' + t('pager.first') + '</button>';
+  h += '<button class="ghost"'+ (page > 1 ? ' onclick="doQuery(' + (page - 1) + ')"' : ' disabled')
+     + '>' + t('pager.prev') + '</button>';
+  h += '<span class="pgnums">';
+  pageWindow(page, pages).forEach(function(n){
+    if(n === 0){ h += '<span class="pggap">…</span>'; return; }
+    var cur = (n === page) ? ' cur' : '';
+    h += '<button class="pgn' + cur + '"' + (n === page ? ' disabled' : ' onclick="doQuery(' + n + ')"')
+       + ' aria-current="' + (n === page ? 'page' : 'false') + '">' + n + '</button>';
+  });
+  h += '</span>';
+  h += '<button class="ghost"'+ (page < pages ? ' onclick="doQuery(' + (page + 1) + ')"' : ' disabled')
+     + '>' + t('pager.next') + '</button>';
+  h += '<button class="ghost"'+ (page < pages ? ' onclick="doQuery(' + pages + ')"' : ' disabled')
+     + '>' + t('pager.last') + '</button>';
+  h += '<span class="muted">' + t('pager.of') + ' ' + page + ' / ' + pages + ' '
+     + t('pager.page') + ' ' + total + ' ' + t('pager.unit') + '</span>';
+  p.innerHTML = h;
+}
+
+/* ---------- 启动 ---------- */
+/* 任何来源的改动（清空 / 单删 / 别页改动）都要同时刷新：
+   ① 底部「对比栏」本身；② 列表里每一行的「已加入 ✓」勾选态。
+   之前只挂了 renderCmpBar，所以点「清空」后底栏消失了、但行内勾选残留（bug）。 */
+CompareBox.onChange(function(items){ renderCmpBar(items); markRows(); });
+
+/* 从浏览器缓存返回本页（点「后退」回到查询页）时，重新对一次勾选态，
+   否则会看到已经清空/删掉的房子仍显示「已加入 ✓」。 */
+window.addEventListener('pageshow', function(ev){
+  if(!ev.persisted) return;
+  renderCmpBar(CompareBox.items());
+  markRows();
+});
+document.getElementById('limit').addEventListener('change', function(){ doQuery(1); });
+restoreQState();                 // 回填上次的查询条件（切页回来不清空到默认）
+applyUrlParams();                // v1.4.0：KPI 卡片带过来的条件优先于上次条件
+ensureToday();                   // 没恢复出日期时，默认＝当天
+mspRender();                     // 物件種目 两级目录面板（默认一个都不勾＝不限）
+// R20/R22：排序工具条 + 简洁模式初始化（必须在首屏 doQuery 之前，否则选项为空、工具条值错）
+initViewMode();
+initSortUI();
+document.getElementById('sortKey').addEventListener('change', onSortKey);
+document.getElementById('sortDirSel').addEventListener('change', onSortDirChange);
+document.getElementById('sortClear').addEventListener('click', onSortClear);
+document.getElementById('viewToggle').addEventListener('click', onViewToggle);
+syncFilterToggle();              // #235：右上角单键按初始态（展开）渲染文案 + 箭头
+doQuery(1, true);                // 首屏：按恢复后的条件查，但不覆盖「上次条件」
+window.addEventListener('i18n:changed', function(){ try{ mspRender(); initSortUI(); syncFilterToggle(); doQuery(PAGE); }catch(e){} });
+</script>
+{% endblock %}

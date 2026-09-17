@@ -1,0 +1,702 @@
+{% extends "base.html" %}
+{% block title %}数据抓取设置 · 大阪房源本地版{% endblock %}
+{% block body %}
+
+<div class="card hero">
+  <div class="hero-main">
+    <h1 data-i18n="collect.h1">数据抓取设置</h1>
+    <p class="muted" data-i18n="collect.sub">把 REINS 的数据抓回本机：先确保能登录、能查询，再正式开跑。</p>
+  </div>
+  <div class="hero-side">
+    <span class="badge {{ 'live' if cfg.app.mode == 'live' else 'demo' }}" data-i18n="{{ 'badge.live' if cfg.app.mode == 'live' else 'badge.demo' }}">
+      {{ '真实抓取（REINS）' if cfg.app.mode == 'live' else '离线演示（内置样例）' }}
+    </span>
+    <button class="ghost" id="switchModeBtn" onclick="switchMode('{{ 'demo' if cfg.app.mode == 'live' else 'live' }}')"></button>
+  </div>
+</div>
+
+{% set mode_live = cfg.app.mode == 'live' %}
+
+<!-- ============ 第 1 步 ============ -->
+<div class="card step">
+  <div class="step-head">
+    <span class="step-no">1</span>
+    <h2><span data-i18n="step1.h">环境自检</span> <span class="hint" data-i18n="step1.hint">不联网，只检查本机是否具备真实抓取条件</span></h2>
+    <button class="ghost" onclick="envCheck()" data-i18n="step1.btn">开始自检</button>
+  </div>
+  <p class="muted" data-i18n="step1.desc">检查三件事：Playwright 库是否安装、Edge 浏览器能否被自动驱动、登录会话文件是否已存在。</p>
+</div>
+
+<!-- ============ 第 2 步 ============ -->
+<div class="card step">
+  <div class="step-head">
+    <span class="step-no">2</span>
+    <h2><span data-i18n="step2.h">账号与登录</span> <span class="hint" data-i18n="step2.hint">录入账号后才能自动登录</span></h2>
+    <a class="btn ghost" href="{{ url_for('account') }}" data-i18n="step2.to">账号管理 →</a>
+  </div>
+  <div class="row" style="margin-bottom:8px">
+    {% if creds.saved %}
+      <span class="tag ok" data-i18n="tag.saved">已保存账号</span>
+      <span class="muted"><span data-i18n="account.name">账号名称</span>：{{ creds.account_name or '—' }}</span>
+      <span class="muted"><span data-i18n="account.mid">会员ID</span>：{{ creds.member_id_mask }}</span>
+    {% else %}
+      <span class="tag no_creds" data-i18n="tag.nosaved">未保存</span>
+      <span class="muted" data-i18n="step2.nosaved">还没录入账号 —— 到「账号管理」填会员ID + 密码并保存</span>
+    {% endif %}
+  </div>
+  <div class="row">
+    <button onclick="testLogin()" data-i18n="step2.test">① 测试登录</button>
+    <button class="ghost" data-i18n="step2.manual" onclick="post('/api/login','collect.act_login')">手工登录（打开浏览器）</button>
+    <span class="muted" data-i18n="step2.tip">测试登录会弹出浏览器窗口（REINS 拦截无窗口浏览器，必须用可见窗口）</span>
+  </div>
+  {% if sess is defined %}
+  <div class="row" style="margin-top:6px">
+    <span class="muted">
+      <span data-i18n="step2.sess">最近登录</span>：
+      {% if sess.exists %}<b>{{ sess.mtime }}</b>
+        <span data-i18n="step2.sess_tip">（会话有时效；过期时程序会自动用本机账号重新登录一次）</span>
+      {% else %}<span data-i18n="step2.sess_none">尚未登录过 —— 请先点「① 测试登录」或「手工登录」</span>{% endif %}
+    </span>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============ 第 3 步 ============ -->
+<div class="card step">
+  <div class="step-head">
+    <span class="step-no">3</span>
+    <h2><span data-i18n="step3.h">测试查询与下载</span> <span class="hint" data-i18n="step3.hint">先小量验证链路，再正式下载</span></h2>
+  </div>
+  <div class="row" style="margin-bottom:8px">
+    <button onclick="post('/api/query/test','collect.act_query')" data-i18n="step3.q">② 测试查询</button>
+    <button onclick="post('/api/download/test','collect.act_dld')" data-i18n="step3.dl">③ 测试下载数据</button>
+  </div>
+  <p class="muted" style="margin:0">
+    <span data-i18n="step3.d0">② 只跑 1 个最小查询，返回条数 + 样本（<b>不落库</b>）；</span><br>
+    <span data-i18n="step3.d1">③ 真实下载但限小量（≤3 条 + PDF），验证链路通不通。</span><br>
+    <span data-i18n="step3.d3">正式全量下载移到了下面的 <b>④ 下载条件</b>，那里可以先配条件再下。</span>
+  </p>
+</div>
+
+<!-- ============ 第 4 步：下载条件（v1.2.0 由「指定日期下载」页并入） ============ -->
+<div class="card step" id="dlcond">
+  <div class="step-head">
+    <span class="step-no">4</span>
+    <h2><span data-i18n="dlcond.h">下载条件</span> <span class="hint" data-i18n="dlcond.hint">决定「正式下载」抓什么；不想用的条件不用管</span></h2>
+  </div>
+  <p class="muted" style="margin:0 0 12px" data-i18n="dlcond.pause">点「正式下载」时会<strong>自动暂停「当天的下载」</strong>，跑完自动恢复，保证同一时刻只有一条 REINS 抓取在跑。</p>
+
+  <h3 class="sub-h"><span data-i18n="dlcond.core">核心条件</span>
+    <span class="hint" data-i18n="dlcond.core_hint">更新与下载都按这里跑，默认覆盖一户建 2 个 + 公寓 4 个</span></h3>
+
+  <div class="field">
+    <span data-i18n="spec.subtype_lbl">物件種目（可多选）</span>
+    <div class="subslots" id="subslots"></div>
+    <div class="muted" style="margin-top:6px" data-i18n="dlcond.sub_hint">默认已勾好「一户建 2 个 + 公寓 4 个」；一次下载会按種別自动分成几组检索，结果合并去重</div>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <div class="field" style="flex:0 0 auto">
+      <span data-i18n="dlcond.date_lbl">日期（可多选）</span>
+      <div class="subslots">
+        <label class="chk"><input type="checkbox" id="dt_reg" checked> <span data-i18n="dlcond.dt_reg">当天登录（登録年月日＝当天）</span></label>
+        <label class="chk"><input type="checkbox" id="dt_chg" checked> <span data-i18n="dlcond.dt_chg">当天更新（変更年月日＝当天）</span></label>
+      </div>
+    </div>
+    <label class="field"><span data-i18n="spec.date">指定日期</span>
+      <input type="date" id="date" value="{{ today }}">
+    </label>
+    <label class="field" style="flex:0 0 auto;display:flex;align-items:center;gap:8px;white-space:nowrap;align-self:flex-end">
+      <input type="checkbox" id="ownership_only" checked style="width:auto;height:auto">
+      <span data-i18n="spec.ownonly">土地権利/借地権：所有権のみ（推荐）</span>
+    </label>
+  </div>
+
+  <h3 class="sub-h" style="margin-top:14px">
+    <span data-i18n="dlcond.opt">可选条件（默认不启用）</span>
+    <button class="ghost tiny" type="button" onclick="toggleOpts()" id="optToggle"></button>
+  </h3>
+  <div id="optbox" style="display:none">
+    <div class="row">
+      <label class="field" style="flex:0 0 auto"><span class="chk"><input type="checkbox" id="use_ward"> <span data-i18n="spec.ward">区（大阪市）</span></span>
+        <select id="ward" disabled><option value="" data-i18n="search.all">全部</option>
+          {% for w in wards %}<option value="{{ w }}">{{ w }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field" style="flex:0 0 auto"><span class="chk"><input type="checkbox" id="use_price"> <span data-i18n="dlcond.use_price">价格（万円）</span></span>
+        <span class="row" style="gap:6px;display:inline-flex">
+          <input id="price_min" style="width:110px" placeholder="下限" disabled>
+          <input id="price_max" style="width:110px" placeholder="上限" disabled>
+        </span>
+      </label>
+      <label class="field" style="flex:0 0 auto"><span class="chk"><input type="checkbox" id="use_area"> <span data-i18n="dlcond.use_area">面积（㎡）</span></span>
+        <span class="row" style="gap:6px;display:inline-flex">
+          <input id="area_min" style="width:100px" placeholder="下限" disabled>
+          <input id="area_max" style="width:100px" placeholder="上限" disabled>
+        </span>
+      </label>
+      <label class="field" style="flex:0 0 auto"><span class="chk"><input type="checkbox" id="use_line"> <span data-i18n="spec.line">沿線名</span></span>
+        <input id="line" placeholder="例：御堂筋線" disabled>
+      </label>
+      <label class="field" style="flex:0 0 auto"><span class="chk"><input type="checkbox" id="use_station"> <span data-i18n="spec.station">駅名</span></span>
+        <input id="station" placeholder="例：なんば" disabled>
+      </label>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:14px">
+    <button data-i18n="dlcond.preview" onclick="previewSpecified()">① 确定（实时预览）</button>
+    <button class="primary" data-i18n="dlcond.download" onclick="downloadSpecified()">② 正式下载</button>
+    <span class="muted" id="spec-status" style="align-self:center"></span>
+  </div>
+</div>
+
+<!-- ============ D7（v1.8.2）：每轮检索计划 ============ -->
+<div class="card step" id="roundplan">
+  <div class="step-head">
+    <span class="step-no">★</span>
+    <h2><span data-i18n="roundplan.h">每轮检索计划</span>
+      <span class="hint" data-i18n="roundplan.hint">自动更新每一轮抓什么；改完立即生效</span></h2>
+  </div>
+
+  <div class="row" style="align-items:flex-start">
+    <label class="field" style="flex:1 1 320px;display:flex;align-items:flex-start;gap:8px">
+      <input type="checkbox" id="mainRoundOn" onchange="renderRoundPlan()" {{ 'checked' if (cfg.crawl or {}).get('main_round_enabled', false) }} style="width:auto;height:auto;margin-top:4px">
+      <span>
+        <b data-i18n="roundplan.main_round">全期間主轮（已默认关闭）</b><br>
+        <span class="muted" data-i18n="roundplan.main_round_tip">v1.8.4 起默认关：bulk 受 500 上限，缺席≠下架，关掉避免误判；勾选才临时开（写盘即生效）</span>
+      </span>
+    </label>
+    <label class="field" style="flex:1 1 320px;display:flex;align-items:flex-start;gap:8px">
+      <input type="checkbox" id="backfillOn" onchange="renderRoundPlan()" {{ 'checked' if (cfg.crawl or {}).get('sync_dates_backfill_prev_day', true) }} style="width:auto;height:auto;margin-top:4px">
+      <span>
+        <b data-i18n="roundplan.backfill">前一天补齐</b><br>
+        <span class="muted" data-i18n="roundplan.backfill_tip">上一日尾巴断了自动补搜一次（一天最多一次，常态不补）</span>
+      </span>
+    </label>
+  </div>
+
+  <div class="libhint" style="margin-top:6px">
+    <b data-i18n="roundplan.preview_h">本轮实际检索计划</b>
+    <ul style="margin:6px 0 0;padding-left:18px">
+      <li data-i18n="roundplan.p1">① 平台日期同步：当天 登録/変更 2 轴 × 6 组 = 12 次</li>
+      <li data-i18n="roundplan.p2">② 全期間主轮：6 组 × 2 轴 = 12 次（补详情 + 図面 + 下架判定）</li>
+      <li data-i18n="roundplan.p3">③ 前日补齐（若触发）：前一天 12 次</li>
+    </ul>
+  </div>
+
+  {# ⑥（v1.8.5）：计划预览交互 —— 选「日期模式」→ 列出本轮**实际会跑的 12 次检索**
+     （6 個種目 × 登録/変更 2 轴）→ 每次都能一键「跳到该组」，自动把 ④ 下载条件
+     预填成这一组（種目勾上、日期填好），省掉手工来回勾选。 #}
+  <div class="row" style="margin-top:10px;align-items:flex-end">
+    <label class="field" style="flex:0 0 auto">
+      <span data-i18n="roundplan.date_mode">日期模式</span>
+      <select id="planDateMode" onchange="renderRoundPlan()">
+        <option value="today" selected data-i18n="roundplan.mode_today">当日（今天）</option>
+        <option value="specified" data-i18n="roundplan.mode_specified">指定日期</option>
+        <option value="all" data-i18n="roundplan.mode_all">全期間（不带日期）</option>
+      </select>
+    </label>
+    <label class="field" style="flex:0 0 auto">
+      <span data-i18n="spec.date">指定日期</span>
+      <input type="date" id="planDate" value="{{ today }}" onchange="renderRoundPlan()">
+    </label>
+    <button type="button" class="ghost" onclick="renderRoundPlan()" data-i18n="roundplan.preview_btn">预览本轮计划</button>
+  </div>
+  <div id="planList" class="libhint" style="margin-top:8px;display:none"></div>
+
+  <div class="row" style="margin-top:10px">
+    <button onclick="saveRoundPlan()" data-i18n="roundplan.save">保存检索计划</button>
+    <span class="muted" id="plan-status"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h3><span data-i18n="spec.preview.h">① 预览结果</span> <span class="muted" id="pv-state"></span></h3>
+  <div id="preview" class="empty" data-i18n="spec.empty.preview">点「确定」后，这里显示实时连 REINS 查到的条数 + 样本。</div>
+  <h3 style="margin-top:14px"><span data-i18n="spec.dl.h">② 下载进度</span> <span class="muted" id="dl-state"></span></h3>
+  <div id="download" class="empty" data-i18n="spec.empty.dl">点「正式下载」后，这里显示正式下载（数据 + 図面PDF）的进度与落库统计。</div>
+  <div id="pausenote" class="libhint" style="display:none"></div>
+</div>
+
+<!-- ============ 第 5 步 ============ -->
+<div class="card step">
+  <div class="step-head">
+    <span class="step-no">5</span>
+    <h2><span data-i18n="step4.h">更新方式</span> <span class="hint"><span data-i18n="step4.hint">当前规则：</span>{{ sched.describe }}</span></h2>
+    <span class="dot-ind {{ 'on' if sched.enabled else 'off' }}"></span>
+    <span class="muted">{% if sched.enabled %}<span data-i18n="status.running">运行中</span>{% else %}<span data-i18n="status.stopped">已停止</span>{% endif %}</span>
+  </div>
+
+  <div class="row" style="margin-bottom:10px">
+    <label class="field"><span data-i18n="step4.rand_min_min">随机下限（分钟）</span>
+      <input id="random_min_minutes" type="number" step="1" min="5" value="{{ sched.random_min_minutes }}">
+    </label>
+    <label class="field"><span data-i18n="step4.rand_max_min">随机上限（分钟）</span>
+      <input id="random_max_minutes" type="number" step="1" min="5" value="{{ sched.random_max_minutes }}">
+    </label>
+    <label class="field"><span data-i18n="step4.win_from">运行时段 起</span>
+      <input id="w_start" type="time" value="{{ sched.window.start }}">
+    </label>
+    <label class="field"><span data-i18n="step4.win_to">运行时段 止</span>
+      <input id="w_end" type="time" value="{{ sched.window.end }}">
+    </label>
+  </div>
+  <p class="muted" style="margin:0 0 10px" data-i18n="step4.min_tip">每轮之间的间隔在你设的下限–上限之间<b>随机取值</b>（更像真人操作，避免被平台判定为机器）。最低 5 分钟。</p>
+
+  <div class="row">
+    <button id="saveStartBtn" onclick="saveSched(true)" {{ 'disabled' if sched.enabled }}></button>
+    <button class="ghost" onclick="saveSched(false)" data-i18n="step4.saveonly">保存设置（暂不启动）</button>
+    <button class="danger" onclick="post('/api/schedule',{enabled:false},'collect.act_stop')"
+            {{ 'disabled' if not sched.enabled }} data-i18n="step4.stop">停止自动更新</button>
+  </div>
+  <p class="muted" style="margin:10px 0 0">
+    <span data-i18n="step4.manual"><b>手动更新</b> = 点一下按钮，立刻按你点击的<b>当前时间节点</b>抓一轮（在「概览」页）。</span>
+    {% if sched.next_run_at %}｜ <span data-i18n="status.next">下一轮：</span>{{ sched.next_run_at }}{% endif %}
+    {% if not sched.in_window %}｜ <b data-i18n="status.outwin">当前不在运行时段</b>{% endif %}
+  </p>
+</div>
+
+<!-- ============ v1.5.6：上传到线上 ============ -->
+<div class="card step" id="publishCard">
+  <h2><span data-i18n="pub.h">上传到线上</span>
+    <span class="hint" data-i18n="pub.hint">把本机抓到的房源推到线上网站（只传详情内容，不传 PDF）</span></h2>
+
+  <div class="fields">
+    <label class="field"><span data-i18n="pub.mode">上传方式</span>
+      <select id="pub_mode">
+        <option value="auto" data-i18n="pub.mode.auto">① 自动完成（每轮抓完自动增量推送）</option>
+        <option value="manual" data-i18n="pub.mode.manual">② 手动方式（点按钮才上传）</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="pub.endpoint">线上地址</span>
+      <input type="text" id="pub_endpoint" placeholder="https://osaka-house-search.app.workbuddy.link">
+    </label>
+    <label class="field"><span data-i18n="pub.month">上传月份</span>
+      <input type="text" id="pub_month" placeholder="2026-09">
+    </label>
+    <label class="field"><span data-i18n="pub.caliber">月份口径</span>
+      <select id="pub_caliber">
+        <option value="download" data-i18n="pub.caliber.dl">下载日（本机抓到的月份）</option>
+        <option value="platform" data-i18n="pub.caliber.pl">平台登録/変更日</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="ghost" onclick="savePublish()" data-i18n="pub.save">保存上传设置</button>
+    <button onclick="runPublish('full')" data-i18n="pub.btn_full">立即上传（全量重传）</button>
+    <button class="ghost" onclick="runPublish('incr')" data-i18n="pub.btn_incr">增量推送（只传新增 / 变化）</button>
+  </div>
+
+  <p class="muted" style="margin:10px 0 0">
+    <span data-i18n="pub.last">上次上传：</span><b id="pub_last">—</b>
+    ｜ <span data-i18n="pub.nopdf">不上传 PDF，只传详情内容</span>
+  </p>
+  <pre id="pub_log" style="display:none;max-height:240px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px"></pre>
+</div>
+<script>
+/* ---------- v1.5.6 上传到线上 ---------- */
+async function loadPublishStatus(){
+  try{
+    const j = await postJSON('/api/publish/status', {});
+    const c = j.config || {};
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v || ''; };
+    set('pub_mode', c.mode); set('pub_endpoint', c.endpoint);
+    set('pub_month', c.month_scope); set('pub_caliber', c.scope_caliber);
+    const st = j.state || {};
+    const last = document.getElementById('pub_last');
+    if(last){
+      last.textContent = st.last_at
+        ? (st.last_at + ' ｜ ' + (st.last_count || 0) + ' 条'
+           + (st.last_error ? ' ｜ 上次失败：' + st.last_error : ''))
+        : (window.t('pub.never') || '还没传过');
+    }
+    if(j.busy){
+      const box = document.getElementById('pub_log');
+      if(box){ box.style.display='block'; box.textContent = (j.log||[]).join('\n'); }
+      setTimeout(loadPublishStatus, 3000);
+    }
+  }catch(e){ /* 静默：设置页其它功能不受影响 */ }
+}
+async function savePublish(){
+  const body = {
+    mode: (document.getElementById('pub_mode')||{}).value,
+    endpoint: (document.getElementById('pub_endpoint')||{}).value,
+    month_scope: (document.getElementById('pub_month')||{}).value,
+    scope_caliber: (document.getElementById('pub_caliber')||{}).value
+  };
+  try{ await postJSON('/api/publish/settings', body); alert(window.t('pub.saved')||'上传设置已保存'); }
+  catch(e){ alertErr(e, window.t('pub.h')||'上传'); }
+}
+async function runPublish(mode){
+  try{
+    const j = await postJSON('/api/publish', {mode: mode});
+    const box = document.getElementById('pub_log');
+    if(box){ box.style.display='block'; box.textContent = j.message || ''; }
+    setTimeout(loadPublishStatus, 1500);
+  }catch(e){ alertErr(e, window.t('pub.h')||'上传'); }
+}
+setTimeout(loadPublishStatus, 300);
+</script>
+
+<!-- ============ 测试结果 ============ -->
+<div class="card">
+  <h2><span data-i18n="testbox.h">测试结果</span> <span class="hint" data-i18n="testbox.hint">四个测试按钮的最近一次结果</span></h2>
+  {% set items = [('login','测试登录','test.l_login'),('query','测试查询','test.l_query'),('download_test','测试下载数据','test.l_dl'),('download_real','真实下载数据','test.l_real')] %}
+  {% set stmap = {'ok':'run.ok','running':'run.running','fail':'run.fail'} %}
+  {% set stzh = {'ok':'成功','running':'进行中','fail':'失败'} %}
+  <div id="testbox">
+    {% for k, label, key in items %}
+      {% if test.get(k) %}
+        <div class="result-row">
+          <b class="result-name" data-i18n="{{ key }}">{{ label }}</b>
+          <span class="tag {{ test[k].status }}" data-i18n="{{ stmap[test[k].status] }}">{{ stzh[test[k].status] }}</span>
+          <span class="muted">{{ test[k].at }}</span>
+          <span class="result-msg">
+            {% if test[k].message %}{{ test[k].message }}
+            {% elif test[k].total %}结果 {{ test[k].total }}｜样本 {{ test[k].count }} 条
+            {% elif test[k].stats %}落库 {{ test[k].stats.fetched }} / 新盘 {{ test[k].stats.new }} / 变更 {{ test[k].stats.changed }}
+            {% endif %}
+          </span>
+        </div>
+      {% endif %}
+    {% endfor %}
+    {% if not test %}<div class="empty" data-i18n="testbox.empty">还没有测试记录。按上面 1→4 步依次点一遍即可。</div>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2 data-i18n="log.h">实时日志</h2>
+  <pre class="log" id="logbox"></pre>
+</div>
+
+<script>
+let logCursor = 0;
+
+async function post(url, body, label){
+  if(typeof body === 'string'){ label = body; body = {}; }
+  try{
+    const j = await postJSON(url, body || {});
+    const msg = (label ? (window.t(label) || label) + '：' : '') + (j.message || j.status || window.t('collect.started') || '已开始');
+    alert(msg);
+    setTimeout(() => location.reload(), 1200);
+  }catch(e){ alertErr(e, window.t(label) || label || window.t('ov.act')); }
+}
+
+async function switchMode(m){
+  try{
+    const j = await postJSON('/api/mode', {mode: m});
+    alert(window.tf('collect.sw_msg', {mode: window.t(j.mode === 'live' ? 'collect.sw_live' : 'collect.sw_demo')}));
+    location.reload();
+  }catch(e){ alertErr(e, window.t('collect.lbl_switchmode')); }
+}
+
+async function testLogin(){
+  try{
+    const j = await postJSON('/api/login/auto', {});
+    alert(window.tf('collect.testtip') + (j.message || j.status));
+    // 登录需要等浏览器窗口跑完，稍后自动刷新看结果
+    setTimeout(() => location.reload(), 8000);
+  }catch(e){ alertErr(e, window.t('collect.lbl_testlogin')); }
+}
+
+async function envCheck(){
+  try{
+    const j = await postJSON('/api/env', {});
+    const lines = (j.items || []).map(i => (i.ok ? '✓ ' : '✗ ') + i.name + '：' + i.detail);
+    alert(window.tf('collect.env_title') + '\n\n' + lines.join('\n') + '\n\n' + (j.message || ''));
+  }catch(e){ alertErr(e, window.t('collect.lbl_envcheck')); }
+}
+
+function saveSched(startIt){
+  const body = {
+    random_min_minutes: document.getElementById('random_min_minutes').value,
+    random_max_minutes: document.getElementById('random_max_minutes').value,
+    window: {start: document.getElementById('w_start').value,
+             end: document.getElementById('w_end').value},
+    enabled: !!startIt
+  };
+  // 启动即进入「已启动」态：立即禁用 + 改文案，避免重复点击；关闭靠「停止自动更新」。
+  if(startIt){
+    const b = document.getElementById('saveStartBtn');
+    if(b){ b.disabled = true; b.textContent = window.t('step4.running'); }
+  }
+  post('/api/schedule', body, startIt ? 'collect.act_start' : 'collect.act_save');
+}
+async function saveRoundPlan(){
+  const body = {
+    main_round_enabled: document.getElementById('mainRoundOn').checked,
+    sync_dates_backfill_prev_day: document.getElementById('backfillOn').checked
+  };
+  try{
+    await postJSON('/api/crawl/settings', body);
+    const st = document.getElementById('plan-status');
+    if(st) st.textContent = window.t('roundplan.saved') || '已保存';
+    setTimeout(() => location.reload(), 900);
+  }catch(e){ alertErr(e, window.t('roundplan.h')); }
+}
+/* ---------- ⑥（v1.8.5）：计划预览交互 ----------
+   按「日期模式」列出本轮**实际会跑的 12 次检索**（6 個種目 × 登録/変更 2 轴），
+   每次都能一键「跳到该组」—— 自动把 ④ 下载条件预填成这一组（種目勾上、日期填好），
+   省掉手工来回勾选。口径与 crawler 的 sync_today_dates 一致（真·一轮 12 次来源）。 */
+var PLAN_SUBTYPES = ['新築戸建','中古戸建','新築マンション','中古マンション','新築タウン','中古タウン'];
+var PLAN_AXES = [
+  { key:'reg', i18n:'dlcond.dt_reg' },
+  { key:'chg', i18n:'dlcond.dt_chg' }
+];
+function planDate(){
+  var mode = (document.getElementById('planDateMode')||{}).value || 'today';
+  if(mode === 'specified') return (document.getElementById('planDate')||{}).value || todayLocal();
+  if(mode === 'all') return '';          // 全期間 = 不带日期条件
+  return todayLocal();                   // 当日
+}
+function renderRoundPlan(){
+  var box = document.getElementById('planList');
+  if(!box) return;
+  var d = planDate();
+  var dateTxt = d || (window.t('roundplan.all_period') || '全期間');
+  var mainOn = (document.getElementById('mainRoundOn')||{}).checked;
+  var backfillOn = (document.getElementById('backfillOn')||{}).checked;
+  var rows = [];
+  PLAN_SUBTYPES.forEach(function(s){
+    PLAN_AXES.forEach(function(ax){ rows.push({subtype:s, axisLabel:window.t(ax.i18n)}); });
+  });
+  var h = '<b>' + esc(window.t('roundplan.preview_of')) + '</b> '
+        + '<span class="muted">' + esc(window.tf('roundplan.preview_meta', {n: rows.length, date: dateTxt})) + '</span>';
+  h += '<table style="margin-top:6px"><thead><tr><th>#</th>'
+     +  '<th>' + esc(window.t('roundplan.th.subtype')) + '</th>'
+     +  '<th>' + esc(window.t('roundplan.th.axis')) + '</th>'
+     +  '<th>' + esc(window.t('roundplan.th.date')) + '</th><th></th></tr></thead><tbody>';
+  rows.forEach(function(r, i){
+    h += '<tr><td class="n">' + (i+1) + '</td>'
+      +  '<td>' + esc(r.subtype) + '</td>'
+      +  '<td>' + esc(r.axisLabel) + '</td>'
+      +  '<td>' + esc(dateTxt) + '</td>'
+      +  '<td><button type="button" class="ghost tiny" onclick="jumpToGroup(\'' + r.subtype + '\',\'' + (d||'') + '\')">'
+      +  esc(window.t('roundplan.jump')) + '</button></td></tr>';
+  });
+  h += '</tbody></table>';
+  if(mainOn) h += '<div class="muted" style="margin-top:6px">' + esc(window.t('roundplan.plus_main')) + '</div>';
+  if(backfillOn) h += '<div class="muted">' + esc(window.t('roundplan.plus_backfill')) + '</div>';
+  box.innerHTML = h;
+  box.style.display = '';
+}
+/* 跳到 ④ 下载条件：只勾这一種目（其余取消）+ 日期填成预览那天 */
+function jumpToGroup(subtype, date){
+  var card = document.getElementById('dlcond');
+  if(card && card.scrollIntoView) card.scrollIntoView({behavior:'smooth', block:'start'});
+  var nodes = document.querySelectorAll('.subchk');
+  for(var i=0;i<nodes.length;i++){ nodes[i].checked = (nodes[i].value === subtype); }
+  if(date){ var dEl = document.getElementById('date'); if(dEl) dEl.value = date; }
+  var st = document.getElementById('spec-status');
+  if(st) st.textContent = window.t('roundplan.jumped');
+}
+
+function setSwitchLabel(){
+  const btn = document.getElementById('switchModeBtn');
+  if(!btn) return;
+  const target = '{{ 'demo' if cfg.app.mode == 'live' else 'live' }}';
+  btn.textContent = window.t('collect.switch_' + target);
+}
+function setSaveStartLabel(){
+  const btn = document.getElementById('saveStartBtn');
+  if(!btn) return;
+  const enabled = {{ 'true' if sched.enabled else 'false' }};
+  // 三态：未启动[保存并启动·可点] → 已启动[✓ 已启动（自动更新中）·禁用，由「停止自动更新」关闭]
+  if(enabled){
+    btn.textContent = window.t('step4.running');
+    btn.disabled = true;
+  } else {
+    btn.textContent = window.t('step4.btn_start');
+    btn.disabled = false;
+  }
+}
+
+/* ---------- ④ 下载条件（v1.2.0：由「指定日期下载」页并入；v1.2.3：種目改分组多选） ----------
+   用户口径：更新 / 下载都要覆盖「一户建 前 2 个 + 公寓 前 4 个」共 6 个種目，
+   所以不再用「单选种别 + 联动種目」，而是一次列出三组、默认勾好前两组那 6 个。
+   提交时按组打包成 groups，后端按组各跑一次检索、再按物件番号合并去重。 */
+var SUB_GROUPS = [
+  { kind: '売一戸建',     i18n: 'dlcond.grp_house', on: true,
+    subtypes: ['新築戸建', '中古戸建'] },
+  { kind: '売マンション', i18n: 'dlcond.grp_apt',   on: true,
+    subtypes: ['新築マンション', '中古マンション', '新築タウン', '中古タウン'] },
+  { kind: '売土地',       i18n: 'dlcond.grp_land',  on: false,
+    subtypes: ['土地'] }
+];
+function renderSubs(){
+  var box = document.getElementById('subslots');
+  box.innerHTML = SUB_GROUPS.map(function(g, gi){
+    var kids = g.subtypes.map(function(s){
+      return '<label class="chk"><input type="checkbox" class="subchk" data-gi="' + gi
+           + '" value="' + s + '"' + (g.on ? ' checked' : '') + '> ' + s + '</label>';
+    }).join('');
+    return '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:3px 0">'
+         + '<b style="min-width:52px">' + window.t(g.i18n) + '</b>' + kids + '</div>';
+  }).join('');
+}
+function collectGroups(){
+  var out = SUB_GROUPS.map(function(g){ return { kind: g.kind, subtypes: [] }; });
+  var nodes = document.querySelectorAll('.subchk');
+  for(var i = 0; i < nodes.length; i++){
+    if(!nodes[i].checked) continue;
+    var gi = parseInt(nodes[i].getAttribute('data-gi'), 10);
+    if(out[gi]) out[gi].subtypes.push(nodes[i].value);
+  }
+  return out.filter(function(g){ return g.subtypes.length > 0; });
+}
+function toggleOpts(){
+  var b = document.getElementById('optbox');
+  var opening = (b.style.display === 'none');
+  b.style.display = opening ? '' : 'none';
+  document.getElementById('optToggle').textContent = window.t(opening ? 'dlcond.opt_hide' : 'dlcond.opt_show');
+}
+function bindOpt(chkId, targets){
+  var c = document.getElementById(chkId);
+  if(!c) return;
+  function sync(){
+    targets.forEach(function(elId){
+      var el = document.getElementById(elId);
+      if(el) el.disabled = !c.checked;
+    });
+  }
+  c.addEventListener('change', sync);
+  sync();
+}
+function initOpts(){
+  bindOpt('use_ward', ['ward']);
+  bindOpt('use_price', ['price_min', 'price_max']);
+  bindOpt('use_area', ['area_min', 'area_max']);
+  bindOpt('use_line', ['line']);
+  bindOpt('use_station', ['station']);
+  toggleOpts(); toggleOpts();      // 折叠关闭 + 刷新按钮文案
+}
+function buildOpts(){
+  function v(id){ var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  function on(id){ var el = document.getElementById(id); return !!(el && el.checked); }
+  var groups = collectGroups();          // v1.2.3：按「一户建 / 公寓 / 土地」分组
+  var subs = [];
+  groups.forEach(function(g){ g.subtypes.forEach(function(s){ subs.push(s); }); });
+  var dts = [];
+  if(on('dt_reg')) dts.push('登録年月日');
+  if(on('dt_chg')) dts.push('変更年月日');
+  var o = {
+    kind: (groups[0] ? groups[0].kind : ''), subtype: (subs[0] || ''),
+    subtypes: subs, groups: groups,
+    date_types: dts, date_type: (dts[0] || '登録年月日'), date: v('date'),
+    ownership_only: on('ownership_only')
+  };
+  if(on('use_ward')) o.ward = v('ward');
+  if(on('use_price')){ o.price_min = v('price_min'); o.price_max = v('price_max'); }
+  if(on('use_area')){ o.area_min = v('area_min'); o.area_max = v('area_max'); }
+  if(on('use_line')) o.line = v('line');
+  if(on('use_station')) o.station = v('station');
+  return o;
+}
+function validateDl(){
+  var nodes = document.querySelectorAll('.subchk');
+  var any = false;
+  for(var i = 0; i < nodes.length; i++){ if(nodes[i].checked){ any = true; break; } }
+  if(!any){ alert(window.t('dlcond.alert_sub')); return false; }
+  if(!document.getElementById('date').value){ alert(window.t('spec.alert_date')); return false; }
+  return true;
+}
+async function previewSpecified(){
+  if(!validateDl()) return;
+  document.getElementById('spec-status').textContent = window.t('spec.previewing');
+  document.getElementById('preview').innerHTML = '<div class="empty">' + window.t('spec.querying') + '</div>';
+  try{
+    var r = await postJSON('/api/query/preview', buildOpts());
+    if(r.status !== 'started') document.getElementById('spec-status').textContent = (r.message || '');
+  }catch(e){ alertErr(e, window.t('spec.preview.h')); }
+}
+async function downloadSpecified(){
+  if(!validateDl()) return;
+  if(!confirm(window.tf('spec.confirm_dl', {date: document.getElementById('date').value}))) return;
+  document.getElementById('spec-status').textContent = window.t('spec.dling');
+  try{
+    var r = await postJSON('/api/download/specified', buildOpts());
+    if(r.status !== 'started') document.getElementById('spec-status').textContent = (r.message || '');
+  }catch(e){ alertErr(e, window.t('spec.dl')); }
+}
+function renderPreview(task){
+  var el = document.getElementById('preview');
+  var st = document.getElementById('pv-state');
+  if(!task){ st.textContent=''; el.className='empty'; el.innerHTML=window.t('spec.empty.preview'); return; }
+  if(task.status==='running'){ st.textContent=window.t('spec.querying'); el.className='empty';
+    el.innerHTML='<div class="empty">'+window.t('spec.querying')+'</div>'; return; }
+  if(task.status==='error'){ st.textContent=window.t('spec.err'); el.className='libhint';
+    el.innerHTML='<div class="lh-err">'+esc(task.message||window.t('spec.nodetail'))+'</div>'; return; }
+  st.textContent = window.t('spec.done');
+  var h = '<div class="lh-line">'+window.t('spec.sample.of')+' <b>'+esc(task.total||'?')+'</b> '+window.t('spec.unit_cnt')+window.t('spec.sample.tail')+' '
+        + (task.count||0) + ' '+window.t('spec.unit_cnt')+'）</div>';
+  if(task.sample && task.sample.length){
+    h += '<ul class="slist">';
+    task.sample.forEach(function(s){ h += '<li>'+esc(s)+'</li>'; });
+    h += '</ul>';
+  } else {
+    h += '<div class="lh-warn">'+window.t('spec.nomatch')+'</div>';
+  }
+  el.className=''; el.innerHTML = h;
+}
+function renderDownload(task, paused){
+  var el = document.getElementById('download');
+  var st = document.getElementById('dl-state');
+  var note = document.getElementById('pausenote');
+  if(paused){ note.style.display='block'; note.innerHTML='<div class="lh-warn">'+window.t('spec.pausenote')+'</div>'; }
+  else { note.style.display='none'; }
+  if(!task){ st.textContent=''; el.className='empty'; el.innerHTML=window.t('spec.empty.dl'); return; }
+  if(task.status==='running'){ st.textContent=window.t('spec.dling'); el.className='empty';
+    el.innerHTML='<div class="empty">'+window.t('spec.downloading')+'</div>'; return; }
+  if(task.status==='error'){ st.textContent=window.t('spec.err'); el.className='libhint';
+    el.innerHTML='<div class="lh-err">'+esc(task.message||window.t('spec.nodetail'))+'</div>'; return; }
+  st.textContent=window.t('spec.done');
+  var stt = task.stats||{};
+  var h = '<div class="lh-line">'+window.t('spec.stat.fetched')+' <b>'+ (stt.fetched||0) +'</b> '+window.t('spec.unit_cnt')+' ｜ '+window.t('spec.stat.new')+' <b>'+ (stt.new||0)
+        +'</b> '+window.t('spec.unit_cnt')+' ｜ '+window.t('spec.stat.changed')+' <b>'+ (stt.changed||0) +'</b> '+window.t('spec.unit_cnt')+' ｜ '+window.t('spec.stat.pdf')+' <b>'+ (stt.pdf_saved||0) +'</b> '+window.t('spec.unit_pdf')+'</div>';
+  if(task.errors && task.errors.length){ h += '<div class="lh-err">'+ esc(task.errors.join(' ； ')) +'</div>'; }
+  el.className=''; el.innerHTML = h;
+}
+async function pollDl(){
+  try{
+    var j = await api('/api/status');
+    renderPreview(j.test && j.test.specified_preview);
+    renderDownload(j.test && j.test.specified_download, !!(j.sched && j.sched.paused));
+    var dl = j.test && j.test.specified_download;
+    if(dl && dl.status==='running') document.getElementById('spec-status').textContent=window.t('spec.dling');
+  }catch(e){ /* 掉线由顶部横幅统一提示 */ }
+}
+
+async function pull(){
+  try{
+    const lg = await api('/api/logs?since=' + logCursor);
+    if(lg.lines.length){
+      const box = document.getElementById('logbox');
+      box.textContent += (box.textContent ? '\n' : '') + lg.lines.join('\n');
+      box.scrollTop = box.scrollHeight;
+      logCursor = lg.total;
+    }
+  }catch(e){ /* 服务离线时由顶部横幅统一提示 */ }
+}
+/* ---------- 指定日期：默认就是当天（本地时区） ---------- */
+function todayLocal(){
+  var d = new Date();
+  function p(n){ return (n < 10 ? '0' : '') + n; }
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function ensureToday(){                 // 后端 {{ today }} 为空时（例如服务没重启）由前端兜底
+  var el = document.getElementById('date');
+  if(el && !el.value) el.value = todayLocal();
+}
+renderSubs();
+initOpts();
+ensureToday();
+renderRoundPlan();               // ⑥：进页面就把「本轮 12 次检索」预览出来
+pull(); pollDl();
+setInterval(function(){ pull(); pollDl(); }, 2500);
+setSwitchLabel();
+setSaveStartLabel();
+window.addEventListener('i18n:changed', function(){ try{ setSwitchLabel(); setSaveStartLabel(); }catch(e){} });
+</script>
+{% endblock %}

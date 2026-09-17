@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}大阪房源查询系统（本地版）{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
+<link rel="icon" href="data:,">
+<!-- 通用脚本（api/postJSON/alertErr 等）必须在页面内联脚本之前加载，
+     否则查询页/概览页在加载时调用的 doQuery/refreshOverview 会找不到 api -->
+<script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>
+<!-- 语言切换：data-i18n 标记 + 右上角切换器；仅切 UI 文案，单位/房源数据不变 -->
+<script src="{{ url_for('static', filename='i18n.js') }}?v={{ version }}"></script>
+<!-- 字段名小词典（v1.2.0 公共化）：把 detail_json 的英文/日文键翻成当前语言。
+     依赖 i18n.js 提供 window.t，故排在它后面；查询页/对比页/详情页三处共用。 -->
+<script src="{{ url_for('static', filename='fieldmap.js') }}?v={{ version }}"></script>
+</head>
+{# v1.7.6：查询页 / 详情页**默认隐藏其他详情**（勇哥要求：默认就是隐藏态）。
+   在**服务端**就带上 class，避免"先显示 → 再隐藏"的闪烁；
+   用户若手动切换过，由 fieldmap.js 按 localStorage 复原他的选择。 #}
+{% set _hide_agency = request.path.startswith('/search') or request.path.startswith('/p/') %}
+<body{% if _hide_agency %} class="hide-agency"{% endif %}>
+<header class="top">
+  <div class="wrap topin">
+    <a class="logo" href="{{ url_for('index') }}">
+      <span class="logo-mark">大</span>
+      <span class="logo-text"><span data-i18n="logo">大阪房源</span><em data-i18n="logo.em">{{ '线上版' if public else '本地版' }}</em></span>
+    </a>
+    <nav>
+      {# v1.5.18：对外展示版（OSAKA_PUBLIC=1）只留查询相关的三个入口，
+         采集 / 账号 / 本地文件 这些"只有本机才有意义"的页面不出现在导航里。 #}
+      {% if public %}
+        {# 勇哥：没意义的是「单独对比这套」（只带 1 套房进对比页），不是对比本身 →
+           对比页入口保留（要先在查询页勾选 2~6 套），只去掉那个单套入口。 #}
+        {% set nav = [('index','nav.index','数据概览'),
+                      ('search','nav.search','房源查询'),
+                      ('compare','nav.compare','房源对比'),
+                      ('runs','nav.runs','运行日志')] %}
+      {% else %}
+        {% set nav = [('index','nav.index','概览'), ('collect','nav.collect','数据抓取设置'), ('search','nav.search','房源查询'),
+                      ('compare','nav.compare','房源对比'), ('account','nav.account','账号管理'),
+                      ('files','nav.files','本地文件'), ('runs','nav.runs','运行日志')] %}
+      {% endif %}
+      {% for ep, key, label in nav %}
+        <a href="{{ url_for(ep) }}" class="{{ 'on' if request.endpoint == ep else '' }}"
+           {% if ep == 'compare' %}id="nav-compare" title="横向对比已选中的 2–6 套房"{%
+           endif %}><span data-i18n="{{ key }}">{{ label }}</span>{% if ep == 'compare' %}<b class="nav-n" id="nav-cmp-n"
+           style="display:none"></b>{% endif %}</a>
+      {% endfor %}
+    </nav>
+    <span class="badge {{ 'live' if cfg.app.mode == 'live' else 'demo' }}" data-i18n="{{ 'badge.live' if cfg.app.mode == 'live' else 'badge.demo' }}">
+      {{ '真实抓取' if cfg.app.mode == 'live' else '离线演示' }}
+    </span>
+    <span class="lang-switcher" data-i18n-title="lang.label" title="语言"></span>
+  </div>
+</header>
+
+<main class="wrap">
+{% block body %}{% endblock %}
+</main>
+
+<footer class="wrap foot">
+  <div class="foot-row">
+    <span><span data-i18n="footer.local">数据全部保存在本机：</span><code>{{ paths.root }}</code></span>
+    <span class="sep">·</span>
+    <span data-i18n="footer.window">仅在 07:00–23:00 内自动更新（REINS 其余时间维护）</span>
+  </div>
+  <div class="foot-row">
+    <span class="ver"><span data-i18n="footer.ver">版本</span> v{{ version }}</span>
+    <span class="sep">·</span>
+    <span class="ver"><span data-i18n="footer.updated">更新于</span> {{ build_at }}</span>
+  </div>
+</footer>
+
+</body>
+</html>

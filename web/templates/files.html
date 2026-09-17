@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}本地文件 · 大阪房源{% endblock %}
+{% block body %}
+<div class="card">
+  <h2 data-i18n="files.root_h">本地落盘目录</h2>
+  <p class="muted" id="rootNote"></p>
+</div>
+
+<div class="card">
+  <h2 data-i18n="files.cl_h">下载文件清单</h2>
+  <p class="muted" data-i18n="files.cl_intro">每轮下载（含自动抓取）固定落这 4 类文件：</p>
+  <ul style="margin:8px 0 0 18px;line-height:1.95;font-size:13px">
+    <li data-i18n="files.cl_db">数据（主档 / 价格快照 / 变更流水）→ data/jproperty.db</li>
+    <li data-i18n="files.cl_xls">Excel（全量一份）→ data/exports/大阪房源_日期.xlsx</li>
+    <li data-i18n="files.cl_day">按天页（可离线看）→ data/daily/日期.html</li>
+    <li data-i18n="files.cl_pdf">図面 PDF（一套一份，仅「新盘 / 首次见到」才下载）→ data/attachments/物件番号.pdf</li>
+  </ul>
+  <p class="muted" style="margin-top:9px" data-i18n="files.cl_note">注意：Excel 与按天页是「全局一份」，不按检索条件分包（想按条件看，用 Excel 的「物件種目 / 大类」筛选）；PDF 是按房源一份，文件名=物件番号。</p>
+</div>
+
+{% macro filetable(title_key, title_text, hint, items, dir) %}
+<div class="card">
+  <h2><span data-i18n="{{ title_key }}">{{ title_text }}</span> <span class="hint">{{ hint }} · {{ items|length }} 个</span></h2>
+  {% if items %}
+  <table>
+    <tr><th data-i18n="files.th_name">文件名</th><th data-i18n="files.th_size">大小</th><th data-i18n="files.th_time">时间</th><th></th></tr>
+    {% for it in items %}
+    <tr>
+      <td><code>{{ it.name }}</code></td><td>{{ it.size }}</td><td>{{ it.mtime }}</td>
+      <td><a class="btn ghost" href="{{ url_for('download', dir=dir, name=it.name) }}"
+             target="_blank" data-i18n="files.open">打开</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty" data-i18n="files.empty">暂无文件。</div>{% endif %}
+</div>
+{% endmacro %}
+
+{{ filetable('files.daily2', '按天页面（可离线看）', 'data/daily', daily, 'daily') }}
+{{ filetable('files.excel2', 'Excel 导出', 'data/exports', exports, 'exports') }}
+{{ filetable('files.pdf2', 'PDF 图纸', 'data/attachments', pdfs, 'attachments') }}
+
+<script>
+function paintRootNote(){
+  document.getElementById('rootNote').innerHTML = window.tf('files.root_note', {root: '<code>{{ root }}</code>'});
+}
+paintRootNote();
+window.addEventListener('i18n:changed', paintRootNote);
+</script>
+{% endblock %}

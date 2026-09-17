@@ -1,0 +1,20 @@
+{# v1.8.0 N2 访问码：对外模式设了 public.access_code 时，未带正确口令的统一入口。
+   提交后 URL 带 ?code=，_access_guard 校验通过即放行并种 Cookie。 #}
+{% extends "base.html" %}
+{% block body %}
+<div style="max-width:420px;margin:14vh auto;padding:28px 26px;
+            border:1px solid var(--line, #e2e2e2);border-radius:14px;
+            background:#fff;box-shadow:0 6px 24px rgba(0,0,0,.06);text-align:center">
+  <h2 style="margin:0 0 6px">大阪房源 · 访问码</h2>
+  <p class="muted" style="margin:0 0 18px">本页面需访问码才能查看</p>
+  <form method="get" action="{{ path or '/' }}">
+    <input name="code" type="text" autocomplete="off" placeholder="请输入访问码"
+           style="width:100%;padding:11px 12px;font-size:15px;border:1px solid #ccc;
+                  border-radius:8px;box-sizing:border-box;margin-bottom:12px" autofocus>
+    <button type="submit"
+            style="width:100%;padding:11px;font-size:15px;color:#fff;background:#c0392b;
+                   border:0;border-radius:8px;cursor:pointer">进入</button>
+  </form>
+  <p class="muted" style="font-size:12px;margin:14px 0 0">访问码由管理员提供</p>
+</div>
+{% endblock %}

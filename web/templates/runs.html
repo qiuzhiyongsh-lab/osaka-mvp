@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}运行日志 · 大阪房源{% endblock %}
+{% block body %}
+
+<div class="card">
+  <h2><span data-i18n="runs.live_h">实时日志</span> <span class="hint" data-i18n="runs.live_hint">当前正在进行的抓取过程</span></h2>
+  <pre class="log" id="logbox"></pre>
+</div>
+
+<div class="card">
+  <h2><span data-i18n="runs.rec_h">运行记录</span> <span class="hint" data-i18n="runs.rec_hint">每轮抓取的成败与条数</span></h2>
+  {% if runs %}
+  <table>
+    {# v1.4.1：每个表头都带悬停说明（含义 + 使用规则），文案走 i18n 键 runs.tip.*。
+       用原生 title 属性：零依赖、移动端/键盘都不踩坑，且与 i18n 的 data-i18n-title 机制兼容。 #}
+    <tr>
+      <th data-i18n="runs.th_id"      data-i18n-title="runs.tip.id"      title="轮次唯一编号（自增）。越大越新；报错时按这个号去日志里定位">#</th>
+      <th data-i18n="runs.th_trigger" data-i18n-title="runs.tip.trigger" title="本轮由什么发起。manual＝手动更新；random/interval＝调度器自动；startup＝服务启动即跑；specified-download＝指定日期下载。用它区分「人为的还是自动的」">触发</th>
+      <th data-i18n="runs.th_start"   data-i18n-title="runs.tip.start"   title="本轮开始时间（本机时区）">开始</th>
+      <th data-i18n="runs.th_end"     data-i18n-title="runs.tip.end"     title="本轮结束时间。为空＝还没结束（进行中）；若状态是 interrupted，说明上次进程被直接关掉、没正常收尾（启动时会自愈补状态）">结束</th>
+      <th data-i18n="runs.th_scan"    data-i18n-title="runs.tip.scan"    title="本轮从列表页读到的房源条数（列表层）。v1.4.0 起与「落库」分离：只刷新了列表字段的轮次，扫描>0 而落库=0 是正常的，不是没跑">扫描</th>
+      <th data-i18n="runs.th_fetched" data-i18n-title="runs.tip.fetched" title="本轮真正写入/更新详情的条数（详情层）。两阶段下载中，这一项在阶段2（补详情）才会增长">落库</th>
+      <th data-i18n="runs.th_new"     data-i18n-title="runs.tip.new"     title="本轮首次进入本地库的房源数。注意：平台早已改过价、我方才第一次抓到的，算「变更」不算新盘">新盘</th>
+      <th data-i18n="runs.th_chg"     data-i18n-title="runs.tip.chg"     title="本轮识别到的变更条数（改价 / 信息变动）。按条数计，非去重套数；同一套房可能有多条">变更</th>
+      <th data-i18n="runs.th_status"  data-i18n-title="runs.tip.status"  title="本轮结果：ok 成功 ／ running 进行中 ／ error 失败 ／ interrupted 被中断">状态</th>
+      <th data-i18n="runs.th_note"    data-i18n-title="runs.tip.note"    title="失败原因或补充说明。最多显示 70 字符，完整内容见服务日志 data/logs/server.log">备注</th>
+    </tr>
+    {% for r in runs %}
+    <tr>
+      <td class="muted">{{ r.id }}</td>
+      <td>{{ r.trigger }}</td>
+      <td class="muted">{{ r.started_at }}</td>
+      <td class="muted">{{ r.finished_at or '—' }}</td>
+      <td>{{ r.scanned }}</td><td>{{ r.fetched }}</td>
+      <td>{{ r.new_count }}</td><td>{{ r.change_count }}</td>
+      <td>{{ r.online_total if r.online_total is not none else '—' }}</td>
+      <td>{{ r.scanned if r.scanned is not none else '—' }}</td>
+      <td>{% set _d = (r.online_total or 0) - (r.scanned or 0) %}{{ _d }}{% if r.online_total and r.online_total > 500 and (r.scanned or 0) < 500 %} ·截断{% elif _d > 0 %} ·漏采{% elif _d == 0 %} ·一致{% elif _d < 0 %} ·异常{% endif %}</td>
+      <td>{% if r.status == 'ok' %}<span class="tag ok" data-i18n="run.ok">成功</span>
+          {% elif r.status == 'running' %}<span class="tag running" data-i18n="run.running">进行中</span>
+          {% else %}<span class="tag fail" data-i18n="run.fail">失败</span>{% endif %}</td>
+      <td class="muted">{{ (r.message or '')[:70] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="empty" data-i18n="runs.empty">还没有运行记录。</div>{% endif %}
+</div>
+
+<script>
+let logCursor = 0;
+async function pull(){
+  try{
+    const lg = await api('/api/logs?since=' + logCursor);
+    if(lg.lines.length){
+      const box = document.getElementById('logbox');
+      box.textContent += (box.textContent ? '\n' : '') + lg.lines.join('\n');
+      box.scrollTop = box.scrollHeight;
+      logCursor = lg.total;
+    }
+  }catch(e){ /* 服务离线时由顶部横幅统一提示 */ }
+}
+pull();
+setInterval(pull, 2500);
+</script>
+{% endblock %}

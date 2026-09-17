@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>同步状态面板 · 重做预览</title>
+<style>
+  :root{--brand:#2563eb;--ink:#0f172a;--sub:#64748b;--line-soft:#e2e8f0;--ok:#1f9d61}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f1f5f9;
+    color:var(--ink);padding:24px;margin:0}
+  .wrap{max-width:560px;margin:0 auto}
+  h2{font-size:15px;margin:0 0 4px}
+  .hint{color:var(--sub);font-size:12px}
+  .card{background:#fff;border:1px solid var(--line-soft);border-radius:12px;padding:16px;margin-top:12px}
+  /* —— 三层同步状态（v1.4.1 重做）—— */
+  .sync-sec{background:#f3f7fd;border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+  .sync-sec.minor{background:#fafbfc;border-style:dashed}
+  .sync-sec-h{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .sync-sec-t{font-weight:700;font-size:13px;color:var(--brand)}
+  .sync-sec-sub{font-size:11px;color:var(--sub);margin-left:auto}
+  .sync-sec-q{flex:none;width:16px;height:16px;line-height:15px;text-align:center;border-radius:50%;
+    background:var(--brand);color:#fff;font-size:11px;font-weight:700;cursor:help;opacity:.85}
+  .sync-sec-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin-top:7px}
+  .sync-sec-row b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .sync-sec-row .ok{color:#1f9d61}
+  .sync-sec-row .wait{color:#b8841a}
+  .covbar{position:relative;height:20px;background:#e7edf5;border-radius:6px;overflow:hidden}
+  .covbar-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:6px 0 0 6px;transition:width .4s}
+  .covbar-fill.ok{background:linear-gradient(90deg,#1f9d61,#4cc38a)}
+  .covbar-num{position:absolute;right:8px;top:0;line-height:20px;font-size:11.5px;font-weight:800;color:#0f2a4d;font-variant-numeric:tabular-nums}
+  .note{font-size:12px;color:var(--sub);line-height:1.6;margin-top:14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px}
+  .note b{color:#9a3412}
+  .legend{font-size:12px;color:var(--sub);margin-top:10px;line-height:1.7}
+  .legend code{background:#eef2ff;padding:1px 5px;border-radius:4px;color:#3730a3}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>同步状态 <span class="hint">截至 09-14 11:11</span></h2>
+  <div class="card">
+    <!-- 第1层：当前在架覆盖 -->
+    <div class="sync-sec">
+      <div class="sync-sec-h">
+        <span class="sync-sec-t">当前在架覆盖</span>
+        <span class="sync-sec-q" title="线上覆盖 = 本机今天仍在架的房源 ÷ REINS 今天在架总数，恒 ≤100%。旧版用累计存量作分子曾显示 200%+，v1.4.1 已修正。">?</span>
+        <span class="sync-sec-sub">REINS 今天在架 → 本机已同步</span>
+      </div>
+      <div class="covbar"><div class="covbar-fill" style="width:99.7%"></div><span class="covbar-num">99.7%</span></div>
+      <div class="sync-sec-row">
+        <span>线上 <b>393</b></span>
+        <span>本机在架 <b>392</b></span>
+        <span class="muted">未抓/触顶 <b>1</b></span>
+      </div>
+    </div>
+    <!-- 第2层：累计入库 -->
+    <div class="sync-sec minor">
+      <div class="sync-sec-h">
+        <span class="sync-sec-t">累计入库</span>
+        <span class="sync-sec-q" title="累计入库 = 本机库里该类房源的全部条数（含已成交下架仍留库的），会大于当前在架，因此不叫“覆盖”。">?</span>
+        <span class="sync-sec-sub">含已成交下架的历史存量</span>
+      </div>
+      <div class="sync-sec-row"><span>累计 <b>877</b></span><span class="muted">历史存量，非覆盖率</span></div>
+    </div>
+    <!-- 第3层：详情层进度 -->
+    <div class="sync-sec">
+      <div class="sync-sec-h">
+        <span class="sync-sec-t">详情层进度</span>
+        <span class="sync-sec-q" title="已下详情 = 已抓到详情页全字段的套数；待补 = 只有列表、阶段2 还没补的（正常中间态）。">?</span>
+        <span class="sync-sec-sub">两阶段下载：列表先齐、详情慢慢补</span>
+      </div>
+      <div class="covbar"><div class="covbar-fill ok" style="width:100%"></div><span class="covbar-num">100%</span></div>
+      <div class="sync-sec-row">
+        <span class="ok">已下详情 <b>392</b></span>
+        <span class="wait">待补详情 <b>0</b></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>这个面板在回答三个问题：</b><br>
+    ① <code>当前在架覆盖</code> —— 今天 REINS 上还挂着的 393 套，本机抓到了多少（≤100%，修复前会显示 199%/223%）。<br>
+    ② <code>累计入库</code> —— 本机库里这类房源的总存量（含已成交下架），它是历史账，不是覆盖率。<br>
+    ③ <code>详情层进度</code> —— 两阶段下载后，已补齐详情页全字段的有多少、还多少在「只有列表」。
+  </div>
+
+  <div class="note">
+    <b>关于「列表收集为什么慢」：</b> REINS 显示「1～50件／98件」只是它自己的分页。
+    爬虫是<strong>真浏览器自动化逐行读 DOM</strong>：每行要对该行约 10 个单元格逐个读 <code>style</code> 映射网格坐标
+    （每次都是到浏览器的往返），再查库 / 记直链 / 落库；阶段1 每行还故意停 <code>0.5~2.0s</code>（真人节奏抗风控）。
+    所以 50 行 ≈ 2~3 分钟／页，是<strong>预期成本，不是 bug</strong>。
+  </div>
+</div>
+</body>
+</html>

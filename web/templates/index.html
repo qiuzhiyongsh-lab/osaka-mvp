@@ -1,0 +1,819 @@
+{% extends "base.html" %}
+{% block body %}
+
+<div class="refreshbar">
+  <span class="dot" id="live-dot"></span>
+  <b>概览</b>
+  <span class="muted">每 60 秒自动刷新</span>
+  <button class="ghost" onclick="refreshOverview()">🔄 刷新一次</button>
+  <span class="muted" id="last-refresh"></span>
+</div>
+
+{# v1.4.0：KPI 卡片可点 —— 看到"今日降价 3"直接点进去看是哪 3 套，
+   不用再去查询页把条件重设一遍（以前只能看数字，看不了明细）。 #}
+<div class="grid" style="margin-bottom:14px">
+  <div class="kpi klink" onclick="kpiGo('all')" title="点击查看本地库全部房源">
+    <div class="n" id="kpi-total">{{ num(stats.total) }}</div>
+    <div class="l" data-i18n="kpi.total">本地房源总数</div>
+  </div>
+  <div class="kpi hot klink" onclick="kpiGo('today')" title="点击查看今天的更新">
+    <div class="n" id="kpi-today-upd"><span id="kpi-today-new">{{ num(stats.get('today_new')) }}</span><span class="sl">/</span><span id="kpi-today-changed">{{ num(stats.get('today_changed')) }}</span></div>
+    <div class="l" data-i18n="kpi.today_update">今日更新（新增 / 变更）</div>
+    <div class="s"><span data-i18n="kpi.sum">合计</span> <b id="kpi-today-total">{{ num(stats.get('today_total')) }}</b></div>
+  </div>
+  <div class="kpi hot klink" onclick="kpiGo('today')" data-i18n-title="kpi.today_down_tip" title="今日降价 = REINS 平台标注「変更年月日」为今天、且挂牌价低于变更前价的房源数。以平台自身降价的官方日期为准，避免把「今天才抓到、但前几天就已降价」的房源算进来。今天若显示 0，表示没有平台在今天盖戳降价的房源（已打折但早于今天的房源不计入）。">
+    <div class="n" id="kpi-today-down">{{ num(stats.today_down) }}</div>
+    <div class="l" data-i18n="kpi.today_down">今日降价</div>
+  </div>
+  <div class="kpi klink" onclick="kpiGo('pdf')" title="点击查看已落盘 PDF 的房源">
+    <div class="n" id="kpi-pdf">{{ num(stats.with_pdf) }}</div>
+    <div class="l" data-i18n="kpi.pdf">已落盘 PDF</div>
+  </div>
+  <div class="kpi">
+    <div class="n small" id="kpi-last-run">{{ stats.last_run[11:16] if stats.last_run else '—' }}</div>
+    <div class="l" data-i18n="kpi.last_run">最近一次更新</div>
+  </div>
+  {% set cov = (coverage|default({})) or {} %}
+  <div class="kpi klink" onclick="kpiGo('today')" title="线上覆盖 = 本机今天仍在架 ÷ REINS 今天在架总数（≤100%）。本机在架=已同步在架数；累计=含已成交下架的历史存量。">
+    <div class="n" id="kpi-coverage">{% if cov.get('pct') is not none %}{{ cov.get('pct') }}%{% else %}—{% endif %}</div>
+    <div class="l" data-i18n="kpi.coverage">线上覆盖</div>
+    <div class="s"><span data-i18n="kpi.cov_online">线上</span> <b id="kpi-online">{{ num(cov.get('online')) }}</b> ／ <span data-i18n="sync.local_live">本机在架</span> <b id="kpi-cov-live">{{ num(cov.get('local_live')) }}</b> ／ <span data-i18n="sync.cum">累计</span> <b id="kpi-cov-local">{{ num(cov.get('local')) }}</b></div>
+  </div>
+</div>
+
+{# D5（v1.8.2）数据对账卡片；⑤（v1.8.5）改**三段式 + 下钻**：
+   ① 平台报告 → ② 我方扫描 → ③ 缺口归因；点每段标题展开逐组明细。
+   关键改进：缺口不再笼统报一个数，而是拆成「平台 500 截断（翻不到，非我方责）」
+   与「我方漏采（可翻范围内没抓全）」两类 —— 否则一看到 gap>0 就以为程序坏了。 #}
+<div class="card" id="recon-card">
+  <h2><span data-i18n="recon.h">数据对账</span>
+    <span class="hint" id="recon-asof"></span>
+    <span class="hint" data-i18n="recon.hint">平台报告 → 我方扫描 → 缺口归因（点每段展开明细）</span></h2>
+
+  <div class="recon-seg" id="recon-seg-platform">
+    <div class="seg-head" onclick="toggleReconSeg('platform')">
+      <span class="seg-i">①</span>
+      <span class="seg-t" data-i18n="recon.seg.platform">平台报告</span>
+      <span class="seg-n" id="recon-online">—</span>
+      <span class="seg-x" id="recon-platform-sub"></span>
+      <span class="seg-c">▾</span>
+    </div>
+    <div class="seg-body" id="recon-body-platform" hidden></div>
+  </div>
+
+  <div class="recon-seg" id="recon-seg-local">
+    <div class="seg-head" onclick="toggleReconSeg('local')">
+      <span class="seg-i">②</span>
+      <span class="seg-t" data-i18n="recon.seg.local">我方扫描</span>
+      <span class="seg-n" id="recon-live">—</span>
+      <span class="seg-x" id="recon-local-sub"></span>
+      <span class="seg-c">▾</span>
+    </div>
+    <div class="seg-body" id="recon-body-local" hidden></div>
+  </div>
+
+  <div class="recon-seg" id="recon-seg-gap">
+    <div class="seg-head" onclick="toggleReconSeg('gap')">
+      <span class="seg-i">③</span>
+      <span class="seg-t" data-i18n="recon.seg.gap">缺口归因</span>
+      <span class="seg-n" id="recon-gap">—</span>
+      <span class="seg-x" id="recon-gap-sub"></span>
+      <span class="seg-c">▾</span>
+    </div>
+    <div class="seg-body" id="recon-body-gap" hidden></div>
+  </div>
+
+  <div class="recon-grid" style="margin-top:10px">
+    <div class="recon-cell"><div class="n" id="recon-new">—</div><div class="l" data-i18n="recon.new">本轮新增</div></div>
+    <div class="recon-cell"><div class="n" id="recon-changed">—</div><div class="l" data-i18n="recon.changed">本轮变更</div></div>
+    <div class="recon-cell"><div class="n" id="recon-pending">—</div><div class="l" data-i18n="recon.pending">待补详情</div></div>
+  </div>
+</div>
+
+{# v1.4.0：完成通知 —— 手动更新 / 指定日期下载跑完会写一条通知，
+   前端轮询到就显示在这里，用户不用一直盯着日志等。 #}
+<div class="card" id="ntf-card" style="display:none">
+  <h2><span data-i18n="ntf.title">完成通知</span>
+    <button class="ghost" style="float:right" onclick="markAllNotif()" data-i18n="ntf.mark_read">全部标已读</button>
+  </h2>
+  <div id="ntf-body"></div>
+</div>
+
+{# v1.5.2：需要你决定 —— 只在出问题时出现（会话失效 / 连续点击失败 / 重启后发现未完成的轮次）。
+   15 秒倒计时内点一个按钮就按那个办；没点就按默认动作走，绝不卡住抓取。 #}
+<div class="card decision-card" id="dec-card" style="display:none">
+  <h2><span data-i18n="dec.title">需要你决定</span>
+    <span class="tag running" id="dec-count">15s</span>
+  </h2>
+  <div id="dec-body"></div>
+</div>
+
+{# v1.5.15：实时阶段进度面板（.phaser）—— 没有轮次在跑时整块隐藏 #}
+<div class="card" id="phaser-card" style="display:none">
+  <h2>实时进度 <span class="hint" id="phaser-asof"></span></h2>
+  <div id="phaser-body"></div>
+</div>
+
+{# v1.5.15：实时阶段进度面板渲染 + 轮询（4s）。阶段顺序对齐真实代码时间线：
+   date_sync(①平台日期同步) → list(②列表查询与下载) → detail_pdf(③详情＋図面PDF) → export(④导出与收尾) #}
+<script>
+(function () {
+  var PHASES = [
+    { key: "date_sync",  label: "① 平台日期同步" },
+    { key: "list",       label: "② 列表查询中" },
+    { key: "detail_pdf", label: "③ 详情＋PDF下载中" },
+    { key: "export",     label: "④ 导出收尾" }
+  ];
+  var WEIGHT = { date_sync: 5, list: 30, detail_pdf: 60, export: 5 };
+  var ORDER = {}; PHASES.forEach(function (p, i) { ORDER[p.key] = i; });
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function pct(n, d) { return d > 0 ? Math.max(0, Math.min(100, Math.round(n / d * 100))) : 0; }
+  function bar(frac) {
+    return '<div class="covbar" style="background:#e7edf5;border-radius:9px">' +
+           '<div class="covbar-fill" style="width:' + Math.max(0, Math.min(100, frac)) + '%"></div></div>';
+  }
+
+  function renderPhase(pj) {
+    var card = document.getElementById("phaser-card");
+    var body = document.getElementById("phaser-body");
+    if (!card || !body) return;
+    if (!pj || !pj.running || !pj.phase) { card.style.display = "none"; return; }
+    card.style.display = "";
+    body.innerHTML = "";
+
+    // ---- 步进条 ----
+    var idx = ORDER.hasOwnProperty(pj.phase) ? ORDER[pj.phase] : 1;
+    var steps = el("div", "phase-steps");
+    PHASES.forEach(function (p, i) {
+      var s = el("div", "pstep" + (i < idx ? " done" : (i === idx ? " active" : "")));
+      s.appendChild(el("div", "dot", String(i + 1)));
+      s.appendChild(el("div", "pl", p.label));
+      steps.appendChild(s);
+    });
+    body.appendChild(steps);
+
+    // ---- 整体进度（阶段权重法）----
+    var doneBefore = 0;
+    for (var i = 0; i < idx; i++) doneBefore += WEIGHT[PHASES[i].key];
+    var w = WEIGHT[pj.phase] || 0;
+    var frac = 0.5;
+    if (pj.phase === "detail_pdf") frac = pct(pj.fetched, pj.need_detail) / 100;
+    var overall = Math.min(100, Math.round(doneBefore + w * frac));
+    var ov = el("div", "overall");
+    ov.appendChild(el("div", "overall-top", "整体进度 <b>" + overall + "%</b>"));
+    ov.insertAdjacentHTML("beforeend", bar(overall));
+    body.appendChild(ov);
+
+    // ---- v1.7.0：种目 × 登录/变更 12 行矩阵（分母=平台报告，分子=库内已下详情/PDF）----
+    if (pj.groups && pj.groups.length) {
+      var mx = el("div", "workload");
+      mx.appendChild(el("div", "workload-h",
+        '③ 按种目 × 登录/变更 实况 <span class="sub">平台报告 / 已下详情 / 待补 / PDF</span>'));
+      var tbl = '<table class="mx" style="width:100%;border-collapse:collapse;font-size:12px">'
+        + '<thead><tr style="text-align:left;color:#678">'
+        + '<th style="padding:2px 6px">种目组</th><th style="padding:2px 6px">轴</th>'
+        + '<th style="padding:2px 6px">平台</th><th style="padding:2px 6px">已下详情</th>'
+        + '<th style="padding:2px 6px">待补</th><th style="padding:2px 6px">PDF</th></tr></thead><tbody>';
+      pj.groups.forEach(function (g) {
+        tbl += '<tr>'
+          + '<td style="padding:2px 6px">' + esc(g.label) + '</td>'
+          + '<td style="padding:2px 6px">' + esc(g.axis) + '</td>'
+          + '<td style="padding:2px 6px">' + (g.online || 0) + '</td>'
+          + '<td style="padding:2px 6px">' + (g.fetched || 0) + '</td>'
+          + '<td style="padding:2px 6px" class="' + (g.need_detail > 0 ? "hi" : "") + '">'
+          + (g.need_detail || 0) + '</td>'
+          + '<td style="padding:2px 6px">' + (g.pdf_saved || 0) + '</td>'
+          + '</tr>';
+      });
+      tbl += '</tbody></table>';
+      mx.insertAdjacentHTML("beforeend", tbl);
+      body.appendChild(mx);
+    }
+
+    // ---- ① 列表查询·差别量（date_sync 之后都算"查询下载"工作）----
+    if (pj.phase === "list" || pj.phase === "detail_pdf" || pj.phase === "export") {
+      var scanned = pj.scanned || 0, needD = pj.need_detail || 0, fetched = pj.fetched || 0;
+      var inDetail = (pj.phase === "detail_pdf" || pj.phase === "export");
+      var remain = inDetail ? Math.max(0, needD - fetched) : scanned;
+      var doneN = inDetail ? fetched : scanned;
+      var rate = inDetail ? pct(fetched, needD) : 100;
+      var lc = el("div", "workload");
+      lc.appendChild(el("div", "workload-h",
+        '① 列表查询 · 差别量 <span class="sub">平台扫到 vs 本地待处理</span>'));
+      var grid = el("div", "wl-grid");
+      grid.appendChild(el("div", "wl-item", '<div class="k">平台本轮扫到</div><div class="v">' + scanned + "</div>"));
+      grid.appendChild(el("div", "wl-item", '<div class="k">本地待处理(差别)</div><div class="v hi">' + remain + "</div>"));
+      grid.appendChild(el("div", "wl-item", '<div class="k">已完成</div><div class="v ok">' + doneN + "</div>"));
+      grid.appendChild(el("div", "wl-item", '<div class="k">完成率</div><div class="v">' + rate + "%</div>"));
+      lc.appendChild(grid);
+      body.appendChild(lc);
+    }
+
+    // ---- ② 详情＋図面PDF 双计数（detail_pdf / export）----
+    if (pj.phase === "detail_pdf" || pj.phase === "export") {
+      var dc = el("div", "workload");
+      dc.appendChild(el("div", "workload-h",
+        '② 详情页 + 図面PDF下载 <span class="sub">最慢阶段(~60%)</span>'));
+      var sb1 = el("div", "subbar");
+      sb1.innerHTML = '<div class="sb-l">详情页</div>' + bar(pct(pj.fetched, pj.need_detail)) +
+        '<div class="sb-r">已 <b>' + (pj.fetched || 0) + "</b> / 需 " + (pj.need_detail || 0) + "</div>";
+      dc.appendChild(sb1);
+      var sb2 = el("div", "subbar");
+      sb2.innerHTML = '<div class="sb-l">図面PDF</div>' + bar(pct(pj.pdf_saved, pj.need_pdf)) +
+        '<div class="sb-r">已 <b>' + (pj.pdf_saved || 0) + "</b> / 需 " + (pj.need_pdf || 0) + "</div>";
+      dc.appendChild(sb2);
+      body.appendChild(dc);
+    } else if (pj.phase === "date_sync") {
+      body.appendChild(el("div", "phase-now",
+        '<div class="pn-h"><span class="pn-t">正在同步平台今日(登録/変更)日期…</span>' +
+        '<span class="pn-tag">date_sync</span></div>'));
+    } else if (pj.phase === "list") {
+      body.appendChild(el("div", "phase-now",
+        '<div class="pn-h"><span class="pn-t">正在逐组检索 REINS 列表</span>' +
+        '<span class="pn-tag">' + (pj.group_label || "list") + "</span></div>"));
+    }
+
+    // ---- 当前阶段明细 ----
+    var meta = [];
+    if (pj.group_label) meta.push("组：" + pj.group_label);
+    if (pj.page) meta.push("页：" + pj.page);
+    if (meta.length) {
+      var mn = el("div", "phase-now");
+      mn.innerHTML = '<div class="pn-note">' + meta.join(" ｜ ") + "</div>";
+      body.appendChild(mn);
+    }
+
+    var asof = document.getElementById("phaser-asof");
+    if (asof) asof.textContent = "● 运行中" + (pj.as_of ? " · 更新于 " + pj.as_of : "");
+  }
+
+  function pollPhase() {
+    try {
+      fetch("/api/phase").then(function (r) { return r.json(); }).then(renderPhase);
+    } catch (e) {}
+  }
+  if (typeof window !== "undefined") {
+    pollPhase();
+    setInterval(pollPhase, 4000);
+  }
+})();
+</script>
+
+{# v1.4.0：同步状态 —— 回答"我到底下全了没有"：线上 N 件 vs 本地 M 件，
+   以及两阶段下载后最关键的第二个进度条：已下详情 / 待补详情。 #}
+<div class="card">
+  <h2><span data-i18n="sync.title">同步状态</span>
+      <span class="hint" id="sync-asof"></span></h2>
+  <div id="sync-body">
+    <div class="empty" data-i18n="sync.nodata">还没有线上数据，跑一轮后就有了</div>
+  </div>
+</div>
+
+<div class="card status-card">
+  <div class="status-line" id="status-line">
+    <span class="dot-ind {{ 'on' if sched.enabled else 'off' }}"></span>
+    <b>自动更新：{{ '运行中' if sched.enabled else '已停止' }}</b>
+    <span class="muted">{{ sched.describe }}</span>
+    <span class="muted">
+      {% if sched.next_run_at %}下一轮 {{ sched.next_run_at }}
+      {% elif sched.enabled %}{{ sched.describe }}{% else %}—{% endif %}
+    </span>
+    {% if sched.busy %}<span class="tag running">正在进行</span>{% endif %}
+    {% if not sched.in_window %}<span class="tag modified">当前不在运行时段</span>{% endif %}
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="btnManual" onclick="clickManual(false)" data-i18n="btn.manual">▶ 手动更新（立刻抓一轮）</button>
+    <button class="ghost" id="btnTrial" onclick="clickManual(true)" data-i18n="btn.trial">试跑（最轻量）</button>
+    <a class="btn ghost" href="{{ url_for('collect') }}" data-i18n="btn.collect">数据抓取设置 →</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2><span data-i18n="recent.changes">最近变更</span> <span class="hint" data-i18n="hint.newdownchg">新盘 / 降价 / 变更</span></h2>
+  <div id="changes-body">
+    {% if changes %}
+    <table>
+      <tr><th data-i18n="th.time">时间</th><th data-i18n="th.property">房源</th><th data-i18n="th.type">类型</th><th data-i18n="th.old">原值</th><th data-i18n="th.new">新值</th></tr>
+      {% for c in changes %}
+      <tr>
+        <td class="muted">{{ c.detected_at[5:16] }}</td>
+        <td><a href="{{ url_for('detail', property_no=c.property_no) }}">{{ c.property_no }}</a></td>
+        <td><span class="tag {{ c.change_type }}" data-i18n="ch.{{ c.change_type }}">
+          {{ {'new':'新規','price_down':'降价','price_up':'涨价','modified':'变更'}.get(c.change_type, c.change_type) }}</span></td>
+        <td>{{ c.old_value or '—' }}</td>
+        <td>{{ c.new_value or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty" data-i18n="empty.changes">暂无变更记录。先点上面的「手动更新」跑一轮。</div>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2><span data-i18n="recent.runs">最近运行</span> <span class="hint" data-i18n="hint.fullog">完整记录见「运行日志」</span></h2>
+  <div id="runs-body">
+    {% if runs %}
+    <table>
+      {# v1.4.1：表头悬停说明（含义 + 使用规则），文案与「运行日志」页同源 #}
+      <tr>
+        <th data-i18n="th.id"      data-i18n-title="runs.tip.id">#</th>
+        <th data-i18n="th.start"   data-i18n-title="runs.tip.start">开始</th>
+        <th data-i18n="th.trigger" data-i18n-title="runs.tip.trigger">触发</th>
+        <th data-i18n="th.scanned" data-i18n-title="runs.tip.scan">扫描</th>
+        <th data-i18n="th.fetched" data-i18n-title="runs.tip.fetched">落库</th>
+        <th data-i18n="th.new"     data-i18n-title="runs.tip.new">新盘</th>
+        <th data-i18n="th.change"  data-i18n-title="runs.tip.chg">变更</th>
+        <th data-i18n="th.status"  data-i18n-title="runs.tip.status">状态</th>
+      </tr>
+      {% for r in runs %}
+      <tr>
+        <td class="muted">{{ r.id }}</td>
+        <td class="muted">{{ r.started_at }}</td>
+        <td>{{ r.trigger }}</td>
+        <td>{{ r.scanned }}</td><td>{{ r.fetched }}</td><td>{{ r.new_count }}</td>
+        <td>{{ r.change_count }}</td>
+        <td>{% if r.status == 'ok' %}<span class="tag ok" data-i18n="run.ok">成功</span>
+            {% elif r.status == 'running' %}<span class="tag running" data-i18n="run.running">进行中</span>
+            {% else %}<span class="tag fail" data-i18n="run.fail">失败</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="row" style="margin-top:10px">
+      <a class="btn ghost" href="{{ url_for('runs') }}" data-i18n="link.allruns">查看全部运行日志 →</a>
+    </div>
+    {% else %}<div class="empty" data-i18n="empty.runs">还没有运行记录，先点「手动更新」跑一轮。</div>{% endif %}
+  </div>
+</div>
+
+<script>
+// 变更类型标签已改用 i18n 键 ch.*（见 refreshOverview 里的 t('ch.'+change_type)）
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function num(v){ return (v==null||v==='') ? '—' : v; }
+
+/* v1.4.1：表头带悬停说明（含义 + 使用规则）。
+   与「运行日志」页共用同一套 runs.tip.* 文案，保证两处口径一致。 */
+function thTip(labelKey, tipKey){
+  return '<th title="' + esc(t(tipKey)) + '">' + esc(t(labelKey)) + '</th>';
+}
+
+function nowHM(){
+  var d=new Date(); var p=function(x){return (x<10?'0':'')+x;};
+  return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+function todayStr(){
+  var d=new Date(); var p=function(x){return (x<10?'0':'')+x;};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+
+/* v1.4.0：KPI 卡片点进去 → 跳查询页并带上对应筛选。
+   date=all = 不按日期过滤（看全库）；date=YYYY-MM-DD = 只看那天；has_pdf=1 = 只看带 PDF。 */
+function kpiGo(kind){
+  var u = '/search?';
+  if(kind === 'all')      u += 'date=all';
+  else if(kind === 'pdf') u += 'date=all&has_pdf=1';
+  else                    u += 'date=' + todayStr();
+  location.href = u;
+}
+
+/* v1.4.0：同步状态面板。两层进度都要给用户看：
+     第 1 层  线上 N → 本地 M    （回答"下全了没有"）
+     第 2 层  已下详情 / 待补详情（两阶段下载后详情是慢慢补的，这是正常的中间状态） */
+function renderSync(sy, covj){
+  var box = document.getElementById('sync-body');
+  if(!box) return;
+  var d = sy.detail || {};
+  covj = covj || {};
+  var on = sy.online_total, lo = sy.local_total, lv = sy.local_live, pc = sy.pct;
+  if(on == null && lo == null && lv == null && !d.total){
+    box.innerHTML = '<div class="empty">'+t('sync.nodata')+'</div>';
+    return;
+  }
+  var remain = (on!=null && lv!=null) ? Math.max(0, on - lv) : null;
+  var h = '';
+  // —— 第 1 层：当前在架覆盖（核心 KPI，恒 ≤100%）——
+  h += '<div class="sync-sec">'
+    + '<div class="sync-sec-h"><span class="sync-sec-t">'+t('sync.live')+'</span>'
+    + '<span class="sync-sec-q" data-i18n-title="sync.cov_tip" title="'+esc(t('sync.cov_tip'))+'">?</span>'
+    + '<span class="sync-sec-sub">'+t('sync.live_sub')+'</span></div>'
+    + '<div class="covbar"><div class="covbar-fill" style="width:'+(pc==null?0:Math.min(100,pc))+'%"></div>'
+    +   '<span class="covbar-num">'+(pc==null?'—':pc+'%')+'</span></div>'
+    + '<div class="sync-sec-row">'
+    +   '<span>'+t('sync.online')+' <b>'+num(on)+'</b></span>'
+    +   '<span>'+t('sync.local_live')+' <b>'+num(lv)+'</b></span>'
+    +   (remain!=null ? '<span class="muted">'+t('sync.remain')+' <b>'+num(remain)+'</b></span>' : '')
+    + '</div></div>';
+  // —— 第 2 层：累计入库（历史存量，明确不是覆盖）——
+  // v1.4.3：本机在架比线上快照多几条时，如实提示（不是真覆盖溢出；pct 已裁到 100%）
+  if(covj.over && covj.over > 0){
+    h += '<div class="sync-sec minor"><span class="muted">'+tf('sync.over', {n: covj.over})+'</span></div>';
+  }
+  h += '<div class="sync-sec minor">'
+    + '<div class="sync-sec-h"><span class="sync-sec-t">'+t('sync.cum')+'</span>'
+    + '<span class="sync-sec-q" data-i18n-title="sync.cum_tip" title="'+esc(t('sync.cum_tip'))+'">?</span>'
+    + '<span class="sync-sec-sub">'+t('sync.cum_sub')+'</span></div>'
+    + '<div class="sync-sec-row"><span>'+t('sync.cum_total')+' <b>'+num(lo)+'</b></span>'
+    + '<span class="muted">'+t('sync.cum_hint')+'</span></div></div>';
+  // —— 第 3 层：详情层进度（两阶段下载）——
+  if(d.total){
+    var dp = d.pct==null?0:Math.min(100,d.pct);
+    var dsub = t('sync.detail_sub') + (d.date ? ' · '+d.date : '');
+    h += '<div class="sync-sec">'
+      + '<div class="sync-sec-h"><span class="sync-sec-t">'+t('sync.detail')+'</span>'
+      + '<span class="sync-sec-q" data-i18n-title="sync.detail_tip" title="'+esc(t('sync.detail_tip'))+'">?</span>'
+      + '<span class="sync-sec-sub">'+esc(dsub)+'</span></div>'
+      + '<div class="covbar"><div class="covbar-fill ok" style="width:'+dp+'%"></div>'
+      +   '<span class="covbar-num">'+(d.pct==null?'—':d.pct+'%')+'</span></div>'
+      + '<div class="sync-sec-row">'
+      +   '<span class="ok">'+t('sync.detail_have')+' <b>'+num(d.with_detail)+'</b></span>'
+      +   '<span class="wait">'+t('sync.detail_wait')+' <b>'+num(d.without_detail)+'</b></span>'
+      + '</div></div>';
+  }
+  // —— 第 3b 层：累计详情（历史存量，分母=全库；与第3层对照，避免被历史稀释误读）——
+  if(sy.detail_all && sy.detail_all.total){
+    var allp = sy.detail_all.pct==null?0:Math.min(100,sy.detail_all.pct);
+    h += '<div class="sync-sec minor">'
+      + '<div class="sync-sec-row"><span class="muted">'+t('sync.detail_all')+' <b>'
+      + num(sy.detail_all.with_detail)+'/'+num(sy.detail_all.total)+'</b> · '+allp+'%</span>'
+      + '<span class="muted">'+t('sync.detail_all_hint')+'</span></div></div>';
+  }
+  // —— 第 4 层：PDF（図面）层进度（分母=有「図」图标；v1.5.13）——
+  var p = sy.pdf || {};
+  if(p.total_floorplan){
+    var pp = p.pct==null?0:Math.min(100,p.pct);
+    var psub = t('sync.pdf_sub') + (p.date ? ' · '+p.date : '');
+    h += '<div class="sync-sec">'
+      + '<div class="sync-sec-h"><span class="sync-sec-t">'+t('sync.pdf')+'</span>'
+      + '<span class="sync-sec-q" data-i18n-title="sync.pdf_tip" title="'+esc(t('sync.pdf_tip'))+'">?</span>'
+      + '<span class="sync-sec-sub">'+esc(psub)+'</span></div>'
+      + '<div class="covbar"><div class="covbar-fill ok" style="width:'+pp+'%"></div>'
+      +   '<span class="covbar-num">'+(p.pct==null?'—':p.pct+'%')+'</span></div>'
+      + '<div class="sync-sec-row">'
+      +   '<span class="ok">'+t('sync.pdf_have')+' <b>'+num(p.with_pdf)+'</b></span>'
+      +   '<span class="wait">'+t('sync.pdf_wait')+' <b>'+num(p.without_pdf)+'</b></span>'
+      + '</div></div>';
+  }
+  // —— 第 4b 层：累计 PDF（分母=全库有図面图标的子集；对照，避免分母被无図面房源稀释）——
+  if(sy.pdf_all && sy.pdf_all.total_floorplan){
+    var allpp = sy.pdf_all.pct==null?0:Math.min(100,sy.pdf_all.pct);
+    h += '<div class="sync-sec minor">'
+      + '<div class="sync-sec-row"><span class="muted">'+t('sync.pdf_all')+' <b>'
+      + num(sy.pdf_all.with_pdf)+'/'+num(sy.pdf_all.total_floorplan)+'</b> · '+allpp+'%</span>'
+      + '<span class="muted">'+t('sync.pdf_all_hint')+'</span></div></div>';
+  }
+  // —— 正在跑 ——
+  var rn = sy.running;
+  if(rn){
+    h += '<div class="sync-run"><span class="tag running">'+t('sync.running')+'</span> '
+      + '#'+num(rn.id)+' · '+t('th.scanned')+' '+num(rn.scanned)
+      + ' · '+t('th.fetched')+' '+num(rn.fetched)
+      + ' · '+t('sync.pdf')+' '+num(rn.pdf_saved)+'</div>';
+  }
+  box.innerHTML = h;
+  var ao = document.getElementById('sync-asof');
+  if(ao) ao.textContent = sy.as_of ? (t('sync.as_of')+' '+String(sy.as_of).slice(5,16)) : '';
+}
+
+/* v1.4.0：完成通知 —— 没有通知时整块隐藏，有才出现（平时不占地方） */
+/* ⑤（v1.8.5）：对账卡**三段式 + 下钻**。
+   后端结构（store.reconcile() 的 segments）：
+     platform = {total, as_of, cap, rows:[{label,value,at}]}
+     local    = {live, total, pending_detail, rows:[{label,value,subtypes}]}
+     gap      = {total, missed, truncated, cap,
+                 rows:[{label,online,local_live,gap,unavoidable,avoidable,cause}]}
+   兼容：老后端没有 segments 时只填三个大数 + 下面三格，明细区留空（不报错、不显示裸 key）。 */
+function renderReconcile(r){
+  r = r || {};
+  function set(id, v){ var el = document.getElementById(id); if(el) el.textContent = (v==null?'—':num(v)); }
+  function sub(id, s){ var el = document.getElementById(id); if(el) el.textContent = s || ''; }
+  set('recon-online', r.online_total);
+  set('recon-live', r.local_live);
+  set('recon-gap', r.gap);
+  set('recon-new', r.new_count);
+  set('recon-changed', r.change_count);
+  set('recon-pending', r.pending_detail);
+  var asof = document.getElementById('recon-asof');
+  if(asof) asof.textContent = r.as_of ? ('（截至 ' + String(r.as_of).slice(0,16) + '）') : '';
+
+  var seg = r.segments || {};
+  var gp = seg.gap || {};
+  var gapEl = document.getElementById('recon-gap');
+  if(gapEl){
+    // 归因着色：**只有「我方漏采」才标红**；纯平台 500 截断是平台限制、不是我们没抓，
+    // 用中性色，避免一看到 gap>0 就误判成程序坏了。
+    gapEl.className = 'seg-n' + (r.gap > 0 ? (((gp.missed||0) > 0) ? ' warn' : '') : ' ok');
+  }
+  var prows = (seg.platform || {}).rows || [];
+  var lrows = (seg.local || {}).rows || [];
+  sub('recon-platform-sub', prows.length ? tf('recon.sub.groups', {n: prows.length}) : '');
+  sub('recon-local-sub', tf('recon.sub.local',
+      {total: num(r.local_total||0), pending: num((seg.local||{}).pending_detail||0)}));
+  sub('recon-gap-sub', ((gp.missed||0) || (gp.truncated||0))
+      ? tf('recon.sub.gap', {missed: num(gp.missed||0), truncated: num(gp.truncated||0)}) : '');
+
+  var b1 = document.getElementById('recon-body-platform');
+  if(b1) b1.innerHTML = segRowsHtml(prows, [t('recon.th.group'), t('recon.th.online')],
+      function(x){ return [esc(x.label||''), num(x.value||0)]; });
+  var b2 = document.getElementById('recon-body-local');
+  if(b2) b2.innerHTML = segRowsHtml(lrows, [t('recon.th.group'), t('recon.th.local')],
+      function(x){ return [esc(x.label||''), num(x.value||0)]; });
+  var b3 = document.getElementById('recon-body-gap');
+  if(b3) b3.innerHTML = gapBodyHtml(gp, r);
+}
+/* 通用「组 → 数值」明细表（①②段共用） */
+function segRowsHtml(rows, heads, cells){
+  if(!rows || !rows.length) return '<div class="muted">' + (t('recon.drill.empty')||'暂无明细') + '</div>';
+  var h = '<table><thead><tr>';
+  heads.forEach(function(x){ h += '<th>' + esc(x) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  rows.forEach(function(x){
+    h += '<tr>' + cells(x).map(function(c){ return '<td class="n">' + c + '</td>'; }).join('') + '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+/* ③ 缺口归因明细：逐组列出「平台 / 我方 / 缺口 / 归因」+ 平台上限说明 + 最近轮次下钻 */
+function gapBodyHtml(gp, r){
+  var rows = gp.rows || [];
+  var h = '';
+  if(rows.length){
+    h += '<table><thead><tr>'
+      +  '<th>' + esc(t('recon.th.group')) + '</th>'
+      +  '<th>' + esc(t('recon.th.online')) + '</th>'
+      +  '<th>' + esc(t('recon.th.local')) + '</th>'
+      +  '<th>' + esc(t('recon.th.gap')) + '</th>'
+      +  '<th>' + esc(t('recon.th.cause')) + '</th></tr></thead><tbody>';
+    rows.forEach(function(x){
+      var cause = x.cause || 'ok';
+      h += '<tr><td>' + esc(x.label||'') + '</td>'
+        +  '<td class="n">' + num(x.online||0) + '</td>'
+        +  '<td class="n">' + num(x.local_live||0) + '</td>'
+        +  '<td class="n">' + num(x.gap||0) + '</td>'
+        +  '<td><span class="tag-cause ' + esc(cause) + '">'
+        +  esc(t('recon.cause.' + cause)) + '</span></td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  h += '<div class="seg-note">' + esc(tf('recon.note.cap', {cap: num(gp.cap||500)})) + '</div>';
+  // 下钻到「最近轮次」—— 一眼看出是哪一轮没抓全
+  var runs = r.runs || [];
+  if(runs.length){
+    h += '<div style="margin-top:8px"><b>' + esc(t('recon.runs.h')) + '</b></div>';
+    h += '<table><thead><tr>'
+      +  '<th>' + esc(t('recon.th.at')) + '</th>'
+      +  '<th>' + esc(t('recon.th.trigger')) + '</th>'
+      +  '<th>' + esc(t('recon.th.online')) + '</th>'
+      +  '<th>' + esc(t('recon.th.fetched')) + '</th>'
+      +  '<th>' + esc(t('recon.th.status')) + '</th></tr></thead><tbody>';
+    runs.forEach(function(x){
+      h += '<tr><td>' + esc(String(x.at||'').slice(5,16)) + '</td>'
+        +  '<td>' + esc(x.trigger||'') + '</td>'
+        +  '<td class="n">' + num(x.online_total||0) + '</td>'
+        +  '<td class="n">' + num(x.fetched||0) + '</td>'
+        +  '<td>' + esc(x.status||'') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  return h;
+}
+/* 点段标题展开 / 收起明细（箭头随状态翻转） */
+function toggleReconSeg(k){
+  var seg = document.getElementById('recon-seg-' + k);
+  var body = document.getElementById('recon-body-' + k);
+  if(!seg || !body) return;
+  var wasOpen = !body.hidden;
+  body.hidden = wasOpen;
+  if(wasOpen) seg.classList.remove('open'); else seg.classList.add('open');
+}
+function renderNotif(items){
+  var card = document.getElementById('ntf-card');
+  if(!card) return;
+  if(!items || !items.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  var h = '<table>';
+  items.forEach(function(n){
+    h += '<tr><td class="muted">'+esc(String(n.created_at).slice(5,16))+'</td>'
+      +  '<td>'+esc(n.message)+'</td></tr>';
+  });
+  h += '</table>';
+  var body = document.getElementById('ntf-body');
+  if(body) body.innerHTML = h;
+}
+
+/* v1.5.2：询问窗口 —— 出问题才出现；15 秒倒计时，点了就办，没点走默认。 */
+var _decSeen = {};      // 已经渲染过的 decision id → 渲染时的剩余秒数，避免重复重建 DOM
+function renderDecisions(items){
+  var card = document.getElementById('dec-card');
+  if(!card) return;
+  if(!items || !items.length){ card.style.display='none'; _decSeen={}; return; }
+  card.style.display = '';
+  var d = items[0], body = document.getElementById('dec-body');
+  var p = d.params || {};
+  var _tk = 'dec.kind.'+d.kind;
+  var title = (typeof tf==='function' ? tf(_tk, p) : t(_tk));
+  if(!title || title === _tk) title = d.kind;          // 没翻译就退回 kind 本身
+  var hint = (typeof tf==='function'
+    ? tf('dec.hint', {sec: d.timeout_s||15, def: d.default_action||''}) : '');
+  var h = '<div class="dec-title">'+esc(title)+'</div>';
+  h += '<div class="muted">'+esc(hint)+'</div>';
+  h += '<div class="dec-btns">';
+  (d.options||[]).forEach(function(o){
+    h += '<button class="ghost" onclick="doDecide('+d.id+',\''+o.action+'\')">'+esc(o.label)+'</button>';
+  });
+  h += '</div>';
+  body.innerHTML = h;
+  // 倒计时：按 created_at + timeout_s 算剩余，后端到点会自己写默认动作
+  var left = Math.max(0, Math.round((d.timeout_s||15) - (Date.parse(d.created_at.replace(' ','T')) ? (Date.now()-Date.parse(d.created_at.replace(' ','T')))/1000 : 0)));
+  var cEl = document.getElementById('dec-count');
+  if(cEl) cEl.textContent = left + 's';
+  if(_decSeen[d.id] === undefined){
+    _decSeen[d.id] = 1;
+    var iv = setInterval(function(){
+      left -= 1;
+      var el = document.getElementById('dec-count');
+      if(el) el.textContent = Math.max(0,left) + 's';
+      if(left <= 0){ clearInterval(iv); }
+    }, 1000);
+  }
+}
+async function doDecide(id, action){
+  try{
+    await postJSON('/api/decide', {id:id, action:action});
+    var card = document.getElementById('dec-card');
+    if(card) card.style.display = 'none';
+    refreshOverview();
+  }catch(e){ alertErr(e, t('dec.title')); }
+}
+
+async function markAllNotif(){
+  try{
+    await postJSON('/api/notifications/read', {});
+    var card = document.getElementById('ntf-card');
+    if(card) card.style.display = 'none';
+  }catch(e){ alertErr(e, t('ntf.title')); }
+}
+
+async function refreshOverview(){
+  try{
+    var j = await api('/api/overview');
+    var s = j.stats||{};
+    document.getElementById('kpi-total').textContent = num(s.total);
+    document.getElementById('kpi-today-new').textContent = num(s.today_new);
+    document.getElementById('kpi-today-changed').textContent = num(s.today_changed);
+    document.getElementById('kpi-today-total').textContent = num(s.today_total);
+    document.getElementById('kpi-today-down').textContent = num(s.today_down);
+    document.getElementById('kpi-pdf').textContent = num(s.with_pdf);
+    document.getElementById('kpi-last-run').textContent =
+      s.last_run ? String(s.last_run).slice(11,16) : '—';
+
+    // 线上覆盖（v1.4.1 修正）：线上 X ／ 本机在架 Y ／ 累计 Z ／ 覆盖 pct%
+    var cov = j.coverage || {};
+    var cEl = document.getElementById('kpi-coverage');
+    if(cEl) cEl.textContent = (cov.pct==null ? '—' : cov.pct + '%');
+    var onEl = document.getElementById('kpi-online');
+    if(onEl) onEl.textContent = num(cov.online);
+    var lvEl = document.getElementById('kpi-cov-live');
+    if(lvEl) lvEl.textContent = num(cov.local_live);
+    var loEl = document.getElementById('kpi-cov-local');
+    if(loEl) loEl.textContent = num(cov.local);
+
+    // v1.4.0：同步状态 + 完成通知
+    renderSync(j.sync || {}, j.coverage || {});
+    renderNotif(j.notifications || []);
+    renderDecisions(j.decisions || []);   // v1.5.2：15 秒询问窗口（出问题才出现）
+    renderReconcile(j.reconcile || {});   // D5（v1.8.2）：数据对账卡片
+
+    var sc = j.sched||{};
+    var busy = !!sc.busy;
+    document.getElementById('live-dot').className = 'dot' + (busy?' busy':'');
+    updateManualBtn(busy);   // v1.4.3：手动更新按钮三态机（空闲/正在运行中/本次已完成）
+    var line = '<span class="dot-ind '+(sc.enabled?'on':'off')+'"></span>'
+      + '<b>'+t('status.auto')+(sc.enabled?t('status.running'):t('status.stopped'))+'</b>'
+      + '<span class="muted">'+esc(sc.describe||'')+'</span>';
+    if(sc.next_run_at) line += '<span class="muted">'+t('status.next')+' '+esc(sc.next_run_at)+'</span>';
+    else if(sc.enabled) line += '<span class="muted">'+esc(sc.describe||'')+'</span>';
+    if(busy) line += '<span class="tag running">'+t('status.busy')+'</span>';
+    if(sc.in_window === false) line += '<span class="tag modified">'+t('status.outwin')+'</span>';
+    document.getElementById('status-line').innerHTML = line;
+
+    // 变更表
+    var ch = (j.changes||[]);
+    var chHtml = '';
+    if(ch.length){
+      chHtml = '<table><tr><th>'+t('th.time')+'</th><th>'+t('th.property')+'</th><th>'+t('th.type')+'</th><th>'+t('th.old')+'</th><th>'+t('th.new')+'</th></tr>';
+      ch.forEach(function(c){
+        var ck = 'ch.'+c.change_type; var lbl = t(ck); if(lbl===ck) lbl = c.change_type;
+        chHtml += '<tr><td class="muted">'+esc(String(c.detected_at).slice(5,16))+'</td>'
+          + '<td><a href="/p/'+encodeURIComponent(c.property_no)+'">'+esc(c.property_no)+'</a></td>'
+          + '<td><span class="tag '+esc(c.change_type)+'">'+esc(lbl)+'</span></td>'
+          + '<td>'+esc(c.old_value||'—')+'</td>'
+          + '<td>'+esc(c.new_value||'—')+'</td></tr>';
+      });
+      chHtml += '</table>';
+    } else { chHtml = '<div class="empty">'+t('empty.changes')+'</div>'; }
+    document.getElementById('changes-body').innerHTML = chHtml;
+
+    // 运行表
+    var rs = (j.runs||[]);
+    var rsHtml = '';
+    if(rs.length){
+      rsHtml = '<table><tr>'
+        + thTip('th.id',      'runs.tip.id')
+        + thTip('th.start',   'runs.tip.start')
+        + thTip('th.trigger', 'runs.tip.trigger')
+        + thTip('th.scanned', 'runs.tip.scan')
+        + thTip('th.fetched', 'runs.tip.fetched')
+        + thTip('th.newrun',  'runs.tip.new')
+        + thTip('th.change',  'runs.tip.chg')
+        + thTip('th.status',  'runs.tip.status')
+        + '</tr>';
+      rs.forEach(function(r){
+        var st = r.status==='ok' ? '<span class="tag ok">'+t('run.ok')+'</span>'
+          : (r.status==='running' ? '<span class="tag running">'+t('run.running')+'</span>'
+             : '<span class="tag fail">'+t('run.fail')+'</span>');
+        rsHtml += '<tr><td class="muted">'+num(r.id)+'</td><td class="muted">'+esc(r.started_at)+'</td>'
+          + '<td>'+esc(r.trigger)+'</td><td>'+num(r.scanned)+'</td><td>'+num(r.fetched)+'</td>'
+          + '<td>'+num(r.new_count)+'</td><td>'+num(r.change_count)+'</td><td>'+st+'</td></tr>';
+      });
+      rsHtml += '</table><div class="row" style="margin-top:10px">'
+        + '<a class="btn ghost" href="{{ url_for('runs') }}">'+t('link.allruns')+'</a></div>';
+    } else { rsHtml = '<div class="empty">'+t('empty.runs')+'</div>'; }
+    document.getElementById('runs-body').innerHTML = rsHtml;
+
+    document.getElementById('last-refresh').textContent = t('ov.last2') + ' ' + nowHM();
+  }catch(e){
+    // 服务掉线时 app.js 已弹横幅，这里静默
+    if(!(e instanceof ServerDownError)) console.error('refreshOverview', e);
+  }
+}
+
+// 每分钟自动刷新；首屏立即刷一次
+refreshOverview();
+setInterval(refreshOverview, 60000);
+// 语言切换后重渲染动态内容
+window.addEventListener('i18n:changed', function(){ try{ refreshOverview(); }catch(e){} });
+
+/* v1.4.3：手动更新 / 试跑 按钮「三态机」
+   —— 直接回应 PM 的截图诉求：
+     ① 空闲：点一下 → 立即显示「正在运行中…」并禁用（不用等轮询）
+     ② 跑完（busy 由 true 转 false）：自动显示「本次已完成 ✓（再点重新跑）」并恢复可点
+     ③ 再点：重新发起一轮，回到「正在运行中…」
+   实现：前端只需追踪"我们手动发起的那次"状态；是否真的在跑以 /api/overview 的 sched.busy 为准。
+   一次手动跑通常几十分钟，故发起后开 3 秒快轮询，跑完即停、回落到 60 秒常规轮询。 */
+let manualState = 'idle';   // idle | running | done  （仅描述"我们手动发起的那次"）
+let fastTimer = null;
+function stopFastPoll(){ if(fastTimer){ clearInterval(fastTimer); fastTimer = null; } }
+function startFastPoll(){
+  stopFastPoll();
+  fastTimer = setInterval(function(){
+    refreshOverview();                 // 内部会调 updateManualBtn(busy)
+    if(manualState !== 'running') stopFastPoll();   // 已结束 → 退回常规 60s 轮询
+  }, 3000);
+}
+function updateManualBtn(busy){
+  var b = document.getElementById('btnManual');
+  if(!b) return;
+  if(busy){
+    b.disabled = true;
+    b.textContent = (manualState === 'running') ? t('btn.manual_running') : t('btn.manual_busy');
+  } else {
+    b.disabled = false;
+    if(manualState === 'running') manualState = 'done';   // 我们发起的那次跑完了
+    b.textContent = (manualState === 'done') ? t('btn.manual_done') : t('btn.manual');
+  }
+}
+function clickManual(trial){
+  var b = document.getElementById('btnManual');
+  if(b && b.disabled) return;                 // 正在跑就不重复触发（后端也会 409）
+  manualState = 'running';
+  updateManualBtn(true);                      // 立即显示「正在运行中…」并禁用（不等轮询）
+  startFastPoll();                            // 开 3 秒快轮询，跑完即停、回落 60 秒常规轮询
+  postJSON('/api/run', trial ? {trial:true} : {}).catch(function(e){
+    // 409 = 已在跑（保持 running，快轮询会继续盯）；其它错误回 idle 让按钮可再点
+    if(!(e && e.status === 409)) manualState = 'idle';
+    alertErr(e, t('ov.act'));
+  });
+}
+// 首屏按钮状态由上面的 refreshOverview() 异步校准（busy 时显示「正在运行中…」）。
+</script>
+
+<script>
+async function post(url, body, label){
+  try{
+    const j = await postJSON(url, body || {});
+    alert((label ? label + '：' : '') + (j.message || j.status || t('run.ok')));
+    setTimeout(() => refreshOverview(), 800);
+  }catch(e){ alertErr(e, label || t('ov.act')); }
+}
+</script>
+{% endblock %}

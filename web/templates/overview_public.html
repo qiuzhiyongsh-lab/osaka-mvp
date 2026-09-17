@@ -1,0 +1,102 @@
+{# v1.5.19：对外（线上）只读概览页。
+   与本地仪表盘**同一套统计口径**，但去掉了更新开关、实时日志、断点询问、PDF 统计
+   这些只有本机才有意义的东西 —— 给同事看，纯只读。 #}
+{% extends "base.html" %}
+{% block body %}
+{% set s = stats %}
+
+<div class="refreshbar">
+  <b>大阪房源 · 数据概览</b>
+  <span class="muted">线上只读版 · 数据由本地抓取端自动同步</span>
+  <span id="freshness" class="muted" data-updated="{{ data_updated_at or '' }}"
+        style="margin-left:10px"></span>
+  <a class="ghost" href="{{ url_for('search') }}" style="margin-left:auto">去查房源 →</a>
+</div>
+
+<div class="grid" style="margin-bottom:14px">
+  <div class="kpi">
+    <div class="n">{{ s.get('total') or '—' }}</div>
+    <div class="l">房源总数</div>
+  </div>
+  <div class="kpi">
+    <div class="n">{{ s.get('active') or s.get('online') or '—' }}</div>
+    <div class="l">在架房源</div>
+  </div>
+  <div class="kpi hot">
+    <div class="n">{{ s.get('today_new') or '0' }}<span class="sl">/</span>{{ s.get('today_changed') or '0' }}</div>
+    <div class="l">今日更新（新增 / 变更）</div>
+    <div class="s">合计 <b>{{ s.get('today_total') or '0' }}</b></div>
+  </div>
+  <div class="kpi hot">
+    <div class="n">{{ s.get('today_down') or '0' }}</div>
+    <div class="l">今日降价</div>
+  </div>
+  <div class="kpi">
+    <div class="n small">{{ (s.get('last_run') or '—')[11:16] if s.get('last_run') else '—' }}</div>
+    <div class="l">最近一次更新</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>在架房源 · 按区分布</h2>
+  {% if wards %}
+    {% set mx = wards[0].count %}
+    <div style="display:grid;gap:8px">
+      {% for w in wards %}
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:9em;flex:none" class="muted">{{ w.ward }}</span>
+          <span class="covbar" style="flex:1">
+            <span class="covbar-fill" style="width:{{ (w.count * 100 / mx) | round(1) }}%"></span>
+          </span>
+          <b style="width:4em;text-align:right">{{ w.count }}</b>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">暂无分布数据。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>最近更新 <span class="muted" style="font-weight:400">（点番号看详情）</span></h2>
+  {% if changes %}
+    <div style="display:grid;gap:6px">
+      {% for c in changes %}
+        <div class="list-item" style="display:flex;gap:10px;align-items:baseline">
+          <a class="link" href="{{ url_for('detail', property_no=c.property_no) }}">{{ c.property_no }}</a>
+          <span class="badge">{{ c.change_type }}</span>
+          <span class="muted" style="margin-left:auto">{{ (c.detected_at or '')[5:16] }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">最近没有更新。</p>
+  {% endif %}
+</div>
+
+<p class="muted" style="text-align:center">
+  数据每日由本地抓取端自动同步 ｜ 页面生成于 {{ today }}
+</p>
+<script>
+(function () {
+  var el = document.getElementById('freshness');
+  if (!el) return;
+  var iso = el.getAttribute('data-updated');
+  if (!iso) { el.textContent = '数据时间未知'; return; }
+  function fmt() {
+    var t = new Date(iso.replace(' ', 'T').replace(/\//g, '-')).getTime();
+    if (isNaN(t)) { el.textContent = '数据时间未知'; return; }
+    var min = Math.max(0, Math.floor((Date.now() - t) / 60000));
+    var txt, warn = false;
+    if (min < 1) txt = '刚刚更新';
+    else if (min < 60) txt = '更新于 ' + min + ' 分钟前';
+    else if (min < 60 * 24) txt = '更新于 ' + Math.floor(min / 60) + ' 小时前';
+    else { txt = '更新于 ' + Math.floor(min / 1440) + ' 天前'; warn = true; }
+    if (min > 360) { txt += '（数据偏旧）'; warn = true; }   // > 6 小时变黄告警
+    el.textContent = '· ' + txt;
+    el.style.color = warn ? '#c0791a' : '';
+  }
+  fmt(); setInterval(fmt, 60000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}{{ no }} · 房源详情{% endblock %}
+{% block body %}
+
+{% if not row %}
+<div class="card"><div class="empty" id="notfoundMsg"></div></div>
+<script>document.getElementById('notfoundMsg').textContent = window.tf('detail.notfound_local', {no: {{ no|tojson }}});</script>
+{% else %}
+
+<!-- ① 顶部：一行看完的关键信息 + 操作（v1.2.0：核心四项＝位置 / 名称 / 价格 / 面积） -->
+{% set _a = row.exclusive_area or row.land_area or row.building_area %}
+{% set _area = (_a ~ ' ㎡') if _a else '' %}
+<div class="card">
+  <div class="dpage-head">
+    <h2>{{ row.address }}{% if row.building_name %} · {{ row.building_name }}{% endif %}</h2>
+    {% if row.previous_price and row.price and row.previous_price != row.price %}
+      {% set _up = row.price > row.previous_price %}
+      {% set _arrow = '↑' if _up else '↓' %}
+      {% set _diff = (row.previous_price - row.price)|abs %}
+      <span class="qdrop qdrop-platform">{{ _arrow }} {{ wan(_diff) }} 万円 <span class="qsrc" data-i18n="row.src_platform">平台</span>{% if row.change_date %} · {% if wareki_to_ad is defined %}{{ wareki_to_ad(row.change_date) }}{% else %}{{ row.change_date }}{% endif %}{% endif %}</span>
+      <span class="qrate qrate-platform">{{ _arrow }} {{ (_diff * 100 / row.previous_price)|round(1) }}%</span>
+    {% endif %}
+    <span class="price">{{ wan(row.price) }} 万円</span>
+    {% if _area %}<span class="area">{{ _area }}</span>{% endif %}
+  </div>
+  <div class="dpage-meta">
+    {% if row.property_subtype %}<span class="k">{{ row.property_subtype }}</span>{% endif %}
+    {% if row.layout %}<span class="k">{{ row.layout }}</span>{% endif %}
+    {% if row.exclusive_area %}<span class="k">専有 {{ row.exclusive_area }} ㎡</span>{% endif %}
+    {% if row.land_area %}<span class="k">土地 {{ row.land_area }} ㎡</span>{% endif %}
+    {% if row.building_area %}<span class="k">建物 {{ row.building_area }} ㎡</span>{% endif %}
+    {% if row.line_station %}<span>{{ row.line_station }}</span>{% endif %}
+    {% if row.floor %}<span>所在階 {{ row.floor }}</span>{% endif %}
+    {% if row.above_ground_floors %}<span>{{ row.above_ground_floors }}</span>{% endif %}
+    {% if row.built_year_month %}<span>築 {{ row.built_year_month }}</span>{% endif %}
+    {# v1.5.3：画/図/所 三个标记（对应 REINS 列表右侧图标）+ 真实张数（未知就不显示 0） #}
+    <span class="mdbset">
+      <span class="mdb ga {{ 'on' if row.has_photo else 'off' }}"
+            title="{{ '有照片' if row.has_photo else '没有照片' }}">画</span>
+      <span class="mdb zu {{ 'on' if row.has_floorplan else 'off' }}"
+            title="{{ '有間取図' if row.has_floorplan else '没有間取図' }}">図</span>
+      <span class="mdb sho {{ 'on' if row.has_map else 'off' }}"
+            title="{{ '有所在図' if row.has_map else '没有所在図' }}">所</span>
+    </span>
+    {% if row.image_count is not none and row.image_count >= 0 %}
+      <span>画像 {{ row.image_count }} 枚</span>
+    {% elif row.has_photo %}
+      <span>画像 张数未知（还没抓详情）</span>
+    {% endif %}
+    <span class="mono">{{ row.property_no }}</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    {% if row.pdf_path %}
+    <a class="btn" href="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
+       target="_blank" data-i18n="detail.openpdf">打开本地 PDF</a>
+    {% else %}<span class="muted">这条没有抓 PDF。</span>{% endif %}
+    {% if row.property_no %}
+    <!-- v1.7.4 R2（PRD 11 §5.3-2a）：按钮**在物件番号之后**。
+         旧版按钮在番号前面，客户看着像"先给我一个入口、番号在后面"，
+         实际动作顺序是「先看番号 → 再去 REINS 查」，所以番号在前、按钮紧随其后。 -->
+    <span class="muted">物件番号 <span class="mono">{{ row.property_no }}</span>
+      <span data-i18n="detail.search_hint">（详情页需在 REINS 内点击「詳細」打开，无永久直链）</span></span>
+    <a class="btn ghost" href="javascript:void(0)" onclick="openBukkenSearch('{{ row.property_no }}')"
+       data-i18n="detail.reins_search">REINS 物件番号検索</a>
+    <button class="btn ghost" id="agency-toggle" data-i18n="search.other_detail"
+            onclick="toggleAgency(this)">隐藏其他详情</button>
+    {% endif %}
+    <a class="btn ghost" href="{{ url_for('search') }}" data-i18n="detail.back">返回查询</a>
+  </div>
+
+  <!-- 对比操作：先把这一套「放进对比篮」，再决定什么时候去比（不会覆盖已选的其它房） -->
+  <div class="cmp-actionbar">
+    <button class="btn primary" id="cmpadd" data-no="{{ row.property_no }}"
+            onclick="toggleCmp(event)" title="把这一套放进「对比篮」，最多 6 套" data-i18n="detail.tobank">加入对比</button>
+    <a class="btn ghost" id="cmpgoto" href="/compare" data-i18n="detail.goto">去对比</a>
+    <span class="hint" id="cmphint"></span>
+  </div>
+</div>
+
+<!-- ② 详细信息：密集多列网格（电脑一屏看完，手机两三列） -->
+<div class="card">
+  <h2><span data-i18n="detail.info_h">详细信息</span> <span class="hint" id="infoHint"></span></h2>
+  <div class="dinfo">
+    {% for label, value, agency in pairs %}
+    <div class="df"{% if agency %} data-agency="1"{% endif %}><span class="dk">{{ label }}</span><span class="dv">{{ value }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ②.5 AI 解读（v1.7.4 · PRD 09 需求 4）：房源 PDF 经 AI 提取的结构化内容。
+     数据存独立派生表 ai_extractions，不碰主数据；经 /api/ai/<番号> 异步加载，
+     不阻塞详情页首屏。放在「详细信息」与「变更历史」之间（勇哥指定的红框位置）。 -->
+<div class="card" id="aiCard">
+  <h2><span data-i18n="detail.ai_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
+  <div id="aiBody"></div>
+  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">暂无 AI 解读 · 点「重新生成」由本房源 PDF 提取。</div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn ghost" id="aiRegen" onclick="aiRegenerate()" data-i18n="detail.ai_regen">重新生成</button>
+    {% if row.pdf_path %}
+    <a class="btn ghost" href="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
+       target="_blank" data-i18n="detail.openpdf">打开本地 PDF</a>
+    {% endif %}
+    <span class="muted" id="aiMeta"></span>
+  </div>
+</div>
+
+<!-- ③ 变更历史 / 快照：默认收起，避免把页面撑长 -->
+<details class="card sec">
+  <summary><span data-i18n="detail.chg_h">变更历史</span> <span class="muted" style="font-weight:400" id="chgHint"></span></summary>
+  <div class="secbody">
+    {% if changes %}
+    <table>
+      <tr><th data-i18n="detail.chg_th_time">时间</th><th data-i18n="detail.chg_th_type">类型</th><th data-i18n="detail.chg_th_old">原值</th><th data-i18n="detail.chg_th_new">新值</th></tr>
+      {% for c in changes %}
+      <tr><td>{{ c.detected_at }}</td>
+          <td><span class="tag {{ c.change_type }}">
+            <span class="chlabel" data-type="{{ c.change_type }}">{{ {'new':'新規','price_down':'降价','price_up':'涨价','modified':'变更'}.get(c.change_type, c.change_type) }}</span></span></td>
+          <td>{{ c.old_value or '' }}</td><td>{{ c.new_value or '' }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty" data-i18n="detail.chg_none">暂无变更记录（首次抓到时不会显示，改价后才会有）。</div>{% endif %}
+  </div>
+</details>
+
+<details class="card sec">
+  <summary><span data-i18n="detail.snap_h">抓取快照</span> <span class="muted" style="font-weight:400" id="snapHint"></span></summary>
+  <div class="secbody">
+    {% if snaps %}
+    <table>
+      <tr><th data-i18n="detail.snap_th_time">抓取时间</th><th data-i18n="detail.snap_th_price">价格(円)</th><th data-i18n="detail.snap_th_hash">指纹</th></tr>
+      {% for s in snaps %}
+      <tr><td>{{ s.captured_at }}</td><td>{{ s.price or '' }}</td>
+          <td><code>{{ s.content_hash }}</code></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty" data-i18n="detail.snap_none">暂无快照。</div>{% endif %}
+  </div>
+</details>
+
+<script>
+/* ------------------------------------------------------------------
+   详情页的「对比」操作
+   为什么这样设计：
+     以前这里是个「和已选的房子对比」链接，点下去会带 ?nos=本套房 直接跳对比页，
+     结果 a) 只有一套，对比页没得比；b) 还会把你之前已经选好的房子顶掉。
+   现在改成两步，符合直觉、也不会误伤已选：
+     ① 「加入对比」把这一套放进本机浏览器的「对比篮」（最多 6 套，可再点一下取消）；
+     ② 「去对比」等凑够 2 套再进对比页。按钮上永远写着当前已选几套。
+   ------------------------------------------------------------------ */
+var CUR_NO    = {{ row.property_no|tojson }};
+var CUR_ADDR  = {{ row.address|tojson }};
+var CUR_NAME  = {{ (row.building_name or '')|tojson }};
+var CUR_WARD  = {{ (row.ward or '')|tojson }};
+var CUR_AREA  = {{ _area|tojson }};
+var CUR_PRICE = {{ (row.price or 0)|int }};
+var CUR_PDF   = {{ 'true' if row.pdf_path else 'false' }};
+
+function refreshCmp(){
+  var n  = CompareBox.count();
+  var on = CompareBox.has(CUR_NO);
+  var b  = document.getElementById('cmpadd');
+  var g  = document.getElementById('cmpgoto');
+  b.classList.toggle('on', on);
+  b.textContent = on ? tf('detail.added', {n: n}) : tf('detail.tobank2', {n: n});
+  if(n >= 2){
+    g.textContent = tf('detail.goto_n', {n: n});
+    g.classList.remove('disabled');
+  }else{
+    g.textContent = tf('detail.goto_lack', {n: (2 - n)});
+    g.classList.add('disabled');
+  }
+  document.getElementById('cmphint').textContent = on
+    ? tf('detail.hint_on', {n: n})
+    : tf('detail.hint_off');
+}
+
+function toggleCmp(ev){
+  if(ev) ev.stopPropagation();
+  if(CompareBox.has(CUR_NO)){
+    CompareBox.remove(CUR_NO);
+  }else{
+    var r = CompareBox.add({ no: CUR_NO, addr: CUR_ADDR, name: CUR_NAME,
+                             ward: CUR_WARD, area: CUR_AREA,
+                             price: CUR_PRICE, pdf: CUR_PDF });
+    if(!r.ok){
+      alert(r.reason === 'full'
+        ? tf('detail.alert_full')
+        : t('detail.inbank'));
+      return;
+    }
+  }
+  refreshCmp();
+}
+
+document.getElementById('cmpgoto').addEventListener('click', function(e){
+  if(CompareBox.count() < 2){
+    e.preventDefault();
+    alert(tf('detail.alert_min'));
+  }
+});
+
+function paintHints(){
+  var ih = document.getElementById('infoHint');
+  if(ih) ih.textContent = tf('detail.info_hint', {n: {{ pairs|length }}});
+  var ch = document.getElementById('chgHint');
+  if(ch) ch.textContent = tf('detail.chg_hint', {n: {{ changes|length }}});
+  var sh = document.getElementById('snapHint');
+  if(sh) sh.textContent = tf('detail.snap_hint', {n: {{ snaps|length }}});
+}
+function paintLabels(){
+  document.querySelectorAll('.chlabel').forEach(function(el){
+    el.textContent = t('ch.' + el.getAttribute('data-type'));
+  });
+}
+function paintAll(){ paintHints(); paintLabels(); refreshCmp(); }
+
+/* ------------------------------------------------------------------
+   AI 解读（v1.7.4）：从 /api/ai/<番号> 拉取 PDF 提取结果并渲染。
+   - 高亮卖点放最前（买家一眼看到「超高層・駅直結・降价」这些点）；
+   - 字段表复用详情页 .dinfo/.df/.dk/.dv 网格，风格与「详细信息」一致；
+   - 没有数据时空态引导，不报错不打扰。
+   ------------------------------------------------------------------ */
+function aiEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function paintAI(j){
+  var card = document.getElementById('aiCard');
+  if(!card) return;
+  var body = document.getElementById('aiBody');
+  var empty = document.getElementById('aiEmpty');
+  var hint = document.getElementById('aiHint');
+  var meta = document.getElementById('aiMeta');
+  var has = j && j.ok && j.status === 'ok' && j.result &&
+            ((j.result.fields && j.result.fields.length) ||
+             (j.result.highlights && j.result.highlights.length));
+  empty.style.display = has ? 'none' : '';
+  empty.textContent = (j && j.status === 'failed')
+    ? tf('detail.ai_failed', {err: (j.result && j.result.error) || ''})
+    : (CUR_PDF === 'true' ? t('detail.ai_none') : t('detail.ai_nopdf'));
+  if(!has){ body.innerHTML = ''; hint.textContent = ''; meta.textContent = ''; return; }
+  var r = j.result, html = '';
+  if(r.title) html += '<div style="font-weight:600;margin-bottom:6px">' + aiEsc(r.title) + '</div>';
+  if(r.highlights && r.highlights.length){
+    html += '<ul class="ai-hl" style="margin:0 0 10px 18px;padding:0">';
+    r.highlights.forEach(function(h){ html += '<li>' + aiEsc(h) + '</li>'; });
+    html += '</ul>';
+  }
+  if(r.fields && r.fields.length){
+    html += '<div class="dinfo">';
+    r.fields.forEach(function(f){
+      html += '<div class="df"><span class="dk">' + aiEsc(f.label) +
+              '</span><span class="dv">' + aiEsc(f.value) + '</span></div>';
+    });
+    html += '</div>';
+  }
+  if(r.notes) html += '<div class="muted" style="margin-top:8px">' + aiEsc(r.notes) + '</div>';
+  body.innerHTML = html;
+  hint.textContent = tf('detail.ai_hint2', {n: (r.fields || []).length});
+  meta.textContent = tf('detail.ai_updated', {time: (j.updated_at || '').slice(0, 16)}) +
+                     ((j.model && j.model !== 'manual') ? ' · ' + j.model : '');
+}
+function loadAI(){
+  fetch('/api/ai/' + encodeURIComponent(CUR_NO))
+    .then(function(r){ return r.json(); })
+    .then(paintAI)
+    .catch(function(){ paintAI(null); });
+}
+function aiRegenerate(){
+  var b = document.getElementById('aiRegen');
+  b.disabled = true; b.textContent = t('detail.ai_regen_running');
+  fetch('/api/ai/' + encodeURIComponent(CUR_NO) + '/run', {method: 'POST'})
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(j){
+      b.disabled = false; b.textContent = t('detail.ai_regen');
+      if(!(j && j.ok)) alert((j && j.error) ? j.error : t('detail.ai_fail'));
+      loadAI();
+    })
+    .catch(function(){ b.disabled = false; b.textContent = t('detail.ai_regen'); });
+}
+loadAI();
+
+CompareBox.onChange(refreshCmp);
+window.addEventListener('i18n:changed', paintAll);
+paintAll();
+</script>
+
+{% endif %}
+{% endblock %}

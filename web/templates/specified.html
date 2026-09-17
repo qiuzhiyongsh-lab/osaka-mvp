@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}指定日期下载 · 大阪房源（本地版）{% endblock %}
+{% block body %}
+
+<div class="card">
+  <h2><span data-i18n="spec.h">指定日期下载</span> <span class="hint" data-i18n="spec.hint">手动设置所有选项 → 点「确定」实时预览 → 点「下载」正式全部下载（数据 + 図面PDF）</span></h2>
+  <p class="muted" data-i18n="spec.pause">下载期间会<strong>自动暂停「当天的下载」</strong>，等指定日期下载完成后才恢复，保证同一时刻只有一条 REINS 抓取在跑。</p>
+
+  <div class="row">
+    <label class="field" style="flex:1 1 200px"><span data-i18n="spec.kind">物件種別（必填）</span>
+      <select id="kind">
+        <option value="" data-i18n="spec.kind.ph">— 请选择 —</option>
+        <option value="売一戸建">売一戸建</option>
+        <option value="売マンション">売マンション</option>
+        <option value="売土地">売土地</option>
+      </select>
+    </label>
+    <label class="field" style="flex:1 1 260px"><span data-i18n="spec.subtype">物件種目（可选，可多选：按住 Ctrl / Cmd 点选）</span>
+      <select id="subtype" multiple size="6" style="min-height:132px">
+        <optgroup label="売一戸建">
+          <option value="新築戸建">新築戸建</option>
+          <option value="中古戸建">中古戸建</option>
+          <option value="新築テラス">新築テラス</option>
+          <option value="中古テラス">中古テラス</option>
+        </optgroup>
+        <optgroup label="売マンション">
+          <option value="新築マンション">新築マンション</option>
+          <option value="中古マンション">中古マンション</option>
+          <option value="新築タウン">新築タウン</option>
+          <option value="中古タウン">中古タウン</option>
+        </optgroup>
+        <optgroup label="売土地">
+          <option value="土地">土地</option>
+        </optgroup>
+      </select>
+    </label>
+    <label class="field" style="flex:1 1 200px"><span data-i18n="spec.ward">区（大阪市，可选）</span>
+      <select id="ward"><option value="" data-i18n="search.all">全部</option>
+        {% for w in wards %}<option value="{{ w }}">{{ w }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <label class="field"><span data-i18n="spec.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="spec.price_min.ph" placeholder="例：2000"></label>
+    <label class="field"><span data-i18n="spec.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="spec.price_max.ph" placeholder="例：5000"></label>
+    <label class="field"><span data-i18n="spec.area_min">面积下限(㎡)</span><input id="area_min" data-i18n-ph="spec.area_min.ph" placeholder="例：50"></label>
+    <label class="field"><span data-i18n="spec.area_max">面积上限(㎡)</span><input id="area_max" data-i18n-ph="spec.area_max.ph" placeholder="例：80"></label>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <label class="field"><span data-i18n="spec.line">沿線名（可选）</span><input id="line" placeholder="例：御堂筋線"></label>
+    <label class="field"><span data-i18n="spec.station">駅名（可选）</span><input id="station" placeholder="例：なんば"></label>
+    <label class="field"><span data-i18n="spec.datetype">日期类型</span>
+      <select id="date_type">
+        <option value="登録年月日" selected data-i18n="spec.date_reg">登録年月日（注册日）</option>
+        <option value="変更年月日" data-i18n="spec.date_chg">変更年月日（变更日）</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="spec.date">指定日期（必填，YYYY-MM-DD）</span>
+      <input type="date" id="date" value="{{ today }}">
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:8px">
+    <label class="field" style="flex:0 0 auto;display:flex;align-items:center;gap:8px;white-space:nowrap">
+      <input type="checkbox" id="ownership_only" checked style="width:auto;height:auto">
+      <span data-i18n="spec.ownonly">土地権利/借地権：所有権のみ（推荐，与线上口径一致）</span>
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <button data-i18n="spec.ok" onclick="previewSpecified()">① 确定（实时预览）</button>
+    <button class="primary" data-i18n="spec.dl" onclick="downloadSpecified()">② 下载（正式全部下载）</button>
+    <span class="muted" id="spec-status" style="align-self:center"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h3><span data-i18n="spec.preview.h">① 预览结果</span> <span class="muted" id="pv-state"></span></h3>
+  <div id="preview" class="empty" data-i18n="spec.empty.preview">点「确定」后，这里显示实时连 REINS 查到的条数 + 样本。</div>
+</div>
+
+<div class="card">
+  <h3><span data-i18n="spec.dl.h">② 下载进度</span> <span class="muted" id="dl-state"></span></h3>
+  <div id="download" class="empty" data-i18n="spec.empty.dl">点「下载」后，这里显示正式下载（数据 + 図面PDF）的进度与落库统计。</div>
+  <div id="pausenote" class="libhint" style="display:none"></div>
+</div>
+
+<script>
+function buildOpts(){
+  function v(id){ return document.getElementById(id).value.trim(); }
+  var sel = document.getElementById('subtype');
+  var subs = [];
+  for(var i=0;i<sel.options.length;i++){ if(sel.options[i].selected) subs.push(sel.options[i].value); }
+  return {
+    kind: v('kind'), subtype: (subs[0]||''), subtypes: subs, ward: v('ward'),
+    price_min: v('price_min'), price_max: v('price_max'),
+    area_min: v('area_min'), area_max: v('area_max'),
+    line: v('line'), station: v('station'),
+    date_type: v('date_type'), date: v('date'),
+    ownership_only: !!(document.getElementById('ownership_only') && document.getElementById('ownership_only').checked)
+  };
+}
+function validate(){
+  if(!document.getElementById('kind').value){
+    alert(t('spec.alert_kind')); return false;
+  }
+  if(!document.getElementById('date').value){
+    alert(t('spec.alert_date')); return false;
+  }
+  return true;
+}
+async function previewSpecified(){
+  if(!validate()) return;
+  document.getElementById('spec-status').textContent = t('spec.previewing');
+  document.getElementById('preview').innerHTML = '<div class="empty">'+t('spec.querying')+'</div>';
+  try{
+    var r = await postJSON('/api/query/preview', buildOpts());
+    if(r.status !== 'started') document.getElementById('spec-status').textContent = (r.message || '');
+  }catch(e){ alertErr(e, t('spec.preview.h')); }
+}
+async function downloadSpecified(){
+  if(!validate()) return;
+  if(!confirm(tf('spec.confirm_dl', {date: document.getElementById('date').value})) ) return;
+  document.getElementById('spec-status').textContent = t('spec.dling');
+  try{
+    var r = await postJSON('/api/download/specified', buildOpts());
+    if(r.status !== 'started') document.getElementById('spec-status').textContent = (r.message || '');
+  }catch(e){ alertErr(e, t('spec.dl')); }
+}
+
+function renderPreview(task){
+  var el = document.getElementById('preview');
+  var st = document.getElementById('pv-state');
+  if(!task){ st.textContent=''; el.className='empty';
+    el.innerHTML=t('spec.empty.preview'); return; }
+  if(task.status==='running'){ st.textContent=t('spec.querying'); el.className='empty';
+    el.innerHTML='<div class="empty">'+t('spec.querying')+'</div>'; return; }
+  if(task.status==='error'){ st.textContent=t('spec.err'); el.className='libhint';
+    el.innerHTML='<div class="lh-err">'+esc(task.message||t('spec.nodetail'))+'</div>'; return; }
+  st.textContent = t('spec.done');
+  var h = '<div class="lh-line">'+t('spec.sample.of')+' <b>'+esc(task.total||'?')+'</b> '+t('spec.unit_cnt')+t('spec.sample.tail')+' '
+        + (task.count||0) + ' '+t('spec.unit_cnt')+'）</div>';
+  if(task.sample && task.sample.length){
+    h += '<ul class="slist">';
+    task.sample.forEach(function(s){ h += '<li>'+esc(s)+'</li>'; });
+    h += '</ul>';
+  } else {
+    h += '<div class="lh-warn">'+t('spec.nomatch')+'</div>';
+  }
+  el.className=''; el.innerHTML = h;
+}
+
+function renderDownload(task, paused){
+  var el = document.getElementById('download');
+  var st = document.getElementById('dl-state');
+  var note = document.getElementById('pausenote');
+  if(paused){ note.style.display='block';
+    note.innerHTML='<div class="lh-warn">'+t('spec.pausenote')+'</div>'; }
+  else { note.style.display='none'; }
+  if(!task){ st.textContent=''; el.className='empty';
+    el.innerHTML=t('spec.empty.dl'); return; }
+  if(task.status==='running'){ st.textContent=t('spec.dling'); el.className='empty';
+    el.innerHTML='<div class="empty">'+t('spec.downloading')+'</div>'; return; }
+  if(task.status==='error'){ st.textContent=t('spec.err'); el.className='libhint';
+    el.innerHTML='<div class="lh-err">'+esc(task.message||t('spec.nodetail'))+'</div>'; return; }
+  st.textContent=t('spec.done');
+  var s = task.stats||{};
+  var h = '<div class="lh-line">'+t('spec.stat.fetched')+' <b>'+ (s.fetched||0) +'</b> '+t('spec.unit_cnt')+' ｜ '+t('spec.stat.new')+' <b>'+ (s.new||0)
+        +'</b> '+t('spec.unit_cnt')+' ｜ '+t('spec.stat.changed')+' <b>'+ (s.changed||0) +'</b> '+t('spec.unit_cnt')+' ｜ '+t('spec.stat.pdf')+' <b>'+ (s.pdf_saved||0) +'</b> '+t('spec.unit_pdf')+'</div>';
+  if(task.errors && task.errors.length){
+    h += '<div class="lh-err">'+ esc(task.errors.join(' ； ')) +'</div>';
+  }
+  el.className=''; el.innerHTML = h;
+}
+
+async function poll(){
+  try{
+    var j = await api('/api/status');
+    renderPreview(j.test && j.test.specified_preview);
+    renderDownload(j.test && j.test.specified_download, !!(j.sched && j.sched.paused));
+    var dl = j.test && j.test.specified_download;
+    if(dl && dl.status==='running') document.getElementById('spec-status').textContent=t('spec.dling');
+  }catch(e){ /* 服务掉线由 app.js 统一处理，这里静默 */ }
+}
+setInterval(poll, 2500);
+poll();
+window.addEventListener('i18n:changed', function(){ try{ poll(); }catch(e){} });
+</script>
+{% endblock %}

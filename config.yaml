@@ -1,0 +1,158 @@
+app:
+  name: 大阪房源查询系统（本地版 MVP）
+  mode: live
+  output_root: ./data
+schedule:
+  enabled: true
+  mode: random
+  interval_hours: 2.0
+  random_min_hours: 1.0
+  random_max_hours: 3.0
+  timezone: Asia/Tokyo
+  window:
+    start: 07:00
+    end: '22:00'
+  run_on_start: false
+  random_min_minutes: 110.0
+  random_max_minutes: 130.0
+site:
+  name: reins
+  base_url: https://system.reins.jp
+  login_url: https://system.reins.jp/login/main/KG/GKG001200
+  search_url: https://system.reins.jp/main/BK/GBK001210
+  detail_title_keyword: 物件詳細
+browser:
+  channel: msedge
+  headless: false
+  timeout_ms: 30000
+  proxy: ''
+auth:
+  success_indicator: メインメニュー
+  session_file: ./data/session.json
+  manual_hint: 会话已失效。请到「设置 → 重新登录」点一次，手工登录后即可继续。
+search:
+  prefecture: 大阪府
+  city: 大阪市
+  kinds:
+  - kind: 売一戸建
+    subtypes:
+    - 新築戸建
+    - 中古戸建
+  - kind: 売マンション
+    subtypes:
+    - 新築マンション
+    - 中古マンション
+  - kind: 売土地
+    subtypes:
+    - 土地
+  use_saved_condition: false
+  saved_conditions:
+  - '01'
+  - '02'
+  update_groups:
+  - kind: 売一戸建
+    subtypes:
+    - 新築戸建
+    - 中古戸建
+  - kind: 売マンション
+    subtypes:
+    - 新築マンション
+    - 中古マンション
+  - kind: 売マンション
+    subtypes:
+    - 新築タウン
+    - 中古タウン
+  geo_condition_by_kind:
+    売一戸建: '01'
+    売マンション: '02'
+    売土地: '01'
+crawl:
+  delay_range_seconds:
+  - 2.0
+  - 4.0
+  detail_gap_seconds:
+  - 2.0
+  - 4.0
+  subquery_interval_seconds:
+  - 10
+  - 20
+  split_subtypes: true
+  split_new_changed: false
+  reuse_axis_result: false
+  operator_ask:
+    enabled: true
+    timeout_s: 15
+    inline_fail_threshold: 5
+  inline_detail: true
+  main_round_enabled: false
+  sync_dates_enabled: true
+  sync_dates_backfill_prev_day: true
+  sync_dates_prev_day_cutoff: '20:00'
+  delist_enabled: true
+  delist_consecutive_runs: 2
+  delay_long_range_seconds:
+  - 10.0
+  - 20.0
+  delay_long_prob: 0.08
+  skip_prob: 0.12
+  list_page_pause_seconds:
+  - 8
+  - 20
+  pdf_background: true
+  pdf_max_inflight: 2
+  flush_every: 1
+  max_items_per_run: 5000
+  page_size: 50
+  max_pages: 10
+  limit_warn: 450
+  retry: 1
+  max_minutes_per_group: 25
+download:
+  pdf: true
+  images: false
+  export_excel: true
+  export_daily_page: true
+web:
+  host: 127.0.0.1
+  port: 8765
+selectors:
+  collapse_toggle: a:has-text('検索条件を表示')
+  saved_condition_select: div.p-label:has(span.p-label-title:has-text('保存した検索条件の選択'))
+    + div select
+  load_button: button:has-text('読込')
+  search_button: button.btn-primary:has-text('検索')
+  result_rows: div.p-table-body-row
+  result_total: div.text-dark.ml-3
+  next_page: button.page-link[aria-label="Go to next page"]
+  detail_button: button:has-text('詳細'), a:has-text('詳細')
+  detail_row: table.detail tr
+  detail_label: th
+  detail_value: td
+  pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
+  image_item: div.photo img, ul.photoList li img
+  login:
+    id_field: input.p-textbox-input[type='text'], input[type='text']
+    pw_field: input.p-textbox-input[type='password'], input[type='password']
+    submit: button:has-text('ログイン'), button.p-button
+    agree_checkbox: label:has-text('遵守します')
+demo:
+  daily_new: 60
+  daily_change: 18
+publish:
+  enabled: true
+  mode: auto
+  endpoint: ''
+  # ⚠ 真凭据**只放 config.local.yaml**（已 gitignore，绝不入库）。
+  # 这里保持空串 = 模板；加载顺序 _DEFAULTS ← config.yaml ← config.local.yaml
+  # （core/config.py::load()），所以运行时仍能拿到真 token。
+  token: ''
+  ingest_token: ''
+  month_scope: ''
+  scope_caliber: download
+  batch_size: 200
+ai:
+  api_key: ''
+  model: doubao-seed-1.6
+  base_url: https://ark.cn-beijing.volces.com/api/v3
+public:
+  access_code: ''

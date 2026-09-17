@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}账号管理 · 大阪房源本地版{% endblock %}
+{% block body %}
+
+<div class="card">
+  <h2><span data-i18n="account.h">账号管理</span> <span class="hint" data-i18n="account.hint">录入你的 REINS 账号，用于自动登录</span></h2>
+
+  <div class="row" style="margin-bottom:12px">
+    <span class="badge {{ 'live' if cfg.app.mode == 'live' else 'demo' }}" data-i18n="{{ 'badge.live' if cfg.app.mode == 'live' else 'badge.demo' }}">
+      {{ '真实抓取' if cfg.app.mode == 'live' else '离线演示' }}
+    </span>
+    {% if creds.saved %}
+      <span class="tag ok" data-i18n="account.saved">已保存</span>
+      <span class="muted"><span data-i18n="account.name">账号名称</span>：{{ creds.account_name or '—' }}</span>
+      <span class="muted"><span data-i18n="account.mid">会员ID</span>：{{ creds.member_id_mask }}</span>
+      <span class="muted"><span data-i18n="account.site">登录地址</span>：{{ creds.site_name or '（用配置里的默认地址）' }}</span>
+      {% if creds.updated_at %}<span class="muted">更新于 {{ creds.updated_at }}</span>{% endif %}
+    {% else %}
+      <span class="tag no_creds" data-i18n="account.unsaved">未保存</span>
+      <span class="muted" data-i18n="account.never">尚未录入账号</span>
+    {% endif %}
+  </div>
+
+  <div class="form-narrow">
+    <div class="field">
+      <label><span data-i18n="account.name">账号名称</span> <span class="hint" data-i18n="account.name_hint">（给这个账号起个名，如：主账号 / 备用）</span></label>
+      <input id="acct_name" type="text" placeholder="例如 主账号"
+             value="{{ creds.account_name if creds.saved else '' }}">
+    </div>
+
+    <div class="field">
+      <label data-i18n="account.mid">会员ID / ユーザID</label>
+      <input id="mid" type="text" placeholder="例如 your_id 或 you@mail.com"
+             value="{{ creds.member_id if creds.saved else '' }}" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label><span data-i18n="account.pw">密码（パスワード）</span>
+        <span class="eye" onclick="togglePw()" data-i18n="account.eye_show">👁 显示</span>
+      </label>
+      <input id="pw" type="password" data-i18n-ph="account.pw_ph2" placeholder="录入后仅本机加密保存" autocomplete="new-password">
+    </div>
+
+    <div class="field">
+      <label><span data-i18n="account.site">网站地址</span> <span class="hint" data-i18n="account.site_hint">（这个账号要登录的网址，可以随时改）</span></label>
+      <input id="site_name" type="url" spellcheck="false"
+             placeholder="{{ cfg.site.login_url }}"
+             value="{{ creds.site_name if creds.saved and creds.site_name else cfg.site.login_url }}">
+      <p class="muted" style="margin:4px 0 0">
+        这是<b>登录页的网址</b>：<code>https://system.reins.jp/login/main/KG/GKG001200</code>，
+        最后一段（KG/GKG…）是<b>所属机构</b>的编号 —— 换机构、换账号时它就会变，
+        <b>直接改这一格</b>即可，改完自动登录就用新地址（留空则用配置里的默认值）。
+      </p>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button data-i18n="account.save" onclick="saveCred()">保存账号</button>
+      <button class="ghost" data-i18n="account.showpw" onclick="showCred()">显示已保存密码</button>
+      <button class="ghost" data-i18n="account.test" onclick="testLogin()">测试登录</button>
+      <button class="danger" data-i18n="account.clear" onclick="clearCred()">清空</button>
+    </div>
+  </div>
+
+  <p class="muted" style="margin-top:14px;max-width:680px">
+    ⚠️ 账号密码<b>只存于你本机</b>（加密文件 <code>data/credentials.json</code> +
+    密钥 <code>data/.cred_key</code>），不联网、不上传、不共享。<br>
+    程序仅在<b>你本账号</b>自动登录时使用；若出现验证码或登录失败，请改用「手工登录」。<br>
+    「账号名称」只是本机标注，方便以后多账号时区分，不影响登录；
+    「网站地址」是<b>真正会被用到</b>的登录网址，改它就能换登录入口。
+  </p>
+</div>
+
+<details class="card">
+  <summary class="det-sum">
+    <h2><span data-i18n="account.sel_h">登录页选择器</span> <span class="hint" data-i18n="account.sel_hint">高级 · 自动登录失败时才需要看</span></h2>
+  </summary>
+  <p class="muted">
+    下面是当前自动登录用的页面元素选择器。REINS 登录页是 Vue 单页应用（输入框没有
+    <code>name</code>，<code>id</code> 每次加载都变），所以这里用稳定的 class 定位。
+  </p>
+  <table>
+    <tr><th data-i18n="account.sel_use">用途</th><th data-i18n="account.sel_sel">选择器</th></tr>
+    <tr><td data-i18n="account.sel_id">会员ID 输入框</td><td><code>{{ login_sel.id_field }}</code></td></tr>
+    <tr><td data-i18n="account.sel_pw">密码 输入框</td><td><code>{{ login_sel.pw_field }}</code></td></tr>
+    <tr><td data-i18n="account.sel_agree">遵守条款勾选框</td><td><code>{{ login_sel.agree_checkbox }}</code></td></tr>
+    <tr><td data-i18n="account.sel_submit">登录按钮</td><td><code>{{ login_sel.submit }}</code></td></tr>
+  </table>
+  <p class="muted" data-i18n="account.sel_note">
+    登录必须勾选「所属機構の規程及びガイドラインを遵守します」，否则登录按钮保持禁用。
+    改动位置：<code>config.yaml → selectors.login</code>。
+  </p>
+</details>
+
+<script>
+function togglePw(){
+  const e = document.getElementById('pw');
+  if(e.type === 'password'){ e.type = 'text'; document.querySelector('.eye').textContent = t('account.eye_hide'); }
+  else { e.type = 'password'; document.querySelector('.eye').textContent = t('account.eye_show'); }
+}
+async function saveCred(){
+  const mid = document.getElementById('mid').value.trim();
+  const pw  = document.getElementById('pw').value;
+  if(!mid || !pw){ alert(t('account.alert_empty')); return; }
+  try{
+    const j = await postJSON('/api/credentials', {
+      member_id: mid, password: pw,
+      account_name: document.getElementById('acct_name').value.trim(),
+      site_url: document.getElementById('site_name').value.trim()
+    });
+    alert(j.message || t('account.saved'));
+    location.reload();
+  }catch(e){ alertErr(e, t('account.save')); }
+}
+async function showCred(){
+  try{
+    const j = await api('/api/credentials?show=1');
+    if(j.password){
+      const pw = document.getElementById('pw');
+      pw.value = j.password; pw.type = 'text';
+      document.querySelector('.eye').textContent = t('account.eye_hide');
+      alert(t('account.alert_show'));
+    } else alert(j.message || t('account.msg_nopw'));
+  }catch(e){ alertErr(e, t('account.showpw')); }
+}
+async function clearCred(){
+  if(!confirm(t('account.confirm_clear'))) return;
+  try{
+    const j = await api('/api/credentials', {method: 'DELETE'});
+    alert(j.message || t('account.cleared'));
+    location.reload();
+  }catch(e){ alertErr(e, t('account.clear')); }
+}
+async function testLogin(){
+  try{
+    const j = await postJSON('/api/login/auto', {});
+    alert(t('account.oktip') + (j.message || j.status) + t('account.tip_browser'));
+    setTimeout(() => location.reload(), 8000);
+  }catch(e){ alertErr(e, t('account.test')); }
+}
+</script>
+{% endblock %}
