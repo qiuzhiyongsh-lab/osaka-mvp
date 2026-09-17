@@ -147,24 +147,46 @@
     } catch (e) { return []; }
   }
 
+  /* v1.8.6 修「对比栏清掉又自己回来 + 页面狂闪」的根因：写 → 通知 → 再写 的**回环**。
+     症状（勇哥复现）：点 × 能逐个清掉，但**清到最后一个时全部恢复**；
+     只剩 1 个时点「清空」，其他几个又回来；点了查询后屏幕**一秒闪几十次**。
+     根因：旧版 cmpWrite **不管值有没有变**都写盘并广播 cmpNotify。一旦存在第二个写入者
+     （另一标签页的 storage 监听回写，或监听自激），就演变成
+         写入 → 对方收到 → 对方回写 → 本页收到 → 本页回写 → …
+     高频乒乓 = 疯狂重渲染（闪）；某一方手里是旧的全量列表 = 清掉又被写回。
+     修法（治本，不针对某个具体页面）：
+       ① 值没变就**不写、也不通知** —— 回环最多跑一轮即收敛；
+       ② 通知加防重入闸 —— 杜绝通知过程中被再次触发造成的风暴。 */
+  var _cmpNotifying = false;
   function cmpWrite(list) {
-    try { localStorage.setItem(CMP_KEY, JSON.stringify(list.slice(0, CMP_MAX))); }
-    catch (e) { /* 隐私模式下写不了就算了，不影响本次会话 */ }
+    var next = JSON.stringify((list || []).slice(0, CMP_MAX));
+    try {
+      if (localStorage.getItem(CMP_KEY) === next) return false;   // 值没变：不写也不通知，掐断回环
+      localStorage.setItem(CMP_KEY, next);
+    } catch (e) { /* 隐私模式下写不了就算了，不影响本次会话 */ }
     cmpNotify();
+    return true;
   }
 
   function cmpNotify() {
-    var n = cmpRead().length;
-    document.querySelectorAll('#nav-cmp-n, .js-cmp-n').forEach(function (el) {
-      el.textContent = n ? n : '';
-      el.style.display = n ? 'inline-block' : 'none';
-    });
-    cmpListeners.forEach(function (fn) { try { fn(cmpRead()); } catch (e) {} });
+    if (_cmpNotifying) return;          // 防重入
+    _cmpNotifying = true;
+    try {
+      var n = cmpRead().length;
+      document.querySelectorAll('#nav-cmp-n, .js-cmp-n').forEach(function (el) {
+        el.textContent = n ? n : '';
+        el.style.display = n ? 'inline-block' : 'none';
+      });
+      cmpListeners.forEach(function (fn) { try { fn(cmpRead()); } catch (e) {} });
+    } finally { _cmpNotifying = false; }
   }
 
   // 别的标签页改了对比栏时，本页也同步（localStorage 的 storage 事件不会在本页触发）
   window.addEventListener('storage', function (e) {
-    if (e.key === CMP_KEY) cmpNotify();
+    if (e.key !== CMP_KEY) return;
+    // 回环产生的重复事件：新旧值其实一样，直接丢弃
+    try { if (localStorage.getItem(CMP_KEY) === e.oldValue) return; } catch (err) {}
+    cmpNotify();
   });
 
   var CompareBox = {    MAX: CMP_MAX,
