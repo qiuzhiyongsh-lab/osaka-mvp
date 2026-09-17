@@ -269,37 +269,51 @@ async function load(){
 }
 async function _loadBody(){
   var wrap = document.getElementById('cmpWrap');
-  var nos = noOf();
-  if(nos.length < 2){
-    wrap.innerHTML = notEnoughHtml();
-    bindNotEnough();
-    setCount(CompareBox.count());
+  var first = true;
+  // v1.8.9 修「清空 / 删到最后一个后又全部恢复」的竞态根因：
+  // 旧 load() 是 async，_cmpLoading 闸门会**丢弃**用户后续触发的 load()；
+  // 而最早那次 load() 在 await api() 期间捕获的是「删除前的旧 nos」，返回后用
+  // CompareBox.setAll() 把旧列表整个写回对比栏 → 表现就是「清掉又全回来 / 删到最后一个全出现」。
+  // 修法：每次 await 回来都重新比对 noOf()，若与本次请求的 nos 不一致（等待期间用户又删/加），
+  // 就**不带 setAll 地重跑一轮**（_cmpLoading 闸门仍开，绝不并发），直到 nos 稳定才落盘。
+  // setAll 只刷新元数据 / 裁剪平台已下架项，绝不复活已删项。
+  while(true){
+    var nos = noOf();
+    if(nos.length < 2){
+      wrap.innerHTML = notEnoughHtml();
+      bindNotEnough();
+      setCount(CompareBox.count());
+      return;
+    }
+    if(first){
+      wrap.innerHTML = '<div class="empty">' + t('cmp.loading') + '</div>';
+      first = false;
+    }
+    var j;
+    try{ j = await api('/api/compare?nos=' + encodeURIComponent(nos.join(','))); }
+    catch(e){ alertErr(e, t('cmp.readfail')); wrap.innerHTML = '<div class="empty">' + t('cmp.readfail') + '</div>'; return; }
+    // 等待期间选择已变 → 丢弃这次结果，用最新 nos 重跑（不写回，避免复活已删项）
+    if(JSON.stringify(noOf()) !== JSON.stringify(nos)) continue;
+
+    rows = j.rows || [];
+    meta = { over: j.over || 0, missing: j.missing || [] };
+
+    // nos 已稳定：用后端确认结果校正本地对比栏（仅刷新地址/楼名/价格元数据 + 裁剪下架项）
+    syncing = true;
+    CompareBox.setAll(rows.map(function(r){
+      return { no:r.property_no, addr:r.address, name:r.building_name,
+               price:r.price, pdf:!!r.pdf_url };
+    }));
+    syncing = false;
+
+    if(rows.length < 2){
+      wrap.innerHTML = '<div class="card"><div class="empty">' + t('cmp.notfound')
+        + '<br><br><a href="/search">' + t('cmp.backq') + '</a> 重新选。</div></div>';
+      return;
+    }
+    render();
     return;
   }
-  wrap.innerHTML = '<div class="empty">' + t('cmp.loading') + '</div>';
-  var j;
-  try{ j = await api('/api/compare?nos=' + encodeURIComponent(nos.join(','))); }
-  catch(e){ alertErr(e, t('cmp.readfail')); wrap.innerHTML = '<div class="empty">' + t('cmp.readfail') + '</div>'; return; }
-
-  rows = j.rows || [];
-  meta = { over: j.over || 0, missing: j.missing || [] };
-
-  // 用后端确认过的结果校正本地对比栏，保证「已选 N 套」与表格一致
-  // v1.8.6：改为**一次原子写入**。旧版 clear() 会先把 localStorage 写成 "[]"，
-  // 其他页面立刻看到"清空了"、随后又被 add() 逐条写回 → 「清掉又全部恢复」。
-  syncing = true;
-  CompareBox.setAll(rows.map(function(r){
-    return { no:r.property_no, addr:r.address, name:r.building_name,
-             price:r.price, pdf:!!r.pdf_url };
-  }));
-  syncing = false;
-
-  if(rows.length < 2){
-    wrap.innerHTML = '<div class="card"><div class="empty">' + t('cmp.notfound')
-      + '<br><br><a href="/search">' + t('cmp.backq') + '</a> 重新选。</div></div>';
-    return;
-  }
-  render();
 }
 
 /* ---------- 渲染 ---------- */
