@@ -258,7 +258,16 @@ function bindNotEnough(){
 }
 
 /* ---------- 加载 ---------- */
+/* v1.8.6：load() 是 async 且**没有并发保护** —— 一旦被 onChange / storage / i18n:changed
+   重复触发，多个 load() 会同时在跑、互相 clear()+add()，把对比栏写成空又写回（"清掉又回来"），
+   并且每跑一轮就重渲染一次（页面狂闪）。这里加在途闸：同一时刻只跑一个 load()。 */
+var _cmpLoading = false;
 async function load(){
+  if(_cmpLoading) return;
+  _cmpLoading = true;
+  try { await _loadBody(); } finally { _cmpLoading = false; }
+}
+async function _loadBody(){
   var wrap = document.getElementById('cmpWrap');
   var nos = noOf();
   if(nos.length < 2){
@@ -276,12 +285,13 @@ async function load(){
   meta = { over: j.over || 0, missing: j.missing || [] };
 
   // 用后端确认过的结果校正本地对比栏，保证「已选 N 套」与表格一致
+  // v1.8.6：改为**一次原子写入**。旧版 clear() 会先把 localStorage 写成 "[]"，
+  // 其他页面立刻看到"清空了"、随后又被 add() 逐条写回 → 「清掉又全部恢复」。
   syncing = true;
-  CompareBox.clear();
-  rows.forEach(function(r){
-    CompareBox.add({ no:r.property_no, addr:r.address, name:r.building_name,
-                     price:r.price, pdf:!!r.pdf_url });
-  });
+  CompareBox.setAll(rows.map(function(r){
+    return { no:r.property_no, addr:r.address, name:r.building_name,
+             price:r.price, pdf:!!r.pdf_url };
+  }));
   syncing = false;
 
   if(rows.length < 2){

@@ -226,6 +226,18 @@
       cmpWrite(cmpRead().filter(function (x) { return x.no !== no; }));
     },
     clear: function () { cmpWrite([]); },
+    /** v1.8.6：整体替换（**一次原子写入**）。
+        对比页 load() 原来用 clear() + 逐个 add() 来校正本地对比栏，而 clear() 会先把
+        localStorage 写成 "[]" —— 其他标签页（查询页）瞬间看到"清空了"，随后又被 add()
+        逐条写回，表现为「对比栏清掉又自己回来」；多个 async load() 并发互相 clear/add
+        则表现为页面狂闪。改用它：一次 cmpWrite 落盘，中间不再出现空态。 */
+    setAll: function (list) {
+      cmpWrite((list || []).slice(0, CMP_MAX).map(function (x) {
+        return { no: x.no, addr: x.addr || '', name: x.name || '', sub: x.sub || '',
+                 ward: x.ward || '', area: x.area || '',
+                 price: (x.price == null ? null : x.price), pdf: !!x.pdf };
+      }));
+    },
     onChange: function (fn) { cmpListeners.push(fn); fn(cmpRead()); },
     refresh: cmpNotify
   };
