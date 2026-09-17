@@ -242,15 +242,82 @@
   /* 兼容：compare.html 历史上把这个函数叫 zh() */
   if (typeof window.zh !== 'function') window.zh = fieldLabel;
 
-  /* v1.7.0：物件番号検索 + 一键隐藏中介 的共享逻辑（search / detail 两页都用） */
+  /* ============================================================
+     v1.9.0：物件番号旁边的「REINS 物件番号検索」按钮 —— 全站统一实现
+     ------------------------------------------------------------
+     勇哥要求：把**所有显示物件番号的位置**旁边都挂上这个按钮，点一下
+     就进 REINS 検索页并把当前番号填进搜索栏。
+     位置清单（改这里就等于改全站）：
+       ① 查询页 列表行「次要属性」里的番号          search.html renderItem
+       ② 查询页 点开行的「物件番号」格              search.html fillDetail
+       ③ 详情页 头部「物件番号 …」                  detail.html
+       ④ 详情页「详细信息」表里的 物件番号 行        detail.html
+       ⑤ 对比页 字段行「物件番号」                  compare.html
+     实现方式：统一的 HTML 生成器 + **事件委托**（document 捕获阶段）。
+     不写 inline onclick —— 既避免把外部数据（番号）拼进 JS 字符串
+     （旧 detail.html 就是 `onclick="openBukkenSearch('{{…}}')"`），
+     也顺手拦掉「点按钮把整行详情也展开」的连带动作。
+     ============================================================ */
+  function htmlEscape(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  window.bukkenBtn = function (no) {
+    if (!no) return '';
+    var label = (typeof window.t === 'function') ? window.t('detail.reins_search') : 'REINS 物件番号検索';
+    return '<a class="qbtn qbtn-reins" href="javascript:void(0)" data-bukken="'
+         + htmlEscape(no) + '" title="' + htmlEscape(label) + '">' + htmlEscape(label) + '</a>';
+  };
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest && e.target.closest('[data-bukken]');
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();          // 别再触发外层的 toggleDetail（捕获阶段拦下）
+    window.openBukkenSearch(el.getAttribute('data-bukken'));
+  }, true);
+
+  /* v1.7.0：物件番号検索 + 一键隐藏中介 的共享逻辑（search / detail / compare 三页都用） */
   window.openBukkenSearch = function (no) {
     if (!no) return;
-    // ⚠ 待真机确认（门禁②）：REINS 物件番号検索「自动填番号+自动搜索」的表单字段/参数名
-    //   暂以「可配置 URL + ?bukkenNo= 兜底 + 复制番号到剪贴板」实现；真机跑通后替换精确填表流。
+    // ⚠ 待真机确认（门禁②③，见 version.py 说明）：REINS「物件番号検索」页
+    //   (GBK004100) 的搜索栏字段名尚未真机取证。**跨域限制**：本页与
+    //   system.reins.jp 不同源，浏览器同源策略下脚本无法代填它打开的窗口，
+    //   所以「自动填号 + 自动点検索」在纯前端**不可能**做到（不是没写，是浏览器不允许）。
+    //   因此实现为可配置 + 三层兜底，真机取证后只需改下面两个常量：
+    //     · REINS_BUKKEN_SEARCH_URL  検索页地址（默认 GBK004100）
+    //     · REINS_BUKKEN_PARAM       若 REINS 支持 URL 带参直达，把参数名填这里
+    //                                （如 'bukkenNo'）→ 打开即已带号，最接近"一键出结果"
+    //   兜底 ③ 永远执行：番号写进剪贴板并给一次轻提示，用户粘一下即可。
     var base = (window.REINS_BUKKEN_SEARCH_URL
                 || 'https://system.reins.jp/main/BK/GBK004100');
-    try { if (navigator.clipboard) navigator.clipboard.writeText(no); } catch (e) {}
-    window.open(base + '?bukkenNo=' + encodeURIComponent(no), '_blank');
+    var param = window.REINS_BUKKEN_PARAM || '';
+    var url = param
+      ? base + (base.indexOf('?') < 0 ? '?' : '&')
+             + encodeURIComponent(param) + '=' + encodeURIComponent(no)
+      : base;
+    var copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(String(no));
+        copied = true;
+      }
+    } catch (e) { /* http 内网域下 clipboard 可能不可用，忽略 */ }
+    window.open(url, '_blank', 'noopener');
+    window.bukkenToast((param ? window.t('detail.toast_open') : window.t('detail.toast_copied')) || '', no, copied);
+  };
+
+  /* 轻提示（右下角浮出 2.6 秒）—— 只用于番号検索这一处，不进 i18n 字典之外的地方 */
+  window.bukkenToast = function (msg, no, copied) {
+    if (!msg) return;
+    try {
+      var d = document.createElement('div');
+      d.className = 'qtoast';
+      d.textContent = msg.replace('{no}', no) + (copied ? '' : '');
+      document.body.appendChild(d);
+      setTimeout(function () { d.classList.add('out'); }, 2200);
+      setTimeout(function () { d.remove(); }, 2700);
+    } catch (e) {}
   };
   window.toggleAgency = function (btn) {
     var on = document.body.classList.toggle('hide-agency');
@@ -272,11 +339,20 @@
   } else {
     window.initAgencyToggle();
   }
-  /* 隐藏中介信息：一键隐藏后把带 data-agency 的字段藏起来（search/detail 通用） */
+  /* 隐藏中介信息：一键隐藏后把带 data-agency 的字段藏起来（search/detail/compare 通用） */
   (function () {
     var s = document.createElement('style');
     s.textContent = '.hide-agency [data-agency]{display:none!important}'
       + ' .qbtn{margin-left:6px;font-size:12px;color:#1b5faa;cursor:pointer;text-decoration:underline;background:none;border:none;padding:0}'
+      // v1.9.0：物件番号旁的 REINS 検索按钮（小一号，跟在番号后面不抢眼）
+      + ' .qbtn-reins{margin-left:6px;font-size:11.5px;color:#1b5faa;cursor:pointer;'
+      + 'text-decoration:underline;white-space:nowrap}'
+      + ' .qbtn-reins:hover{color:#0b3f7d}'
+      // v1.9.0：番号検索的轻提示
+      + ' .qtoast{position:fixed;right:16px;bottom:96px;z-index:200;max-width:320px;'
+      + 'background:#1b5faa;color:#fff;border-radius:8px;padding:9px 13px;font-size:12.5px;'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:1;transition:opacity .45s ease}'
+      + ' .qtoast.out{opacity:0}'
       + ' .qtag-reg{background:#e6f4ea;color:#1b7f3a} .qtag-chg{background:#e8f0fe;color:#1a56c4}';
     document.head.appendChild(s);
   })();

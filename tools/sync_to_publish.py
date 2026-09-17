@@ -47,11 +47,18 @@ import yaml                                                       # noqa: E402
 from core import publisher                                        # noqa: E402
 
 # config.yaml 里这些键一律不带上云（凭据 / 会话 / 密钥）
+#   v1.9.0 修 **VULN-02（高危）**：原名单漏了 access_code（N2 访问码）。
+#   access_code 是「对外站的唯一门锁口令」，一旦随 config 同步上云，
+#   它就被写进了线上工程的仓库 → 等于把锁和钥匙一起挂出去。
+#   现在把它（及其同义写法）纳入名单，**访问码永不随同步上云**；
+#   线上要开访问码，只能在那台机器上就地设置，不在本机 config 里带过去。
 SECRET_KEYS = {"password", "passwd", "pwd", "secret", "token", "cookie",
                "session", "session_id", "api_key", "apikey", "access_key",
+               "access_code", "accesscode",
                "user", "username", "userid", "user_id", "login_id", "mail",
                "email", "tel", "private_key", "cred_key"}
-SECRET_KEY_PARTS = ("password", "passwd", "secret", "token", "cookie", "cred")
+SECRET_KEY_PARTS = ("password", "passwd", "secret", "token", "cookie", "cred",
+                    "access_code", "private_key")
 # ⚠ 例外：线上 /api/ingest 要拿它校验本机推来的数据，必须一起上云。
 #   它是 32 位随机数（每次重装可再生成），不是 REINS 账号密码。
 KEEP_KEYS = {"ingest_token"}

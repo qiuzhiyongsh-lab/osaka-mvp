@@ -48,6 +48,11 @@
       <span>画像 张数未知（还没抓详情）</span>
     {% endif %}
     <span class="mono">{{ row.property_no }}</span>
+    {% if row.property_no %}
+    <!-- v1.9.0：物件番号位置 ①：核心 meta 胶囊里的番号也要有検索按钮（勇哥：每处番号旁都要有） -->
+    <a class="qbtn qbtn-reins" href="javascript:void(0)" data-bukken="{{ row.property_no }}"
+       data-i18n="detail.reins_search">REINS 物件番号検索</a>
+    {% endif %}
   </div>
   <div class="row" style="margin-top:10px">
     {% if row.pdf_path %}
@@ -60,7 +65,9 @@
          实际动作顺序是「先看番号 → 再去 REINS 查」，所以番号在前、按钮紧随其后。 -->
     <span class="muted">物件番号 <span class="mono">{{ row.property_no }}</span>
       <span data-i18n="detail.search_hint">（详情页需在 REINS 内点击「詳細」打开，无永久直链）</span></span>
-    <a class="btn ghost" href="javascript:void(0)" onclick="openBukkenSearch('{{ row.property_no }}')"
+    <!-- v1.9.0：物件番号位置 ② —— 改用 data-bukken + 事件委托（全站统一，见 fieldmap.js::bukkenBtn），
+         不再把外部数据拼进 inline onclick 字符串里。 -->
+    <a class="btn ghost" href="javascript:void(0)" data-bukken="{{ row.property_no }}"
        data-i18n="detail.reins_search">REINS 物件番号検索</a>
     <button class="btn ghost" id="agency-toggle" data-i18n="search.other_detail"
             onclick="toggleAgency(this)">隐藏其他详情</button>
@@ -82,7 +89,9 @@
   <h2><span data-i18n="detail.info_h">详细信息</span> <span class="hint" id="infoHint"></span></h2>
   <div class="dinfo">
     {% for label, value, agency in pairs %}
-    <div class="df"{% if agency %} data-agency="1"{% endif %}><span class="dk">{{ label }}</span><span class="dv">{{ value }}</span></div>
+    <!-- v1.9.0：物件番号位置 ③ —— 「详细信息」表里的 物件番号 行，值后面紧跟番号検索按钮。
+         判定用「值 == 本页番号」而不是比中文标签，换语言也不会失效。 -->
+    <div class="df"{% if agency %} data-agency="1"{% endif %}><span class="dk">{{ label }}</span><span class="dv">{{ value }}{% if row.property_no and value and value == row.property_no %} <a class="qbtn qbtn-reins" href="javascript:void(0)" data-bukken="{{ row.property_no }}" data-i18n="detail.reins_search">REINS 物件番号検索</a>{% endif %}</span></div>
     {% endfor %}
   </div>
 </div>

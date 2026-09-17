@@ -158,18 +158,28 @@
        ① 值没变就**不写、也不通知** —— 回环最多跑一轮即收敛；
        ② 通知加防重入闸 —— 杜绝通知过程中被再次触发造成的风暴。 */
   var _cmpNotifying = false;
-  function cmpWrite(list) {
+  var _cmpNotifyAgain = false;   // v1.9.0：通知被防重入挡住时「排队补一次」，不再静默丢弃
+  function cmpWrite(list, force) {
     var next = JSON.stringify((list || []).slice(0, CMP_MAX));
+    var same = false;
     try {
-      if (localStorage.getItem(CMP_KEY) === next) return false;   // 值没变：不写也不通知，掐断回环
-      localStorage.setItem(CMP_KEY, next);
+      same = (localStorage.getItem(CMP_KEY) === next);
+      if (!same) localStorage.setItem(CMP_KEY, next);
     } catch (e) { /* 隐私模式下写不了就算了，不影响本次会话 */ }
+    // 值没变：默认不写也不通知（掐断回环）；但 force=true 时仍要广播一次 ——
+    // v1.9.0：屏幕上的对比栏可能比 localStorage 旧（例如防重入把上一次通知吞了、
+    //   或本页内存里还留着已被别处删掉的列），此时「值没变」恰恰意味着**界面需要重画**，
+    //   否则用户看到的就是「点了清空，栏里东西还在」。清空走的就是 force 这条路。
+    if (same && !force) return false;
     cmpNotify();
-    return true;
+    return !same;
   }
 
   function cmpNotify() {
-    if (_cmpNotifying) return;          // 防重入
+    // v1.9.0：防重入闸原来直接 return —— 被吞掉的那一次通知**永远不会补**，
+    //   于是「值已经变成空、界面还停在旧列表」这种不一致会一直挂着（清空不掉的真凶之一）。
+    //   改成排队：当前这轮跑完立刻再跑一轮，保证界面最终一定等于磁盘真值。
+    if (_cmpNotifying) { _cmpNotifyAgain = true; return; }
     _cmpNotifying = true;
     try {
       var n = cmpRead().length;
@@ -178,7 +188,10 @@
         el.style.display = n ? 'inline-block' : 'none';
       });
       cmpListeners.forEach(function (fn) { try { fn(cmpRead()); } catch (e) {} });
-    } finally { _cmpNotifying = false; }
+    } finally {
+      _cmpNotifying = false;
+      if (_cmpNotifyAgain) { _cmpNotifyAgain = false; cmpNotify(); }
+    }
   }
 
   // 别的标签页改了对比栏时，本页也同步（localStorage 的 storage 事件不会在本页触发）
@@ -225,7 +238,7 @@
     remove: function (no) {
       cmpWrite(cmpRead().filter(function (x) { return x.no !== no; }));
     },
-    clear: function () { cmpWrite([]); },
+    clear: function () { cmpWrite([], true); },   // v1.9.0：force —— 清空必须让界面重画到空态
     /** v1.8.6：整体替换（**一次原子写入**）。
         对比页 load() 原来用 clear() + 逐个 add() 来校正本地对比栏，而 clear() 会先把
         localStorage 写成 "[]" —— 其他标签页（查询页）瞬间看到"清空了"，随后又被 add()

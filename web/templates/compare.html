@@ -22,9 +22,12 @@
     <label class="sw"><input type="checkbox" id="tBest" checked> <span data-i18n="cmp.best">标出最优</span></label>
     <label class="sw"><input type="checkbox" id="tHideSame"> <span data-i18n="cmp.hidesame">隐藏相同项</span></label>
     <label class="sw"><input type="checkbox" id="tCore"> <span data-i18n="cmp.core">只看核心参数</span></label>
-    <!-- v1.7.4 R3（PRD 11 §R3）：客户版 —— 勾上即隐藏中介公司/作业信息，这张表可以直接发给客人。
-         以前只能「生成图 → 在 WPS 里手动删后半页」，现在一键完成。 -->
-    <label class="sw"><input type="checkbox" id="tHideAgency"> <span data-i18n="cmp.hide_agency">隐藏中介信息（客户版）</span></label>
+    <!-- v1.9.0（勇哥截图 #4）：这里原来是个复选框「隐藏中介信息（客户版）」，
+         与查询页/详情页的「隐藏其他详情 / 显示其他详情」按钮**两套说法、两套交互**，
+         客户会以为功能不一样。现在统一成同一个按钮：文案随状态翻转，
+         动作与 search/detail 完全一致（隐藏「其他详情」类字段）。 -->
+    <button class="btn ghost" id="agency-toggle" data-i18n="search.other_detail"
+            onclick="cmpToggleAgency(this)">隐藏其他详情</button>
   </div>
   <span class="muted" id="cmpTip"></span>
 </div>
@@ -71,8 +74,14 @@ function buildYear(r){
 }
 function F(label, get, opt){
   opt = opt || {};
+  // v1.9.0 修「价格/降价幅把 <span class="qrate">↓ 2.3%</span> 当纯文本吐出来」的**真根因**：
+  //   v1.8.6 在渲染处加了 `else if(f.html) cell = raw(v)` 分支，注释也写了
+  //   「html:1 = 返回带 HTML 的字符串」，但这个构造函数**从来没把 opt.html 传出来** ——
+  //   于是 f.html 永远是 undefined，价格/降价幅永远走 esc()，HTML 标签被转义成字面文本。
+  //   （所以那次「修复」其实一次都没生效过；今天勇哥的截图就是它的现场。）
+  //   现在把 html 标记如实带出；同理把 bestLabel 之外的 rawNum 已经带了，别再加新的静默丢弃。
   return { label:label, get:get, core:!!opt.core, best:opt.best || null,
-           bestLabel:opt.bestLabel || '', rawNum:opt.rawNum || null };
+           bestLabel:opt.bestLabel || '', rawNum:opt.rawNum || null, html:!!opt.html };
 }
 
 /* ---------- 字段表：分组 / 顺序 / 核心标记 / 比优方向 ---------- */
@@ -84,7 +93,10 @@ var SECTIONS = [
       F(t('cmp.f.bname'),  function(r){ return r.building_name; }),
       F(t('cmp.f.sub'),  function(r){ return r.property_subtype; }, {core:1}),
       F(t('cmp.f.kind'),      function(r){ return r.kind; }),
-      F(t('cmp.f.no'),  function(r){ return r.property_no; })
+      F(t('cmp.f.no'),  function(r){
+          // v1.9.0：番号旁边挂「REINS 物件番号検索」按钮（全站统一，见 fieldmap.js::bukkenBtn）
+          return (r.property_no ? esc(r.property_no) + ' ' + window.bukkenBtn(r.property_no) : '—');
+      }, {html:1})
   ]},
   { t:t('cmp.g.price'), rows:[
       F(t('cmp.f.price'),      function(r){
@@ -156,12 +168,25 @@ var SECTIONS = [
 function zh(k){ return window.fieldLabel ? window.fieldLabel(k) : k; }
 
 /* ---------- 小工具 ---------- */
+/* v1.9.0 修「清空后又自己回来」的**第二个根因**：地址栏 ?nos= 是第二真源。
+   旧版 noOf() 每次都优先读 location.search —— 只要 URL 里还留着 ?nos=A,B，
+   哪怕用户（本页或另一个标签页）已经把对比栏清空了，_loadBody 依然按 A,B 去查，
+   拿到结果后 CompareBox.setAll() 又把它们写回本地 → 现场就是「清空又复活 / 删到最后一个全回来」。
+   v1.8.9 的 while 重比对挡不住它：它比对的是「URL 派生的 nos」，两边永远相等，等于自我确认。
+   修法：?nos= 只在**首次进入本页**时被采纳一次（这是「分享/从对比栏跳过来」的唯一入口），
+   采纳完立刻丢弃；此后 noOf() 只有一个真源 = 本地对比栏。清空即彻底清空，任何残留 URL 都失效。 */
+var _urlNosTaken = false;
 function noOf(){
-  var m = location.search.match(/[?&]nos=([^&]*)/);
-  var list = (m && m[1]) ? decodeURIComponent(m[1]).split(',') : CompareBox.nos();
-  var out = [];
-  (list || []).forEach(function(x){ x = (x||'').trim(); if(x && out.indexOf(x) < 0) out.push(x); });
-  return out.slice(0, MAXC);
+  var list = CompareBox.nos();
+  if(!_urlNosTaken){
+    _urlNosTaken = true;
+    var m = location.search.match(/[?&]nos=([^&]*)/);
+    ((m && m[1]) ? decodeURIComponent(m[1]).split(',') : []).forEach(function(x){
+      x = (x || '').trim();
+      if(x && list.indexOf(x) < 0) list.push(x);
+    });
+  }
+  return list.slice(0, MAXC);
 }
 function setCount(n){
   document.querySelectorAll('#nav-cmp-n, .js-cmp-n').forEach(function(el){
@@ -199,14 +224,27 @@ function bestIdxOf(list, f){
   var best = bestOf(list, f.rawNum, f.best);
   return best ? list.indexOf(best) : -1;
 }
+/* v1.9.0：对比页的「隐藏其他详情」状态（与 search/detail 同一语义、同一按钮文案）。
+   以前这个开关读的是工具栏上的 #tHideAgency 复选框；现在换成按钮 + 本变量，
+   免得 render() 去找一个已经不存在的 DOM。 */
+var hideAgency = false;
+function syncAgencyBtn(){
+  var b = document.getElementById('agency-toggle');
+  if(b && window.t){
+    b.textContent = hideAgency ? t('search.other_hide_off') : t('search.other_detail');
+  }
+}
+function cmpToggleAgency(btn){
+  hideAgency = !hideAgency;
+  document.body.classList.toggle('hide-agency', hideAgency);   // 与 search/detail 共用同一 CSS 闸门
+  if(btn && window.t) btn.textContent = hideAgency ? t('search.other_hide_off') : t('search.other_detail');
+  if(rows.length) render();
+}
 function extraKeys(list){
   // v1.7.2：跳过规则统一交给公共词典（fieldmap.js → window.fieldSkip）：
   //   内部机器键、未收录键、页头已单独渲染的核心列，都不进对比表。
-  // v1.7.4 R3：勾了「隐藏中介信息」→ 中介类字段整行不输出（不是置灰，是**不在表里**，
+  // v1.7.4 R3：开了「隐藏其他详情」→ 中介类字段整行不输出（不是置灰，是**不在表里**，
   //   这样导出/截图给客人时不会残留，也不必再去 WPS 里删）。
-  var hideAgency = false;
-  var _ag = document.getElementById('tHideAgency');
-  if(_ag) hideAgency = !!_ag.checked;
   var skip = {};
   ['property_no','address','building_name','price','land_area','exclusive_area','building_area',
    'layout','floor','built_year_month','line_station','registration_date','change_date',
@@ -441,7 +479,7 @@ document.getElementById('cmpClear').addEventListener('click', function(){
   if(!CompareBox.count()) return;
   if(confirm(t('cmp.confirm_clear'))) clearAll();
 });
-['tBest','tHideSame','tCore','tHideAgency'].forEach(function(id){
+['tBest','tHideSame','tCore'].forEach(function(id){
   var el = document.getElementById(id);
   if(el) el.addEventListener('change', function(){ if(rows.length) render(); });
 });
@@ -467,11 +505,13 @@ CompareBox.onChange(function(items){
 
 window.addEventListener('i18n:changed', function(){
   try{
+    syncAgencyBtn();          // v1.9.0：语言变了，按钮文案要按**当前状态**重写，不能被字典覆盖成「隐藏」
     if(rows.length >= 2) render();
     else { var w = document.getElementById('cmpWrap'); if(w){ w.innerHTML = notEnoughHtml(); bindNotEnough(); setCount(CompareBox.count()); } }
   }catch(e){}
 });
 
+syncAgencyBtn();
 load();
 </script>
 {% endblock %}

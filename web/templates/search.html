@@ -1076,7 +1076,8 @@ function renderFullItem(r, i){
     +   '<div class="qrow1">'
     +     '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
     +             ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
-    +     '<a class="qbtn" href="javascript:void(0)" onclick="openBukkenSearch(\'' + esc(no) + '\')">'+t('search.reins_search')+'</a>'
+    // v1.9.0：物件番号検索按钮从这一行**移到番号旁边**（勇哥要求：按钮贴着番号走），
+    //   见下面第 3 行 qsub 里的 window.bukkenBtn(no)。
     // 状态标：新增（本轮首次入库）/ 变更（本轮有变更记录）——直白一眼可见
     +     (r.tag ? '<span class="qtag qtag-' + esc(r.tag) + '">' + t('row.tag_' + r.tag) + '</span>' : '')
     +     (pending ? '<span class="qtag qtag-pending" title="' + esc(t('row.detail_pending_tip')) + '">'
@@ -1102,7 +1103,7 @@ function renderFullItem(r, i){
     +   '</div>'
     // 第 3 行起：次要属性（可自动换到多行，窄屏也不硬挤）
     +   '<div class="qsub">'
-    +     '<span class="mono">' + esc(no) + '</span>'
+    +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
     +     (kindline        ? '<span>' + esc(kindline) + '</span>' : '')
     +     (r.floor         ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
     +     (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
@@ -1167,7 +1168,9 @@ function fillDetail(divId, r){
   if(!el) return;
   var h = '<div class="dgrid">';
   var fields = [
-    ['cmp.f.no', r.property_no], ['cmp.f.kind', r.kind], ['cmp.f.sub', r.property_subtype],
+    // v1.9.0：番号格后面挂 REINS 物件番号検索按钮（第 3 项是「原样插入的 HTML 后缀」）
+    ['cmp.f.no', r.property_no, (window.bukkenBtn ? window.bukkenBtn(r.property_no) : '')],
+    ['cmp.f.kind', r.kind], ['cmp.f.sub', r.property_subtype],
     ['cmp.f.loc', r.address], ['cmp.f.bname', r.building_name], ['cmp.f.line', r.line_station],
     ['cmp.f.price', wan(r.price)], ['cmp.f.prev', r.previous_price ? wan(r.previous_price) : ''],
     ['cmp.f.land', r.land_area != null ? num(r.land_area)+' ㎡' : ''],
@@ -1182,7 +1185,7 @@ function fillDetail(divId, r){
   ];
   fields.forEach(function(f){
     if(f[1] != null && f[1] !== '')
-      h += '<div class="df"><span class="dk">'+t(f[0])+'</span><span class="dv">'+esc(f[1])+'</span></div>';
+      h += '<div class="df"><span class="dk">'+t(f[0])+'</span><span class="dv">'+esc(f[1])+(f[2] || '')+'</span></div>';
   });
   // 详情页抓到的额外字段
   // v1.7.2：字段名与值统一走公共词典（fieldmap.js）——
@@ -1309,7 +1312,10 @@ function removeCompare(no){
 
 document.getElementById('cmpclear').addEventListener('click', function(){
   if(!CompareBox.count()) return;
-  if(confirm(t('cmp.confirm_clear'))) CompareBox.clear();
+  if(confirm(t('cmp.confirm_clear'))){
+    CompareBox.clear();
+    markRows();                     // v1.9.0：清空后立刻把行上的「已选」高亮复位（别等通知绕一圈）
+  }
 });
 document.getElementById('cmpgo').addEventListener('click', function(e){
   if(CompareBox.count() < 2){

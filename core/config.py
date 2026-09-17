@@ -58,9 +58,103 @@ def load() -> dict:
     return _deep_merge(_deep_merge(_DEFAULTS, tmpl), local)
 
 
+# ---------------------------------------------------------------------------
+# v1.9.0 修 **VULN-01（高危 · 系统性）**：
+#   save() 原来把「三层合并后的整份配置」写回 config.yaml —— 但 config.yaml 是
+#   **入库文件**，于是 config.local.yaml 里的真凭据（token / ingest_token / access_code
+#   / 以后加的密码）就被顺手写进 git。触发面极大：网页上任意一次「改配置→保存」
+#   （发布设置 / 调度 / 采集设置 / 运行模式）都会中招，不需要任何人做错事。
+#
+#   修法（两道闸，只**减少**写入内容，不新增/不重排，所以正常配置照旧能保存）：
+#     ① 键名闸 SECRET_KEYS / SECRET_PARTS：名字就像凭据的键，一律不带真值落盘；
+#     ② 来源闸：凡 config.local.yaml 里定义过的键路径（如 publish.ingest_token），
+#        写回时一律还原成 **config.yaml 模板里原本的值**（模板没有该键则置空占位）。
+#        —— local 就是「不该入库」的那一层，这是权威口径，不依赖键名。
+# ---------------------------------------------------------------------------
+SECRET_KEYS = {
+    "password", "passwd", "pwd", "secret", "token", "cookie", "session",
+    "session_id", "api_key", "apikey", "access_key", "access_code",
+    "user", "username", "userid", "user_id", "login_id", "mail",
+    "email", "tel", "private_key", "cred_key",
+}
+SECRET_PARTS = ("password", "passwd", "secret", "token", "cookie", "cred",
+                "access_code", "private_key")
+
+
+def _key_paths(obj: Any, prefix: str = "") -> set:
+    """收集 dict 里所有键路径（含中间层，如 publish 与 publish.token）。list 不展开。"""
+    out: set = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{prefix}.{k}" if prefix else str(k)
+            out.add(p)
+            out |= _key_paths(v, p)
+    return out
+
+
+def _lookup(obj: Any, path: str, default: Any = None) -> Any:
+    """按 "a.b.c" 取模板里的原值（找不到返回 default）。"""
+    cur = obj
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
+
+
+def _blank_like(v: Any) -> Any:
+    """「模板里没有这个键」时的占位值：保留键、不保留任何真实信息。"""
+    if isinstance(v, str):
+        return ""
+    if isinstance(v, list):
+        return []
+    if isinstance(v, dict):
+        return {}
+    return None
+
+
+def _strip_secrets(obj: Any, blocked: set, tmpl: Any, prefix: str = ""):
+    """递归剔除 / 还原私密键值。返回 (新对象, 被处理的键路径列表)。"""
+    handled: list = []
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            path = f"{prefix}.{k}" if prefix else str(k)
+            lk = str(k).lower()
+            if path in blocked:
+                # 来源闸：local 里有的键 → 用模板原值（模板没有就置空）
+                out[k] = _lookup(tmpl, path, _blank_like(v))
+                handled.append(path)
+                continue
+            if lk in SECRET_KEYS or any(p in lk for p in SECRET_PARTS):
+                # 键名闸：名字就像凭据（且不是 local 那一层能解释的）→ 直接不带值落盘
+                out[k] = _blank_like(v)
+                handled.append(path)
+                continue
+            nv, d = _strip_secrets(v, blocked, _lookup(tmpl, path, {}), path)
+            handled += d
+            out[k] = nv
+        return out, handled
+    if isinstance(obj, list):
+        out = []
+        for i, v in enumerate(obj):
+            nv, d = _strip_secrets(v, blocked, None, f"{prefix}[{i}]")
+            handled += d
+            out.append(nv)
+        return out, handled
+    return obj, handled
+
+
 def save(cfg: dict) -> None:
+    """写回 config.yaml（**入库的模板文件**）。真凭据绝不落进来 —— 见上方 VULN-01 说明。"""
+    local = _read_yaml(LOCAL_PATH)
+    tmpl = _read_yaml(CONFIG_PATH)
+    clean, handled = _strip_secrets(cfg, _key_paths(local), tmpl)
+    if handled:
+        print(f"[config] save(): 已阻止 {len(set(handled))} 个私密键写入入库文件 "
+              f"(config.yaml)：{sorted(set(handled))}")
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+        yaml.safe_dump(clean, f, allow_unicode=True, sort_keys=False)
 
 
 def output_root(cfg: dict) -> Path:
