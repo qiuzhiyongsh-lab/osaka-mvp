@@ -434,6 +434,20 @@ document.getElementById('cmpClear').addEventListener('click', function(){
 CompareBox.onChange(function(items){
   setCount(items.length);
   if(suppress || syncing) return;
+  // v1.8.7 修「清空/删到最后一个后全部恢复」的复活源头：
+  // 旧代码是 if(!items.length && rows.length){ rows=[]; load(); }
+  // —— 一旦对比栏被清空（无论是在本页清空，还是在查询页/另一标签页清空），
+  //    这里都会自动 load()，而 load() 会拿**地址栏里残留的旧 ?nos=** 把那几套房
+  //    重新写回 CompareBox → 表现就是"清空了又全回来"、"删到最后一个又全出现"。
+  // 现在改成：清空就只显示引导页，**绝不顺着旧 URL 重新装载**；
+  // 同时把地址栏残留的 ?nos= 也清掉，彻底断掉复活路径。
+  if(!items.length){
+    rows = [];
+    try{ history.replaceState(null, '', '/compare'); } catch(e){}
+    var w = document.getElementById('cmpWrap');
+    if(w){ w.innerHTML = notEnoughHtml(); bindNotEnough(); setCount(0); }
+    return;
+  }
   if(!items.length && rows.length){ rows = []; load(); }
 });
 
