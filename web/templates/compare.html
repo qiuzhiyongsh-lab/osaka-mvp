@@ -98,7 +98,8 @@ var SECTIONS = [
           }
           return badge + wanP(r.price);
         },
-        {core:1, best:'low',  bestLabel:t('cmp.bl.total'),   rawNum:function(r){ return r.price; }}),
+        // html:1 = 这个 getter 返回的是**带 HTML 的字符串**（涨跌徽章），渲染时不能再 esc()
+        {core:1, best:'low',  bestLabel:t('cmp.bl.total'),   rawNum:function(r){ return r.price; }, html:1}),
       F(t('cmp.f.prev'),  function(r){ return r.previous_price ? wanP(r.previous_price) : '—'; }),
       F(t('cmp.f.drop'),function(r){
           if(!r.previous_price || !r.price || r.previous_price == r.price) return '—';
@@ -107,7 +108,7 @@ var SECTIONS = [
           var src = '<span class="qsrc">' + t('row.src_platform')
                   + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
           return '<span class="qdrop qdrop-platform">' + arrow + wanP(Math.abs(r.previous_price - r.price)) + ' ' + src + '</span>';
-      }),
+      }, {html:1}),   // html:1 = 返回带 HTML，渲染时不能再 esc()
       F(t('cmp.f.unit'),    function(r){ var u = unitPrice(r); return u ? (u/10000).toFixed(1) + ' 万円/㎡' : '—'; },
         {core:1, best:'low',  bestLabel:t('cmp.s.unit'), rawNum:unitPrice}),
       F(t('cmp.f.tsubo'),    function(r){ return r.unit_price_tsubo
@@ -358,6 +359,10 @@ function render(){
         else if(v === '__detail__') cell = '<a class="btn ghost tiny" href="/p/'
                                           + encodeURIComponent(r.property_no) + '" target="_blank">' + t('cmp.srcpage') + '</a>';
         else if(v === '__src__')    cell = '<a class="link" href="' + esc(r.source_url) + '" target="_blank">' + t('cmp.srcsite') + '</a>';
+        // v1.8.6 修「对比页把 <span class="qrate">↑ 18.2%</span> 当纯文本吐出来」：
+        // 价格 / 降价幅 的 getter **返回的就是 HTML**（涨跌徽章），这里再 esc() 一次
+        // 就把标签转义成字面文本了。带 html:1 标记的字段直接原样插入。
+        else if(f.html)             cell = raw(v);
         else                        cell = esc(raw(v));
         body += '<div class="cc' + (i === bi ? ' best' : '')
               + (v == null || v === '' || v === '—' ? ' nil' : '') + '">'
