@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}登录 · 大阪房源查询系统{% endblock %}
+{% set _safe_next = (next if (next.startswith('/') and '//' not in next) else '/') %}
+{% block body %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo"><span class="logo-mark">大</span></div>
+    <h1>登录</h1>
+    <p class="login-sub">大阪房源查询系统 · {{ '线上版' if public else '本地版' }}</p>
+
+    <form id="loginForm" class="login-form" autocomplete="on">
+      <label>用户名
+        <input name="username" type="text" autocomplete="username" required>
+      </label>
+      <label>密码
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="err" id="loginErr"></div>
+      <button type="submit" class="btn primary block">登录</button>
+    </form>
+
+    <div class="login-foot">
+      {% if backup_url %}
+      <a href="{{ backup_url }}" class="ulink">没有账号？使用临时备份页浏览房源 →</a>
+      {% endif %}
+      <details class="emg">
+        <summary>使用应急访问码（管理员后门）</summary>
+        <form id="emgForm" class="login-form">
+          <label>应急访问码
+            <input name="code" type="text" autocomplete="off">
+          </label>
+          <button type="submit" class="btn block">进入</button>
+        </form>
+        <p class="hint">应急码仅管理员持有，登录后权限等同管理员。该码在 <code>config.local.yaml</code> 的 <code>public.access_code</code> 配置。</p>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- 首次登录强制设置密码（PRD-19 v2.0 主流程 ⑤ · P0） -->
+<div class="modal-mask" id="forceSetPwd" style="display:none">
+  <div class="modal">
+    <h3>请设置您的密码</h3>
+    <p class="hint" style="margin:0 0 14px">您使用的是管理员发放的一次性随机码。为账户安全，请先设置一个属于您自己的密码，再继续使用系统。</p>
+    <form id="setPwdForm">
+      <div class="modal-row">新密码
+        <input name="new_password" type="password" autocomplete="new-password" required>
+      </div>
+      <div class="modal-row">确认新密码
+        <input name="confirm_password" type="password" autocomplete="new-password" required>
+      </div>
+      <div class="err" id="setPwdErr"></div>
+      <p class="hint" style="margin:2px 0 10px">8–20 位，需同时包含字母与数字</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">设置密码并进入</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('loginForm');
+  if (form) form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = e.target;
+    document.getElementById('loginErr').textContent = '';
+    postJSON('/api/auth/login', { username: f.username.value, password: f.password.value })
+      .then(function (r) {
+        // 成功：api() 在 2xx 时返回 payload（r.ok === true）
+        if (r && r.ok) { afterLogin(r); return; }
+        else { document.getElementById('loginErr').textContent = (r && r.error) || '登录失败'; }
+      })
+      .catch(function (err) {
+        var msg = (err && err.payload && err.payload.error) || (err && err.message) || '登录失败';
+        document.getElementById('loginErr').textContent = msg;
+      });
+  });
+
+  // 成功回调：先判断是否要强制设密
+  function afterLogin(r) {
+    // PRD-19 v2.0 ⑤：仍是初始随机码(cleared=0) → 强制先设密码，不放行进系统
+    if (r && r.need_change_pwd) { openForceSetPwd(); return; }
+    location.href = {{ _safe_next | tojson }};
+  }
+
+  // ---- 首次登录强制设置密码（PRD-19 v2.0 主流程 ⑤ · P0）----
+  var mask = document.getElementById('forceSetPwd');
+  function openForceSetPwd() { if (mask) mask.style.display = 'flex'; }
+
+  var sp = document.getElementById('setPwdForm');
+  if (sp) sp.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = e.target;
+    var p1 = f.new_password.value, p2 = f.confirm_password.value;
+    var err = document.getElementById('setPwdErr');
+    err.textContent = '';
+    if (p1 !== p2) { err.textContent = '两次输入的密码不一致'; return; }
+    postJSON('/api/auth/set-pwd', { new_password: p1 })
+      .then(function (r) {
+        if (r && r.ok) { location.href = {{ _safe_next | tojson }}; }
+        else { err.textContent = (r && r.error) || '设置失败'; }
+      })
+      .catch(function (e2) {
+        err.textContent = (e2 && e2.payload && e2.payload.error) || (e2 && e2.message) || '设置失败';
+      });
+  });
+
+  var emg = document.getElementById('emgForm');
+  if (emg) emg.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var code = e.target.code.value.trim();
+    if (!code) return;
+    // 应急码经 ?code= 命中中间件（_access_guard），跳转首页即放行
+    location.href = '/?code=' + encodeURIComponent(code);
+  });
+})();
+</script>
+{% endblock %}

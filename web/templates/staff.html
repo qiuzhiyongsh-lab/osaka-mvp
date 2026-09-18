@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}员工管理 · 大阪房源查询系统{% endblock %}
+{% block body %}
+<style>
+.acctbl{width:100%;border-collapse:collapse;font-size:13px}
+.acctbl th,.acctbl td{border-bottom:1px solid #e3e9f5;padding:8px 10px;text-align:left;vertical-align:middle}
+.acctbl th{color:#33425f;font-weight:700;background:#f7f9fd;white-space:nowrap}
+.acctbl td .btn{padding:4px 10px;font-size:12px}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:#eef1f6;color:#566}
+.tag.admin{background:#3b6fd4;color:#fff}
+.tag.ok{background:#e6f4ea;color:#1e7e34}
+.tag.pw{background:#fff4e5;color:#a15c00}
+.tag.disabled{background:#fdecea;color:#c0392b}
+</style>
+
+<div class="wrap" style="padding:16px">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <h2 style="margin:0">员工管理</h2>
+      <button class="btn primary" id="btnNew">+ 新建员工</button>
+    </div>
+    <p class="hint" style="margin:0 0 14px">
+      本页面<strong>仅本地 8765 可见</strong>（线上展示版不提供建号能力）。
+      新建时系统生成 <strong>12 位一次性随机码</strong>，请把「用户名 + 随机码」<strong>线下</strong>发给员工；
+      对方首次登录会<strong>被强制设置自己的密码</strong>，设置后账户才算激活。
+    </p>
+    <div id="listTip" class="hint">加载中…</div>
+    <table class="acctbl" id="accTable" style="display:none">
+      <thead>
+        <tr><th>用户名</th><th>账号名称</th><th>角色</th><th>状态</th><th>创建者</th><th>创建时间</th><th>操作</th></tr>
+      </thead>
+      <tbody id="accBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 新建员工 -->
+<div class="modal-mask" id="newMask" style="display:none">
+  <div class="modal">
+    <h3>新建员工</h3>
+    <form id="newForm">
+      <div class="modal-row">用户名
+        <input name="username" required autocomplete="off" placeholder="英文/数字，唯一">
+      </div>
+      <div class="modal-row">账号名称（显示名）
+        <input name="display_name" autocomplete="off" placeholder="如：张云川">
+      </div>
+      <div class="modal-row">角色
+        <select name="role">
+          <option value="staff">员工（看房源 + 看 PDF + 改自己密码）</option>
+          <option value="admin">管理员（含设置 / 账户管理 / 发布）</option>
+        </select>
+      </div>
+      <label class="hint" style="display:flex;gap:6px;align-items:center;margin:2px 0 10px">
+        <input type="checkbox" name="random_code" checked> 生成一次性随机码（推荐）
+      </label>
+      <div class="err" id="newErr"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="newCancel">取消</button>
+        <button type="submit" class="btn primary">创建</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 一次性随机码展示（只显示一次） -->
+<div class="modal-mask" id="codeMask" style="display:none">
+  <div class="modal">
+    <h3>请立即复制并线下发送</h3>
+    <p class="hint" id="codeWho" style="margin:0 0 10px"></p>
+    <div class="modal-row">一次性随机码
+      <input id="codeVal" readonly style="font-family:monospace;font-size:16px;letter-spacing:1px">
+    </div>
+    <p class="hint" style="margin:0 0 12px">⚠ 此码<strong>只显示这一次</strong>，关闭后无法再查看（只能重新生成）。</p>
+    <div class="err" id="codeErr"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="codeCopy">复制</button>
+      <button type="button" class="btn primary" id="codeClose">我已保存，关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var body = document.getElementById('accBody');
+  var table = document.getElementById('accTable');
+  var tip = document.getElementById('listTip');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function jfetch(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+        return j;
+      });
+    });
+  }
+  function patch(u, payload) {
+    return jfetch('/api/accounts/' + encodeURIComponent(u), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  }
+
+  function render(list) {
+    if (!list || !list.length) { tip.textContent = '暂无账户'; table.style.display = 'none'; return; }
+    tip.textContent = '共 ' + list.length + ' 个账户';
+    table.style.display = '';
+    body.innerHTML = list.map(function (a) {
+      var st = a.disabled ? '<span class="tag disabled">已禁用</span>'
+        : (a.cleared ? '<span class="tag ok">正常</span>' : '<span class="tag pw">待改密</span>');
+      var role = a.role === 'admin'
+        ? '<span class="tag admin">管理员</span>' : '<span class="tag">员工</span>';
+      var u = esc(a.username);
+      return '<tr>' +
+        '<td>' + u + '</td>' +
+        '<td>' + esc(a.display_name) + '</td>' +
+        '<td>' + role + '</td>' +
+        '<td>' + st + '</td>' +
+        '<td>' + esc(a.created_by) + '</td>' +
+        '<td>' + esc(a.created_at) + '</td>' +
+        '<td>' +
+          '<button class="btn" data-act="role" data-u="' + u + '" data-v="' + (a.role === 'admin' ? 'staff' : 'admin') + '">' +
+            (a.role === 'admin' ? '设为员工' : '设为管理员') + '</button> ' +
+          '<button class="btn" data-act="dis" data-u="' + u + '" data-v="' + (a.disabled ? 0 : 1) + '">' +
+            (a.disabled ? '启用' : '禁用') + '</button> ' +
+          '<button class="btn" data-act="reset" data-u="' + u + '">重置随机码</button>' +
+        '</td></tr>';
+    }).join('');
+  }
+
+  function load() {
+    tip.textContent = '加载中…';
+    return jfetch('/api/accounts', { headers: { 'Accept': 'application/json' } })
+      .then(function (j) { render(j && j.accounts); })
+      .catch(function (e) { tip.textContent = '加载失败：' + e.message; });
+  }
+
+  function showCode(u, code) {
+    document.getElementById('codeWho').textContent = '员工：' + u;
+    document.getElementById('codeVal').value = code || '';
+    document.getElementById('codeErr').textContent = '';
+    document.getElementById('codeMask').style.display = 'flex';
+  }
+
+  body.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-act]') : null;
+    if (!b) return;
+    var u = b.getAttribute('data-u'), act = b.getAttribute('data-act'), v = b.getAttribute('data-v');
+    if (act === 'role') {
+      patch(u, { role: v }).then(load).catch(function (e2) { alert(e2.message); });
+    } else if (act === 'dis') {
+      if (!confirm('确定' + (v === '1' ? '禁用' : '启用') + '账户「' + u + '」吗？')) return;
+      patch(u, { disabled: v === '1' }).then(load).catch(function (e2) { alert(e2.message); });
+    } else if (act === 'reset') {
+      if (!confirm('重置后原随机码立即失效，将生成一个新码。确定？')) return;
+      patch(u, { reset_code: true }).then(function (j) {
+        if (j && j.ok) { showCode(u, j.one_time_code); load(); }
+        else alert((j && j.error) || '重置失败');
+      }).catch(function (e2) { alert(e2.message); });
+    }
+  });
+
+  document.getElementById('btnNew').onclick = function () {
+    document.getElementById('newErr').textContent = '';
+    document.getElementById('newMask').style.display = 'flex';
+  };
+  document.getElementById('newCancel').onclick = function () {
+    document.getElementById('newMask').style.display = 'none';
+  };
+  document.getElementById('newForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = e.target, err = document.getElementById('newErr');
+    err.textContent = '';
+    var payload = {
+      username: (f.username.value || '').trim(),
+      display_name: (f.display_name.value || '').trim(),
+      role: f.role.value,
+      random_code: !!f.random_code.checked
+    };
+    if (!payload.username) { err.textContent = '请填用户名'; return; }
+    jfetch('/api/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (j) {
+      document.getElementById('newMask').style.display = 'none';
+      f.reset();
+      if (payload.random_code) showCode(payload.username, j.one_time_code);
+      load();
+    }).catch(function (e2) { err.textContent = e2.message; });
+  });
+
+  document.getElementById('codeClose').onclick = function () {
+    document.getElementById('codeMask').style.display = 'none';
+  };
+  document.getElementById('codeCopy').onclick = function () {
+    var el = document.getElementById('codeVal'), err = document.getElementById('codeErr');
+    el.select(); el.setSelectionRange(0, 99999);
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    if (ok) { err.style.color = '#1e7e34'; err.textContent = '已复制到剪贴板'; }
+    else { err.style.color = ''; err.textContent = '复制失败，请手动选中复制'; }
+  };
+
+  load();
+})();
+</script>
+{% endblock %}

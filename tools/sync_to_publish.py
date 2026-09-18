@@ -47,11 +47,16 @@ import yaml                                                       # noqa: E402
 from core import publisher                                        # noqa: E402
 
 # config.yaml 里这些键一律不带上云（凭据 / 会话 / 密钥）
-#   v1.9.0 修 **VULN-02（高危）**：原名单漏了 access_code（N2 访问码）。
+#   v1.9.0 修 **VULN-02（高危）**：原名单漏了 access_code（N2 访问码），
 #   access_code 是「对外站的唯一门锁口令」，一旦随 config 同步上云，
 #   它就被写进了线上工程的仓库 → 等于把锁和钥匙一起挂出去。
-#   现在把它（及其同义写法）纳入名单，**访问码永不随同步上云**；
-#   线上要开访问码，只能在那台机器上就地设置，不在本机 config 里带过去。
+#   当时结论：**访问码永不随同步上云**；线上要开只能在那台机器上就地设置。
+#
+#   〔2026-09-18 **临时解除 → 同日 23:5x 已回滚**〕
+#   当晚一度按勇哥指令（B 方案）把 access_code 移出名单以随同步上云；
+#   勇哥随后要求恢复严格保护，现 "access_code" 已加回下面两处名单。
+#   ⚠ 保护只作用于**今后的同步**：若口令此前已被部署上云，云端那一份
+#   不会自动消失，需清空发布工程 config 的值并**重新部署**才生效。
 SECRET_KEYS = {"password", "passwd", "pwd", "secret", "token", "cookie",
                "session", "session_id", "api_key", "apikey", "access_key",
                "access_code", "accesscode",
@@ -219,10 +224,33 @@ def main() -> int:
     safe.setdefault("app", {})["output_root"] = "./data"
     safe.setdefault("schedule", {})["enabled"] = False
     safe.setdefault("web", {}).update({"host": "0.0.0.0", "port": 8000})
+    # ── PRD-19 §17（2026-09-19 勇哥决策）：账户改为「线下建立 + 同步上云」 ──
+    #   线上不再是「无账户的孤岛」—— 账户种子会随本次同步一并带上（见 ③b），
+    #   故原先那条「强制 accounts.auth_enabled=False」的防自锁保护予以**撤销**，
+    #   线上是否开启鉴权**以本地设置为准**。
+    #   锁死风险改由线上启动兜底承担（见 web/app.py：种子缺失且账户表为空 → 自动降级开放态）。
     print(f"③ 配置：剔除凭据键 {len(dropped)} 个" + (f" → {dropped[:6]}" if dropped else ""))
     if not dry:
         (TARGET / "config.yaml").write_text(
             yaml.safe_dump(safe, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    # ── ③b 账户种子（PRD-19 §17 · 线下建号 → 同步上云）──
+    # 例外说明：本脚本从不整体上传 data/，但账户种子是**唯一特例** —— 它只含 pbkdf2
+    # 哈希、不含任何明文口令；线上要靠它拿到初始账户，否则无账可登。
+    src_seed = MVP / "data" / "accounts.seed.json"
+    dst_seed = TARGET / "data" / "accounts.seed.json"
+    if src_seed.exists():
+        try:
+            n_acc = len(json.loads(src_seed.read_text(encoding="utf-8")).get("accounts") or [])
+        except Exception:
+            n_acc = -1
+        print(f"③b 账户种子：{src_seed.name}（{n_acc} 个账户，仅哈希）")
+        if not dry:
+            dst_seed.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_seed, dst_seed)
+    else:
+        print(f"③b 账户种子：**未找到** {src_seed} —— 请先跑 `python tools/seed_accounts.py`；"
+              f"否则线上拿不到初始账户，将按兜底降级为开放态")
 
     # ── ④ 线上入口 ──
     if not dry:

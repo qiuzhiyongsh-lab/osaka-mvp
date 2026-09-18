@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD-19 Mockup · 登录页 / 员工管理页 / 临时备份页</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --card:#fff; --line:#e3e8f0; --line-soft:#eef1f6;
+    --text:#1f2733; --sub:#6b7686; --brand:#2f6df6; --brand-d:#1f56d6;
+    --ok:#1f9d57; --warn:#e08a00; --danger:#d8453b; --chip:#eef3ff;
+    --radius:12px; --shadow:0 6px 24px rgba(20,40,80,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+    background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+  .topbar{display:flex;gap:8px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  .topbar b{font-weight:700;margin-right:auto;align-self:center}
+  .topbar button{border:1px solid var(--line);background:#fff;color:var(--sub);
+    padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .topbar button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .wrap{max-width:980px;margin:24px auto;padding:0 16px}
+  .view{display:none}
+  .view.on{display:block}
+  /* ---------- 登录页 A ---------- */
+  .login-card{max-width:380px;margin:48px auto;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:var(--shadow);padding:28px}
+  .login-card h2{margin:0 0 4px;font-size:20px}
+  .login-card .hint{color:var(--sub);font-size:13px;margin-bottom:18px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-weight:700;margin-bottom:6px}
+  .field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  .field input:focus{outline:none;border-color:var(--brand)}
+  .btn{width:100%;padding:11px;border:none;border-radius:8px;background:var(--brand);color:#fff;
+    font-size:15px;font-weight:600;cursor:pointer}
+  .btn:hover{background:var(--brand-d)}
+  .err{color:var(--danger);font-size:13px;margin-top:10px;min-height:18px}
+  .temp-link{display:block;text-align:center;margin-top:16px;color:var(--brand);font-size:13px;text-decoration:none}
+  .temp-link:hover{text-decoration:underline}
+  /* ---------- 员工管理页 ---------- */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+  .panel h2{margin:0 0 4px;font-size:18px}
+  .panel .sub{color:var(--sub);font-size:13px;margin-bottom:16px}
+  .tb{width:100%;border-collapse:collapse}
+  .tb th,.tb td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line-soft);font-size:13.5px}
+  .tb th{color:var(--sub);font-weight:600;background:#fafbfe}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .badge.staff{background:#eef1f6;color:#566}
+  .badge.admin{background:var(--chip);color:var(--brand-d)}
+  .badge.ok{background:#e7f7ee;color:var(--ok)}
+  .badge.disabled{background:#fdecea;color:var(--danger)}
+  .badge.pw{background:#fff4e2;color:var(--warn)}
+  .acts button{border:1px solid var(--line);background:#fff;color:var(--sub);border-radius:7px;
+    padding:4px 9px;font-size:12.5px;cursor:pointer;margin-right:6px}
+  .acts button.danger{color:var(--danger);border-color:#f3c6c2}
+  .acts button:hover{background:#f6f8fc}
+  .new-btn{background:var(--brand);color:#fff;border:none;padding:9px 16px;border-radius:8px;
+    font-weight:600;cursor:pointer;float:right;margin-top:-6px}
+  .new-btn:hover{background:var(--brand-d)}
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(20,30,50,.4);display:none;align-items:center;justify-content:center;z-index:40}
+  .mask.on{display:flex}
+  .modal{background:#fff;border-radius:var(--radius);padding:22px;width:360px;box-shadow:var(--shadow)}
+  .modal h3{margin:0 0 12px}
+  .modal label{font-weight:700;display:block;margin:10px 0 6px}
+  .modal input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px}
+  .code-box{margin-top:14px;background:#fff4e2;color:var(--warn);border:1px dashed var(--warn);
+    border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:2px;text-align:center}
+  .code-note{font-size:12px;color:var(--sub);margin-top:8px}
+  .modal .row{display:flex;gap:10px;margin-top:18px}
+  .modal .row button{flex:1;padding:9px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer}
+  .modal .row .pri{background:var(--brand);color:#fff;border-color:var(--brand)}
+  /* ---------- 临时备份页 B ---------- */
+  .banner{background:#fff4e2;color:var(--warn);border-bottom:1px solid #f0d9a8;
+    padding:10px 16px;font-size:13.5px;display:flex;gap:10px;align-items:center}
+  .banner a{color:var(--brand-d);font-weight:600;text-decoration:none}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1f2733;color:#fff;
+    padding:11px 18px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);opacity:0;transition:.25s;z-index:50;pointer-events:none}
+  .toast.on{opacity:1}
+  .bpage{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-top:16px}
+  .bpage h2{margin-top:0}
+  .bnav{display:flex;gap:8px;margin:12px 0}
+  .bnav button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;color:var(--sub)}
+  .bnav button.on{background:#eef3ff;color:var(--brand-d);border-color:var(--brand)}
+  .tip{color:var(--sub);font-size:13px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <b>PRD-19 · UI Mockup</b>
+  <button id="t-login" class="on" onclick="sw('login')">A 正式站·登录页</button>
+  <button id="t-emp" onclick="sw('emp')">A 正式站·员工管理</button>
+  <button id="t-temp" onclick="sw('temp')">B 临时备份页</button>
+</div>
+
+<!-- ===== A 登录页 ===== -->
+<div class="view on wrap" id="v-login">
+  <div class="login-card">
+    <h2>登录</h2>
+    <div class="hint">内部员工账号登录（仅用户名 + 密码）</div>
+    <div class="field"><label>用户名</label><input id="u" placeholder="如 yongge / zhangyc"></div>
+    <div class="field"><label>密码</label><input id="p" type="password" placeholder="请输入密码"></div>
+    <button class="btn" onclick="doLogin()">登录</button>
+    <div class="err" id="err"></div>
+    <a class="temp-link" href="#" onclick="sw('temp');return false">还没有账号 / 无法登录？使用临时备份页 →</a>
+  </div>
+</div>
+
+<!-- ===== A 员工管理页 ===== -->
+<div class="view wrap" id="v-emp">
+  <div class="panel">
+    <button class="new-btn" onclick="openNew()">+ 新建员工</button>
+    <h2>员工与权限管理</h2>
+    <div class="sub">本地 8765 设置页 · 账户数据本机存储，不暴露到线上</div>
+    <table class="tb">
+      <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>创建者</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        <tr><td>yongge</td><td><span class="badge admin">管理员</span></td><td><span class="badge ok">正常</span></td><td>system</td><td>2026-09-18</td>
+          <td class="acts"><button>重置随机码</button><button>改角色</button><button class="danger">禁用</button></td></tr>
+        <tr><td>zhangyc</td><td><span class="badge staff">员工</span></td><td><span class="badge ok">正常</span></td><td>yongge</td><td>2026-09-18</td>
+          <td class="acts"><button>重置随机码</button><button>改角色</button><button class="danger">禁用</button></td></tr>
+        <tr><td>liwen</td><td><span class="badge staff">员工</span></td><td><span class="badge pw">待改密</span></td><td>yongge</td><td>2026-09-18</td>
+          <td class="acts"><button>重置随机码</button><button>改角色</button><button class="danger">禁用</button></td></tr>
+        <tr><td>wangfang</td><td><span class="badge staff">员工</span></td><td><span class="badge disabled">已禁用</span></td><td>yongge</td><td>2026-09-17</td>
+          <td class="acts"><button>重置随机码</button><button>改角色</button><button>启用</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== B 临时备份页 ===== -->
+<div class="view" id="v-temp">
+  <div class="banner">
+    ⚠ 您正在使用<b>临时备份页</b>，功能将停用，请到 <a href="#" onclick="sw('login');return false">正式站登录</a> 以正常使用全部功能。
+  </div>
+  <div class="wrap">
+    <div class="bpage">
+      <h2>房源列表（临时备份页 · 与当前线上一致）</h2>
+      <div class="bnav">
+        <button class="on" onclick="bnav(this,'列表')">列表</button>
+        <button onclick="bnav(this,'详情')">详情</button>
+        <button onclick="bnav(this,'对比')">对比</button>
+        <button onclick="bnav(this,'收藏')">收藏</button>
+      </div>
+      <div class="tip" id="btip">当前：列表 — 公开可看，无需登录。每次切换页面会提示您前往正式站登录。</div>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="mask">
+  <div class="modal">
+    <h3>新建员工</h3>
+    <label>用户名</label><input id="nu" placeholder="英文/数字，唯一">
+    <label>角色</label>
+    <select id="nr" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px">
+      <option value="staff">员工（只读 + 看 PDF + 改自己密码）</option>
+      <option value="admin">管理员（含设置/账户/发布）</option>
+    </select>
+    <div class="code-box" id="code">A7K2-9XQ4-MP3R</div>
+    <div class="code-note">初始随机码仅显示一次，请复制线下发给员工；员工首次登录后须改密码。</div>
+    <div class="row">
+      <button onclick="closeNew()">关闭</button>
+      <button class="pri" onclick="closeNew()">确认创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">请到正式站登录后才能正常使用全部功能</div>
+
+<script>
+function sw(v){
+  ['login','emp','temp'].forEach(x=>{
+    document.getElementById('v-'+x).classList.toggle('on', x===v);
+    document.getElementById('t-'+x).classList.toggle('on', x===v);
+  });
+  if(v!=='temp') document.getElementById('toast').classList.remove('on');
+}
+function doLogin(){
+  var u=document.getElementById('u').value.trim(), p=document.getElementById('p').value;
+  var e=document.getElementById('err');
+  if(!u||!p){e.textContent='请输入用户名和密码';return;}
+  // mock：admin 或任意非空密码通过；演示用
+  e.textContent='';
+  alert('登录成功（mock）→ 进入正式站首页；当前账号角色演示为「管理员」');
+}
+function openNew(){document.getElementById('mask').classList.add('on');}
+function closeNew(){document.getElementById('mask').classList.remove('on');}
+function bnav(btn, name){
+  document.querySelectorAll('.bnav button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('btip').textContent='当前：'+name+' — 公开可看，无需登录。每次切换页面会提示您前往正式站登录。';
+  var t=document.getElementById('toast'); t.classList.add('on');
+  clearTimeout(window._tt); window._tt=setTimeout(()=>t.classList.remove('on'),2600);
+}
+</script>
+</body>
+</html>

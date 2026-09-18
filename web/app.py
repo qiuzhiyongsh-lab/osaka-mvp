@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import sys
 import json
@@ -21,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request,
-                   send_from_directory, url_for)
+                   send_from_directory, session, url_for)
 from werkzeug.exceptions import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -36,6 +37,7 @@ from core.scheduler import Scheduler                  # noqa: E402
 from core.publisher import PublishLoop                 # noqa: E402
 from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
+from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
 
 # 线上收数时**永不接受**的列（勇哥：PDF 不上传）
 NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
@@ -45,6 +47,7 @@ NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
 CFG = cfgmod.load()
 PATHS = cfgmod.paths(CFG)
 STORE = Store(PATHS["db"])
+acc_mod.init(PATHS["db"])   # PRD-19：账户/审计表建表（幂等，复用主库）
 LOGS: deque[str] = deque(maxlen=400)
 TEST_RESULT: dict = {}            # 测试类操作的结构化结果，供页面轮询展示
 
@@ -127,6 +130,39 @@ app.config["JSON_AS_ASCII"] = False
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 # ============================================================
+# v1.9.13 账户与权限（PRD-19）：会话密钥 + 总开关
+#   · secret_key：优先用 config.local.yaml 的 app.session_secret（gitignored，稳定不随重启变）；
+#     缺失时用「db 路径哈希」作本机稳定回退（重启不丢登录态，但不跨机器）。
+#   · AUTH_ENABLED：账户拦截总开关，默认 False —— 关闭时行为与旧版完全一致（不强制登录）。
+#     翻 True 即开启「对比页/查询页等受账户保护」，配合双链接方案（PRD-19 §14）的 A 正式站使用。
+# ============================================================
+app.secret_key = (CFG.get("app") or {}).get("session_secret") \
+    or hashlib.sha256(str(PATHS["db"]).encode("utf-8")).hexdigest()
+AUTH_ENABLED = bool((CFG.get("accounts") or {}).get("auth_enabled"))
+
+# ============================================================
+# PRD-19 §17：账户种子导入 + 防锁死兜底
+#   ⚠ 必须放**模块级** —— 线上站（OSAKA_PUBLIC=1）经 main.py → serve_public.py 启动，
+#     不会执行文件末尾的 __main__ 块（bootstrap_admin 那条也就不会跑）。
+#   流程（勇哥 2026-09-19 决策：账户由线下建立 + 同步上云）：
+#     ① 读 data/accounts.seed.json（只含 pbkdf2 哈希）→ UPSERT 进 accounts 表
+#     ② 鉴权已开但账户表仍无可用账户 → **自动降级开放态**，绝不把自己锁在门外
+# ============================================================
+try:
+    _seed_stat = acc_mod.import_seed_file(str(PATHS["root"] / "accounts.seed.json"),
+                                          actor="system(seed)")
+except Exception as _e:                      # 种子缺失/损坏绝不能让站点起不来
+    _seed_stat = None
+    print(f"[PRD-19] 账户种子导入失败（已忽略，站点继续启动）：{_e}", flush=True)
+if _seed_stat:
+    print(f"[PRD-19] 账户种子：新建 {_seed_stat['inserted']} / 更新 {_seed_stat['updated']} "
+          f"（改码 {_seed_stat['pwd_reset']} · 保留已改密码 {_seed_stat['pwd_kept']}）", flush=True)
+if AUTH_ENABLED and not acc_mod.has_any_account():
+    print("[PRD-19] ⚠ 鉴权已开启但账户表无可用账户（种子未随同步上云？）"
+          " → 自动降级为开放态，避免全员锁死", flush=True)
+    AUTH_ENABLED = False
+
+# ============================================================
 # v1.5.18：对外（线上分享）模式
 #   设环境变量 OSAKA_PUBLIC=1 时，**同一套代码**当作"只读展示站"跑：
 #     · 采集 / 账号 / 本地文件 / 指定日期下载 四个页面不暴露
@@ -136,7 +172,9 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # ============================================================
 PUBLIC = os.environ.get("OSAKA_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
 
-PUBLIC_HIDDEN_PAGES = {"/collect", "/account", "/files", "/specified"}
+# ⚠ 注意：`/account` 是 **REINS 账号管理页**（录入 REINS 会员ID/密码/登录网址），
+#    与「员工管理」完全是两回事；员工管理后台走 **`/staff`**，别混用。
+PUBLIC_HIDDEN_PAGES = {"/collect", "/account", "/files", "/specified", "/staff"}
 PUBLIC_HIDDEN_APIS = (
     "/api/run", "/api/publish", "/api/env", "/api/schedule",
     "/api/login", "/api/credentials", "/api/download",
@@ -162,28 +200,47 @@ def _public_guard():
 
 @app.before_request
 def _access_guard():
-    """v1.8.0 N2 访问码：对外模式若设了 `public.access_code`，未带正确口令则拦截。
+    """v1.9.13 访问控制（PRD-19）。
 
-    - 只读保证已由 `_public_guard` 完成；这里只管「谁看得到」。
-    - 口令来源：`config.public.access_code`（config.local.yaml 本机真值，不入库；
-      随同步脚本上云到线上 config.yaml）。**未设 → 完全开放**（向后兼容，当前线上即此态）。
-    - 校验：URL `?code=` 或 Cookie `osaka_access_code` 任一匹配即放行。
-    - 页面：渲染简单输入页；`/api`（除 /api/ping 健康检查）返回 401 JSON。
+    两层逻辑，由 AUTH_ENABLED 切换：
+    · AUTH_ENABLED=False（默认）：维持旧 N2 访问码行为（仅 PUBLIC 模式生效；非 PUBLIC 完全开放）。
+    · AUTH_ENABLED=True：账户登录为主。
+        - 未登录 + 非放行路由 → 页面跳 /login、/api 返 401；
+        - 已登录账户（session.user_id）→ 放行；
+        - 应急码（public.access_code）：仍作管理员后门，命中即放行（PRD-19 §4.3 N2 改造）。
+    放行白名单：/login、/api/auth/login、/api/ping、/static/*、访问码页。
     """
-    if not PUBLIC:
-        return None
-    code = (CFG.get("public") or {}).get("access_code") or ""
-    if not code:
-        return None
     path = request.path
-    ok = (request.args.get("code") == code) or (request.cookies.get("osaka_access_code") == code)
-    if ok:
+    if path in ("/login", "/api/auth/login", "/api/ping") or path.startswith("/static/"):
         return None
-    if path.startswith("/api/"):
-        if path == "/api/ping":        # 健康检查放行，便于监控/告警
+
+    code = (CFG.get("public") or {}).get("access_code") or ""
+    emergency_ok = bool(code) and (
+        request.args.get("code") == code or request.cookies.get("osaka_access_code") == code
+    )
+
+    if not AUTH_ENABLED:
+        # 旧行为：N2 访问码（仅 PUBLIC 生效）
+        if not PUBLIC:
             return None
-        return jsonify({"status": "error", "message": "需要访问码"}), 401
-    return render_template("access_code.html", path=path)
+        if not code:
+            return None
+        if emergency_ok:
+            return None
+        if path.startswith("/api/"):
+            return jsonify({"status": "error", "message": "需要访问码"}), 401
+        return render_template("access_code.html", path=path)
+
+    # ===== AUTH_ENABLED：账户登录为主，应急码作后门 =====
+    if emergency_ok:
+        session["emergency"] = True
+        return None
+    if session.get("user_id"):
+        return None
+    # 未登录 → 拦截
+    if path.startswith("/api/"):
+        return jsonify({"status": "error", "message": "未登录"}), 401
+    return redirect(url_for("login_page", next=path))
 
 
 @app.after_request
@@ -196,9 +253,25 @@ def _plant_access_cookie(resp):
     return resp
 
 
+def _current_user():
+    """返回当前登录账户信息（dict）或 None。供模板与接口共用（PRD-19）。"""
+    if session.get("emergency"):
+        return {"username": "(应急码)", "role": "admin", "emergency": True,
+                "display_name": "应急访问", "cleared": 1}
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    row = acc_mod.get_account(uid)
+    if not row:
+        return None
+    return {"username": row["username"], "role": row["role"],
+            "display_name": row["display_name"] or row["username"],
+            "cleared": row["cleared"], "emergency": False}
+
+
 @app.context_processor
 def inject_globals():
-    """所有模板都能直接拿到 cfg / paths / sched / 金额格式器。"""
+    """所有模板都能直接拿到 cfg / paths / sched / 金额格式器 + 登录态（PRD-19）。"""
     return {
         "cfg": CFG,
         "paths": {k: str(v) for k, v in PATHS.items()},
@@ -207,6 +280,8 @@ def inject_globals():
         "version": ver.VERSION,
         "build_at": ver.BUILD_AT,
         "public": PUBLIC,
+        "auth_enabled": AUTH_ENABLED,
+        "me": _current_user(),
         "wan": lambda v: f"{(int(v or 0)//10000):,}",
         "num": lambda v: f"{int(v):,}" if v not in (None, "") else "—",
         "wareki_to_ad": wareki_to_ad,
@@ -1812,9 +1887,174 @@ def bukken_shot(filename):
     return send_from_directory(str(d), filename, mimetype="image/png")
 
 
+@app.route("/staff")
+def staff_page():
+    """员工管理后台（PRD-19 v2.0 · **仅线下本地 8765 可见**）。
+
+    ⚠ 路径是 `/staff` 而不是 `/account`：后者是 **REINS 账号管理页**
+      （录入 REINS 会员ID / 密码 / 登录网址），两者不能混用。
+    线上 PUBLIC 模式：`/staff` 在 PUBLIC_HIDDEN_PAGES 中 → 自动 404，
+      即线上站不提供任何建号能力（符合"线上只认本地同步来的账户"这条铁律）。
+    未登录 → 跳登录页（带 next）；已登录但非管理员 → 403。
+    """
+    me = _current_user()
+    if not me:
+        return redirect(url_for("login_page", next="/staff"))
+    if me["role"] != acc_mod.ROLE_ADMIN:
+        return "需要管理员权限", 403
+    return render_template("staff.html", me=me)
+
+
+# ============================================================
+# v1.9.13 账户与权限路由（PRD-19）
+# ============================================================
+def _require_admin():
+    """返回 (me, err_resp)。me 为当前管理员账户 dict；非管理员 err_resp 为 403 JSON。"""
+    me = _current_user()
+    if not me or me["role"] != acc_mod.ROLE_ADMIN:
+        return None, jsonify({"ok": False, "error": "需要管理员权限"}, ), 403
+    return me, None
+
+
+@app.route("/login", methods=["GET"])
+def login_page():
+    """登录页（PRD-19）。next= 登录后回跳地址；backup_url= 过渡期临时备份页入口（PRD-19 §14）。"""
+    backup_url = (CFG.get("public") or {}).get("backup_url", "") or ""
+    return render_template("login.html", next=request.args.get("next", ""),
+                           auth_enabled=AUTH_ENABLED, public=PUBLIC, backup_url=backup_url)
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or not password:
+        return jsonify({"ok": False, "error": "用户名与密码不能为空"}), 400
+    ok, row, reason = acc_mod.authenticate(username, password, ip=request.remote_addr)
+    if not ok:
+        msg = {"no_such_user": "用户不存在", "disabled": "账户已禁用",
+               "locked": "账户已锁定，请稍后再试", "bad_password": "密码错误"}.get(reason, "登录失败")
+        return jsonify({"ok": False, "error": msg, "reason": reason}), 401
+    session["user_id"] = row["username"]
+    session["role"] = row["role"]
+    session.pop("emergency", None)
+    return jsonify({"ok": True, "role": row["role"], "cleared": row["cleared"],
+                    "need_change_pwd": row["cleared"] == 0})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def api_auth_me():
+    return jsonify({"ok": True, "me": _current_user()})
+
+
+@app.route("/api/auth/change-pwd", methods=["POST"])
+def api_auth_change_pwd():
+    """本人改密（需真实登录账户，应急码不能改密）。"""
+    me = _current_user()
+    if not me or me.get("emergency"):
+        return jsonify({"ok": False, "error": "请先以账户登录后再改密"}), 401
+    data = request.get_json(silent=True) or {}
+    old_pw = data.get("old_password") or ""
+    new_pw = data.get("new_password") or ""
+    ok, msg = acc_mod.change_password(me["username"], old_pw, new_pw, actor=me["username"])
+    if not ok:
+        code = 400
+        if msg == "old_password_wrong":
+            code = 401
+        return jsonify({"ok": False, "error": {"weak_password": "密码需 8–20 位且含字母与数字",
+                                                "old_password_wrong": "原密码错误"}.get(msg, msg)}), code
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/set-pwd", methods=["POST"])
+def api_auth_set_pwd():
+    """首次登录**强制设置密码**（PRD-19 v2.0 主流程 ⑤ · P0 缺口）。
+
+    与 change-pwd 的区别：**不需要原密码** —— 原密码是管理员发的一次性随机码，
+    员工登录后直接设正式密码即可。设完 cleared=1，
+    此后同步不会再拿种子覆盖他的哈希（UPSERT「不覆盖已改密码」才真正生效）。
+    """
+    me = _current_user()
+    if not me or me.get("emergency"):
+        return jsonify({"ok": False, "error": "请先以账户登录"}), 401
+    data = request.get_json(silent=True) or {}
+    new_pw = data.get("new_password") or ""
+    ok, msg = acc_mod.set_initial_password(me["username"], new_pw, actor=me["username"])
+    if not ok:
+        return jsonify({"ok": False, "error": {"weak_password": "密码需 8–20 位且含字母与数字",
+                                                "disabled": "账户已禁用"}.get(msg, msg)}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/accounts", methods=["GET", "POST"])
+def api_accounts():
+    me, err = _require_admin()
+    if err:
+        return err
+    if request.method == "GET":
+        rows = acc_mod.list_accounts()
+        return jsonify({"ok": True, "accounts": [dict(r) for r in rows]})
+    # POST：新建员工
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    role = data.get("role") or acc_mod.ROLE_STAFF
+    display_name = data.get("display_name") or None
+    random_code = bool(data.get("random_code"))
+    if not random_code and not password:
+        return jsonify({"ok": False, "error": "请填初始密码，或勾选「生成一次性随机码」"}), 400
+    ok, msg = acc_mod.create_account(username, password, role=role, created_by=me["username"],
+                                      display_name=display_name, random_code=random_code)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    # random_code=True 时 msg 是明文随机码，前端一次性展示
+    return jsonify({"ok": True, "one_time_code": msg if random_code else None})
+
+
+@app.route("/api/accounts/<username>", methods=["PATCH", "DELETE"])
+def api_account_detail(username):
+    me, err = _require_admin()
+    if err:
+        return err
+    if request.method == "DELETE":
+        ok, msg = acc_mod.set_disabled(username, True, by_admin=me["username"])
+        if not ok:
+            return jsonify({"ok": False, "error": msg}), 400
+        return jsonify({"ok": True})
+    # PATCH：改角色 / 禁用 / 重置随机码
+    data = request.get_json(silent=True) or {}
+    if "role" in data:
+        ok, msg = acc_mod.set_role(username, data["role"], by_admin=me["username"])
+        if not ok:
+            return jsonify({"ok": False, "error": msg}), 400
+    if "disabled" in data:
+        ok, msg = acc_mod.set_disabled(username, bool(data["disabled"]), by_admin=me["username"])
+        if not ok:
+            return jsonify({"ok": False, "error": msg}), 400
+    if data.get("reset_code"):
+        ok, code = acc_mod.reset_random_code(username, by_admin=me["username"])
+        if not ok:
+            return jsonify({"ok": False, "error": code}), 400
+        return jsonify({"ok": True, "one_time_code": code})
+    return jsonify({"ok": True})
+
+
 if __name__ == "__main__":
     log(f"本地站点启动：http://{CFG['web']['host']}:{CFG['web']['port']}")
     log(f"数据落盘目录：{PATHS['root']}")
+    try:
+        ok, st = acc_mod.bootstrap_admin(CFG)   # PRD-19：config.local.yaml 配了首管理员则自动建
+        if ok:
+            log(f"[PRD-19] 首管理员账户：{st}")
+    except Exception as _e:
+        log(f"[PRD-19] bootstrap_admin 跳过：{_e}")
     if not PUBLIC:
         if CFG.get("schedule", {}).get("enabled"):
             SCHED.start()

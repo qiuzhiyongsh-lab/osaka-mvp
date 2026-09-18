@@ -52,6 +52,19 @@
       {{ '真实抓取' if cfg.app.mode == 'live' else '离线演示' }}
     </span>
     <span class="lang-switcher" data-i18n-title="lang.label" title="语言"></span>
+    {% if auth_enabled %}
+    <span class="userbox">
+      {% if me %}
+        <span class="uname" title="{{ me.username }}">{{ me.display_name }}</span>
+        {% if me.role == 'admin' %}<span class="tag admin">管理员</span>{% endif %}
+        {% if me.emergency %}<span class="tag emg">应急</span>{% endif %}
+        {% if not me.emergency %}<a href="#" class="ulink" id="nav-change-pwd">改密</a>{% endif %}
+        <a href="#" class="ulink" id="nav-logout">退出</a>
+      {% else %}
+        <a href="{{ url_for('login_page') }}" class="ulink login-link">登录</a>
+      {% endif %}
+    </span>
+    {% endif %}
   </div>
 </header>
 
@@ -71,6 +84,52 @@
     <span class="ver"><span data-i18n="footer.updated">更新于</span> {{ build_at }}</span>
   </div>
 </footer>
+
+{# v1.9.13 自身改密弹窗（PRD-19）：仅登录态且非应急码时出现「改密」入口 #}
+<div id="cpModal" class="modal-mask" style="display:none">
+  <div class="modal">
+    <h3>修改密码</h3>
+    <label class="modal-row">原密码<input id="cpOld" type="password" autocomplete="current-password"></label>
+    <label class="modal-row">新密码<input id="cpNew" type="password" autocomplete="new-password"></label>
+    <div class="err" id="cpErr"></div>
+    <div class="modal-actions">
+      <button id="cpCancel" class="btn">取消</button>
+      <button id="cpSave" class="btn primary">保存</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var lo = document.getElementById('nav-logout');
+  if (lo) lo.addEventListener('click', function (e) {
+    e.preventDefault();
+    postJSON('/api/auth/logout', {}).then(function () { location.href = '/'; })
+      .catch(function () { location.href = '/'; });
+  });
+  var cp = document.getElementById('nav-change-pwd');
+  if (cp) cp.addEventListener('click', function (e) {
+    e.preventDefault();
+    document.getElementById('cpErr').textContent = '';
+    document.getElementById('cpModal').style.display = 'flex';
+  });
+  var cancel = document.getElementById('cpCancel');
+  if (cancel) cancel.addEventListener('click', function () {
+    document.getElementById('cpModal').style.display = 'none';
+  });
+  var save = document.getElementById('cpSave');
+  if (save) save.addEventListener('click', function () {
+    postJSON('/api/auth/change-pwd', {
+      old_password: document.getElementById('cpOld').value,
+      new_password: document.getElementById('cpNew').value
+    }).then(function (r) {
+      if (r && r.ok) { document.getElementById('cpModal').style.display = 'none'; alert('密码已修改，请使用新密码登录。'); }
+      else { document.getElementById('cpErr').textContent = (r && r.error) || '修改失败'; }
+    }).catch(function (err) {
+      document.getElementById('cpErr').textContent = (err && err.payload && err.payload.error) || (err && err.message) || '修改失败';
+    });
+  });
+})();
+</script>
 
 </body>
 </html>

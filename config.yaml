@@ -169,3 +169,10 @@ ai:
   base_url: https://ark.cn-beijing.volces.com/api/v3
 public:
   access_code: ''
+# ── PRD-19 §17 · 账号与员工角色权限（2026-09-19 勇哥指令：**强制登录**）──
+#   auth_enabled=true → 未登录访问页面一律跳 /login，`/api/*` 返 401
+#   账户由线下 `tools/seed_accounts.py` 播种、经 sync 同步上云
+#   （UPSERT：更新角色/状态，**不覆盖线上已改过的密码**）
+#   防锁死兜底：web/app.py 启动时若账户表无可用账户 → 自动降级开放态并打日志
+accounts:
+  auth_enabled: true

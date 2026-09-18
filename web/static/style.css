@@ -781,3 +781,41 @@ details.sec > .secbody{padding:10px 18px 14px}
    再给 min-height 兜底，小窗口下也不会压成一条。 */
 .pdf-frame{display:block;width:100%;height:78vh;min-height:520px;
   border:1px solid #d8e3f7;border-radius:8px;background:#f6f7f9}
+
+/* v1.9.13 账号登录与权限 UI（PRD-19） */
+.err{color:#c0392b;font-size:12.5px;margin:4px 0 2px;min-height:15px}
+.btn.block{display:block;width:100%}
+.tag.admin{background:#3b6fd4}
+.tag.emg{background:#a15c00}
+.ulink{color:var(--accent);text-decoration:none;font-size:13px;font-weight:600;margin-left:10px;cursor:pointer}
+.ulink:hover{text-decoration:underline}
+.userbox{display:inline-flex;align-items:center;margin-left:10px;gap:2px}
+.userbox .uname{font-size:13px;font-weight:600;color:#243b66;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 登录页 */
+.login-wrap{min-height:calc(100vh - 180px);display:flex;align-items:center;justify-content:center;padding:24px}
+.login-card{width:360px;max-width:92vw;background:#fff;border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 8px 30px rgba(30,60,120,.10);padding:28px 26px}
+.login-logo{text-align:center;margin-bottom:8px}
+.login-logo .logo-mark{display:inline-flex;width:46px;height:46px;border-radius:12px;background:var(--accent);
+  color:#fff;align-items:center;justify-content:center;font-size:22px;font-weight:800}
+.login-card h1{text-align:center;font-size:21px;margin:6px 0 2px;color:#1c2f54}
+.login-sub{text-align:center;color:var(--sub);font-size:13px;margin:0 0 18px}
+.login-form{display:flex;flex-direction:column;gap:12px}
+.login-form label{display:flex;flex-direction:column;font-size:13px;font-weight:600;color:#33425f;gap:5px}
+.login-form input{height:38px;padding:0 11px;border:1px solid #cdd8ea;border-radius:9px;font-size:14px;
+  font-family:inherit;box-sizing:border-box}
+.login-form input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,111,212,.15)}
+.login-foot{margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.login-foot .emg{width:100%;border-top:1px dashed var(--line-soft);padding-top:10px}
+.login-foot .emg summary{cursor:pointer;font-size:12.5px;color:var(--sub);text-align:center}
+.login-foot .emg .hint{font-size:11.5px;color:var(--sub);margin:8px 0 0;line-height:1.5}
+.login-foot .emg code{background:#eef3fb;padding:1px 5px;border-radius:5px;font-size:11.5px}
+/* 改密弹窗 */
+.modal-mask{position:fixed;inset:0;background:rgba(20,35,70,.45);display:none;align-items:center;justify-content:center;z-index:999}
+.modal{width:340px;max-width:92vw;background:#fff;border-radius:12px;padding:22px 22px 18px;
+  box-shadow:0 12px 40px rgba(20,35,70,.25)}
+.modal h3{margin:0 0 14px;font-size:17px;color:#1c2f54}
+.modal-row{display:flex;flex-direction:column;font-size:13px;font-weight:600;color:#33425f;gap:5px;margin-bottom:12px}
+.modal-row input{height:36px;padding:0 10px;border:1px solid #cdd8ea;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+.modal-actions .btn{padding:8px 18px}
