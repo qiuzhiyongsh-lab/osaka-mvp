@@ -1102,6 +1102,8 @@ function renderFullItem(r, i){
     +     (r.line_station   ? '<span class="k">' + esc(r.line_station) + '</span>' : '')
     +     (r.ward           ? '<span class="k">' + esc(r.ward) + '</span>' : '')
     +   '</div>'
+    // R1（PRD-20）：㎡単価 / 坪単価 一行（面积行下方）
+    +   unitPriceHtml(r)
     // 第 3 行起：次要属性（可自动换到多行，窄屏也不硬挤）
     +   '<div class="qsub">'
     +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
@@ -1115,6 +1117,19 @@ function renderFullItem(r, i){
     + '</div>'
     + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
     + '</div>';
+}
+
+/* R1（PRD-20）：列表卡片直接显示 ㎡単価 / 坪単価。
+   数据已在库（PROPERTY_COLUMNS 已含 unit_price_sqm/tsubo，/api/query 已返回），前端只上屏、不重算。
+   空值 / ≤0 → 显示「—」（search.na）；不参与计算、不报错。 */
+function unitPriceHtml(r){
+  var sqm   = (r.unit_price_sqm   && Number(r.unit_price_sqm)   > 0) ? (Number(r.unit_price_sqm)/10000).toFixed(1)   + ' 万円' : '';
+  var tsubo = (r.unit_price_tsubo && Number(r.unit_price_tsubo) > 0) ? (Number(r.unit_price_tsubo)/10000).toFixed(1) + ' 万円' : '';
+  if(!sqm && !tsubo) return '<div class="qunit qunit-empty">' + t('search.na') + '</div>';
+  var h = '<div class="qunit">';
+  if(sqm)   h += '<span class="k">' + t('search.unit_price_sqm')   + ' ' + sqm   + '</span>';
+  if(tsubo) h += '<span class="qsep">｜</span><span class="k">' + t('search.unit_price_tsubo') + ' ' + tsubo + '</span>';
+  return h + '</div>';
 }
 
 /* R22 B 简洁模式：每行只留 价格 / 面積 / 間取り / 区 / 取得日（PRD 指定），行高 ~44px。
@@ -1141,6 +1156,7 @@ function renderCompactItem(r, i){
     +           ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
     +   '<span class="qc-price">' + wan(r.price) + '</span>'
     +   '<span class="qc-area">' + areaTxt + '</span>'
+    +   (r.unit_price_sqm && Number(r.unit_price_sqm) > 0 ? '<span class="qc-unit">' + (Number(r.unit_price_sqm)/10000).toFixed(1) + '</span>' : '')
     +   (r.layout ? '<span class="qc-layout">' + esc(r.layout) + '</span>' : '')
     +   (r.ward ? '<span class="qc-ward">' + esc(r.ward) + '</span>' : '')
     +   '<span class="qc-date">' + dateTxt + '</span>'

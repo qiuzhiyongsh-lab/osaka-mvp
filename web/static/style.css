@@ -343,6 +343,13 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .qsub > span + span{border-left:1px solid #dfe5f1;padding-left:12px}
 .qsub .mono{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace}
 
+/* R1（PRD-20）：列表卡片 ㎡単価 / 坪単価 行 */
+.qunit{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:3px;font-size:12.5px;font-weight:700;color:#22304d}
+.qunit .k{font-weight:700}
+.qunit .qsep{color:#8a919c;font-weight:400}
+.qunit-empty{color:#8a919c;font-weight:400;font-size:12px}
+.qc-unit{font-weight:700;color:#22304d}
+
 .qdetail{padding:9px 12px 12px;border-top:1px dashed var(--line);background:#fff}
 .card.list-card{padding:8px 10px}                   /* 结果卡：缩小留白，让行铺满整宽 */
 
