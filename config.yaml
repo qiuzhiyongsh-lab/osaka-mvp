@@ -20,6 +20,7 @@ site:
   base_url: https://system.reins.jp
   login_url: https://system.reins.jp/login/main/KG/GKG001200
   search_url: https://system.reins.jp/main/BK/GBK001210
+  bukken_search_url: https://system.reins.jp/main/BK/GBK004100   # 番号検索页（默认 GBK004100，待真机确认）
   detail_title_keyword: 物件詳細
 browser:
   channel: msedge
