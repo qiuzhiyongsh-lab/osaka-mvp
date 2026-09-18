@@ -1700,6 +1700,34 @@ def create_app():
     return app
 
 
+# ===================================================================
+# v1.9.1（Task B）REINS 物件番号検索：后端登录式
+# 前端按钮调本接口 → 后端用已登录 REINS 会话代填番号+点検索+截图 → 回传图片 URL。
+# 番号検索页 URL/选择器来自 config.yaml（待真机在真实 DOM 取证后填，门禁②）。
+# ===================================================================
+@app.route("/api/reins/bukken_search", methods=["POST"])
+def api_reins_bukken_search():
+    body = request.get_json(silent=True) or {}
+    no = str((body.get("no") or request.args.get("no") or "")).strip()
+    if not no:
+        return jsonify({"ok": False, "error": "缺少番号"}), 400
+    try:
+        r = reins_bukken_search(CFG, log, no)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+    if not r.get("ok"):
+        return jsonify({"ok": False, "error": r.get("error", "番号検索失败")}), 502
+    return jsonify({"ok": True, "image_url": r.get("image_url"),
+                    "reins_url": r.get("reins_url", "")})
+
+
+@app.route("/bukken_shot/<path:filename>")
+def bukken_shot(filename):
+    # 只从 bukken_shots 运行时目录读截图（send_from_directory 已防目录穿越）
+    d = PATHS["root"] / "bukken_shots"
+    return send_from_directory(str(d), filename, mimetype="image/png")
+
+
 if __name__ == "__main__":
     log(f"本地站点启动：http://{CFG['web']['host']}:{CFG['web']['port']}")
     log(f"数据落盘目录：{PATHS['root']}")

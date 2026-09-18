@@ -277,34 +277,71 @@
     window.openBukkenSearch(el.getAttribute('data-bukken'));
   }, true);
 
-  /* v1.7.0：物件番号検索 + 一键隐藏中介 的共享逻辑（search / detail / compare 三页都用） */
+  /* v1.9.1：物件番号検索改为后端登录式 —— 由后端用已登录 REINS 会话代填番号+点検索+截图回传，
+     解决纯前端跨域无法代填（真机反馈：番号没录入/没点検索/未登录）。
+     后端 selectors 来自 config.yaml（门禁②，待真机取证）。 */
   window.openBukkenSearch = function (no) {
     if (!no) return;
-    // ⚠ 待真机确认（门禁②③，见 version.py 说明）：REINS「物件番号検索」页
-    //   (GBK004100) 的搜索栏字段名尚未真机取证。**跨域限制**：本页与
-    //   system.reins.jp 不同源，浏览器同源策略下脚本无法代填它打开的窗口，
-    //   所以「自动填号 + 自动点検索」在纯前端**不可能**做到（不是没写，是浏览器不允许）。
-    //   因此实现为可配置 + 三层兜底，真机取证后只需改下面两个常量：
-    //     · REINS_BUKKEN_SEARCH_URL  検索页地址（默认 GBK004100）
-    //     · REINS_BUKKEN_PARAM       若 REINS 支持 URL 带参直达，把参数名填这里
-    //                                （如 'bukkenNo'）→ 打开即已带号，最接近"一键出结果"
-    //   兜底 ③ 永远执行：番号写进剪贴板并给一次轻提示，用户粘一下即可。
-    var base = (window.REINS_BUKKEN_SEARCH_URL
-                || 'https://system.reins.jp/main/BK/GBK004100');
-    var param = window.REINS_BUKKEN_PARAM || '';
-    var url = param
-      ? base + (base.indexOf('?') < 0 ? '?' : '&')
-             + encodeURIComponent(param) + '=' + encodeURIComponent(no)
-      : base;
-    var copied = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(String(no));
-        copied = true;
+    window.bukkenSearchRun(String(no));
+  };
+
+  window.bukkenSearchRun = function (no) {
+    if (window.__bukkenSearching) return;
+    window.__bukkenSearching = true;
+    if (window.bukkenToast) window.bukkenToast(window.t('detail.searching') || 'REINS 検索中…', no, false);
+    fetch('/api/reins/bukken_search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({no: no})
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      window.__bukkenSearching = false;
+      if (j && j.ok && j.image_url) {
+        window.bukkenShowResult(no, j.image_url, j.reins_url || '');
+      } else {
+        window.bukkenFallback(no, j && j.error ? j.error : '');
       }
-    } catch (e) { /* http 内网域下 clipboard 可能不可用，忽略 */ }
-    window.open(url, '_blank', 'noopener');
-    window.bukkenToast((param ? window.t('detail.toast_open') : window.t('detail.toast_copied')) || '', no, copied);
+    }).catch(function (e) {
+      window.__bukkenSearching = false;
+      window.bukkenFallback(no, String(e));
+    });
+  };
+
+  window.bukkenShowResult = function (no, img, reinsUrl) {
+    var ov = document.getElementById('bukkenModal');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'bukkenModal';
+      ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);'
+        + 'z-index:9999;display:none;align-items:center;justify-content:center;';
+      ov.innerHTML = '<div style="background:#fff;max-width:92vw;max-height:88vh;overflow:auto;'
+        + 'border-radius:10px;padding:14px;position:relative;">'
+        + '<button id="bukkenClose" style="position:absolute;right:8px;top:6px;cursor:pointer;">✕</button>'
+        + '<div id="bukkenBody"></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function (e) {
+        if (e.target === ov || e.target.id === 'bukkenClose') ov.style.display = 'none';
+      });
+    }
+    var body = ov.querySelector('#bukkenBody');
+    body.innerHTML = '<div style="font-weight:700;margin-bottom:8px;">REINS 物件番号検索：'
+      + window.htmlEscape(no) + '</div>'
+      + '<img src="' + img + '?t=' + Date.now() + '" style="max-width:100%;border:1px solid #ddd;"/>'
+      + '<div style="margin-top:10px;">'
+      + (reinsUrl ? '<a href="' + reinsUrl + '" target="_blank" rel="noopener" class="qbtn">在 REINS 打开</a> ' : '')
+      + '<button id="bukkenCopy" class="qbtn">复制番号</button></div>';
+    ov.style.display = 'flex';
+    var cp = ov.querySelector('#bukkenCopy');
+    if (cp) cp.onclick = function () {
+      try { navigator.clipboard.writeText(no); if (window.bukkenToast) window.bukkenToast(window.t('detail.toast_copied') || '', no, true); } catch (e) {}
+    };
+  };
+
+  window.bukkenFallback = function (no, err) {
+    // 后端不可用/未配置/未登录 → 退化：剪贴板+开番号検索页+提示
+    var base = (window.REINS_BUKKEN_SEARCH_URL || 'https://system.reins.jp/main/BK/GBK004100');
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(String(no)); } catch (e) {}
+    window.open(base, '_blank', 'noopener');
+    if (window.bukkenToast) window.bukkenToast((window.t('detail.toast_copied') || '已复制番号') + (err ? '（后端:' + err + '）' : ''), no, true);
   };
 
   /* 轻提示（右下角浮出 2.6 秒）—— 只用于番号検索这一处，不进 i18n 字典之外的地方 */

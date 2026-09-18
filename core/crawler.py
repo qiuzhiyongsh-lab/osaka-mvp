@@ -532,6 +532,14 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
             log("  · 本轮**不判下架**（作用域为空 → 只做复活；长期关会攒出已成交仍在架的脏数据）")
             stats["main_round_skipped"] = True
             online_total = 0
+            # v1.9.1（解耦阶段B）：即便主轮关，也独立补「详情+PDF」，
+            # 让一轮下载默认就完整（阶段C 下架基线仍由 main_round 门控、默认关）。
+            try:
+                _bf = _backfill_details_pdfs(store, cfg, log, run_id)
+                stats["detail_backfilled"] = _bf.get("fetched", 0)
+            except Exception as _e:                    # noqa: BLE001
+                log("⚠ 阶段B 补详情失败（不影响本轮列表同步）：%s"
+                    % (type(_e).__name__ + ": " + str(_e)))
         else:
             # 真实模式：边抓边落库（每 flush_every 条写一次库 + PDF），不再等整轮结束
             sink = _BatchSink(store, cfg, log, run_id,
@@ -2864,6 +2872,9 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
                         continue
                     e = collected.setdefault(no, {"_base": {}})
                     e[col] = day
+                    # v1.9.1（解耦阶段B）：把列表行详情直链一并记下，供后续独立补详情复用，
+                    # 免得为拿直链重搜 REINS（也避免猜 URL 写脏）。
+                    e["detail_href"] = r.get("href") or ""
                     for k in BASE_KEYS:
                         v = rec.get(k)
                         if v not in (None, "") and k not in e["_base"]:
@@ -2930,6 +2941,177 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
     return {"searched": n_axis_per_day * len(days), "collected": len(collected),
             "updated": upd, "new": ins, "reg": n_reg, "chg": n_chg, "union": n_union,
             "days": list(days), "backfill": prev_fixed}
+
+
+# ===================================================================
+# v1.9.1（解耦阶段B）：独立「详情+PDF 补抓」环节。
+# 背景：v1.8.4 把 main_round 默认关（防误标下架），但阶段B(详情+PDF)被一并关掉，
+#       导致「一轮下载」只下列表壳、详情永不补 → 前端长期挂「详情待补」。
+# 本函数把阶段B 从 main_round 解耦：无论主轮开不开，run_round 降级分支都调它，
+# 让一轮默认就完整；阶段C(全期間下架基线)仍由 main_round 门控（默认关）。
+# 复用 _live_items 同一套 auth + _fetch_detail machinery；href 来自 sync_today_dates
+# 落库的 detail_href（绝不猜 URL、绝不写脏）。范围：is_active 且 detail_href 非空
+# 且 (detail_json 空 或 本地缺 PDF)，按 last_seen_at 倒序取前 N（默认 300），逐轮渐进清积压。
+# ===================================================================
+# ===================================================================
+# v1.9.1（REINS 番号検索后端登录式 / Task B）：解决真机反馈「番号没录入/没点検索/未登录」。
+# 纯前端 window.open 因跨域无法代填 REINS 搜索框、也共享不了登录态，
+# 故改为后端用与下载相同的 Auth 会话（自动重登）代操作：
+#   打开番号検索页 → 填番号 → 点検索 → 截图结果区 → 回传应用内展示。
+# ⚠ 番号検索页的 URL / 输入框 / 検索按钮 / 结果容器 选择器**走 config.yaml**
+#   （site.bukken_search_url + selectors.bukken_search_*）而非硬编码 ——
+#   需勇哥在真实 DOM 上取证后填（门禁②）。任一未配置即返回 ok:False + 明确提示，
+#   绝不发带猜 selector 的请求（避免写脏/误点）。
+# ===================================================================
+def reins_bukken_search(cfg, log, no: str) -> dict:
+    """后端登录式「物件番号検索」：填号 + 点検索 + 截图，回传 {ok, image_url, reins_url}。"""
+    if not no:
+        return {"ok": False, "error": "番号为空"}
+    sel = (cfg.get("selectors") or {})
+    site = (cfg.get("site") or {})
+    url = (site.get("bukken_search_url") or "").strip()
+    inp = (sel.get("bukken_search_input") or "").strip()
+    btn = (sel.get("bukken_search_button") or "").strip()
+    res = (sel.get("bukken_result") or "").strip()
+    if not (url and inp and btn):
+        return {"ok": False, "error": "番号検索 URL/输入框/検索按钮 未配置"
+                                  "（待真机：在 config.yaml 的 site.bukken_search_url 与"
+                                  " selectors.bukken_search_input/button 填真实 DOM）"}
+    root_dir = Path(cfgmod.paths(cfg)["root"])
+    shots_dir = root_dir / "bukken_shots"
+    shots_dir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9]", "", str(no))
+    fname = "bukken_%s.png" % (safe or "x")
+    fpath = shots_dir / fname
+    auth = Auth(cfg, cfgmod.paths(cfg)["session"])
+    with _sync_playwright() as p:
+        browser = auth.launch(p, headless=cfg["browser"].get("headless", False))
+        ctx, page = auth.open_authed_page(browser, log=log)
+        _mask_webdriver(ctx)
+        log("✓ 阶段Bukken 会话有效，进入番号検索")
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1500)
+            _check_maintenance(page, log)
+            page.fill(inp, no, timeout=8000)            # 填番号
+            page.locator(btn).first.click(timeout=8000)  # 点検索
+            page.wait_for_load_state("networkidle", timeout=40000)
+            page.wait_for_timeout(2000)
+            try:
+                if res:
+                    page.locator(res).first.screenshot(path=str(fpath))
+                else:
+                    page.screenshot(path=str(fpath))
+            except Exception as _e:
+                log("· 阶段Bukken 截图失败，改全页截图：" + type(_e).__name__)
+                try:
+                    page.screenshot(path=str(fpath))
+                except Exception:
+                    pass
+            reins_url = page.url
+        finally:
+            try:
+                browser.close()
+            except Exception:
+                pass
+    if not fpath.exists():
+        return {"ok": False, "error": "截图未生成（REINS 可能未返回结果或选择器不匹配）"}
+    return {"ok": True, "image_url": "/bukken_shot/" + fname, "reins_url": reins_url}
+
+
+def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
+    """后台补「详情页全字段 + PDF」—— 解耦自 main_round 的独立环节。"""
+    sel = cfg["selectors"]
+    cr = (cfg.get("crawl") or {})
+    root_dir = Path(cfgmod.paths(cfg)["root"])
+    want_pdf = bool(cfg.get("download", {}).get("pdf", True))
+    cap = int(cr.get("backfill_cap", 300))
+    max_minutes = float(cr.get("backfill_max_minutes", 20)) or 0.0
+
+    # 取待补清单（必须带 href，绝不对没有直链的行动手）
+    try:
+        cand = store.conn.execute(
+            "SELECT property_no, detail_href FROM properties "
+            "WHERE is_active=1 AND detail_href IS NOT NULL AND detail_href<>'' "
+            "ORDER BY last_seen_at DESC LIMIT ?", (cap,)).fetchall()
+    except Exception as e:
+        log("· 阶段B 取待补清单失败：" + type(e).__name__ + ": " + str(e))
+        return {"fetched": 0, "skipped": 0}
+    if not cand:
+        log("· 阶段B：没有需要补详情的房源（列表壳都已齐备）")
+        return {"fetched": 0, "skipped": 0}
+
+    auth = Auth(cfg, cfgmod.paths(cfg)["session"])
+    with _sync_playwright() as p:
+        browser = auth.launch(p, headless=cfg["browser"].get("headless", False))
+        ctx, page = auth.open_authed_page(browser, log=log)
+        _mask_webdriver(ctx)
+        log("✓ 阶段B 会话有效，进入補详情")
+        worker = None
+        if want_pdf and cr.get("pdf_background", True):
+            try:
+                ua = page.evaluate("navigator.userAgent") or ""
+                ck = "; ".join(("%s=%s" % (c.get("name"), c.get("value")))
+                               for c in ctx.cookies() if c.get("name"))
+                n_inflight = max(1, int(cr.get("pdf_max_inflight", 2)))
+                worker = _PdfWorker(root_dir / "attachments", ck, ua, log,
+                                    max_inflight=n_inflight)
+            except Exception:
+                worker = None
+        if run_id is not None:
+            try:
+                store.save_crawl_state(run_id, phase="detail_pdf",
+                                       need_detail=len(cand), need_pdf=0)
+            except Exception:
+                pass
+        log("—— 阶段B：补详情 + PDF（待处理 %d 条）——" % len(cand))
+        t0 = time.monotonic()
+        done = 0
+        skipped = 0
+        for row in cand:
+            no = row["property_no"]
+            href = (row["detail_href"] or "")
+            if not href or not str(href).startswith("http"):
+                skipped += 1
+                continue
+            existing = store.get_property(no)
+            have_detail = bool(existing and (existing["detail_json"]))
+            need_pdf = bool(want_pdf) and not _pdf_exists(root_dir, no)
+            if have_detail and not need_pdf:
+                skipped += 1
+                continue
+            try:
+                d = _fetch_detail(ctx, page, None, no, sel, cfg,
+                                  pdf_worker=worker, need_pdf=need_pdf, href=href)
+            except SessionExpired:
+                raise
+            except Exception as e:
+                log("  ✗ " + no + " 阶段B 详情失败：" + type(e).__name__ + ": " + str(e))
+                continue
+            if not d:
+                log("  ✗ " + no + " 阶段B 详情为空（直链打不开，下轮重试）")
+                continue
+            d["property_no"] = no
+            try:
+                pipeline.ingest([d], store, cfg, run_id)
+                done += 1
+                log("  ✓ " + no + " " + str(d.get("price", "")) + " "
+                    + str(d.get("address", "") or "")[:18]
+                    + (" [PDF→后台]" if (need_pdf and d.get("pdf_url")) else ""))
+            except Exception as e:
+                log("  ✗ " + no + " 阶段B 写库失败：" + type(e).__name__ + ": " + str(e))
+            if max_minutes and (time.monotonic() - t0) > max_minutes * 60:
+                log("⏱ 阶段B 已到时长上限，剩余留待下一轮")
+                break
+            time.sleep(random.uniform(3.0, 5.0))
+        if worker is not None:
+            worker.join(timeout=180)
+            for _no, _p, _ms, _err in worker.drain():
+                if _p:
+                    store.set_pdf(_no, _p)
+        browser.close()
+    log("· 阶段B 完成：补详情 %d / 跳过 %d" % (done, skipped))
+    return {"fetched": done, "skipped": skipped}
 
 
 def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -> dict:

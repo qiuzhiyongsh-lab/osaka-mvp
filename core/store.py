@@ -39,6 +39,7 @@ PROPERTY_COLUMNS = [
     # （YYYY-MM-DD）；解不出来的一律 NULL（＝未知，绝不猜、绝不用下载日冒充）。
     "reg_date_iso", "chg_date_iso",
     "first_seen_at", "last_seen_at", "last_changed_at", "is_active", "detail_json",
+    "detail_href",   # v1.9.1：列表行详情直链；供「解耦阶段B」后台补详情复用（免重搜、绝不猜 URL）
 ]
 
 
@@ -389,6 +390,9 @@ class Store:
             # v1.5.6：「平台日期已核验」标记。允许缺平台日期的老房源补抓**一次**详情，
             #   抓完置 1，以后不再重复抓（避免每轮都白抓一遍）。
             "pdate_checked": "INTEGER DEFAULT 0",
+            # v1.9.1：列表行详情直链（绝对 URL）。sync_today_dates 落库，
+            #   供「解耦阶段B」独立补详情复用，避免为拿直链重搜 REINS。
+            "detail_href": "TEXT",
         },
         "runs": {
             "online_total": "INTEGER DEFAULT 0",  # v1.4.0：列表层分母

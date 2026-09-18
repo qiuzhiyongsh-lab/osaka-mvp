@@ -85,6 +85,9 @@ crawl:
     inline_fail_threshold: 5
   inline_detail: true
   main_round_enabled: false
+  # v1.9.1 解耦阶段B：主轮关时也独立补「详情+PDF」，让一轮下载默认完整
+  backfill_cap: 300            # 每轮最多补多少套（按 last_seen_at 倒序，渐进清积压）
+  backfill_max_minutes: 20     # 阶段B 单轮时长上限（到时剩余留待下一轮）
   sync_dates_enabled: true
   sync_dates_backfill_prev_day: true
   sync_dates_prev_day_cutoff: '20:00'
@@ -129,6 +132,10 @@ selectors:
   detail_label: th
   detail_value: td
   pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
+  # v1.9.1 番号検索（后端登录式）：选择器待勇哥真实 DOM 取证后填（门禁②，绝不猜）
+  bukken_search_input: ''      # 番号输入框 selector（待真机）
+  bukken_search_button: ''    # 検索按钮 selector（待真机）
+  bukken_result: ''           # 结果容器 selector（截图用，可空=截全页，待真机）
   image_item: div.photo img, ul.photoList li img
   login:
     id_field: input.p-textbox-input[type='text'], input[type='text']

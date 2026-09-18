@@ -10,6 +10,24 @@ from __future__ import annotations
 VERSION = "1.9.0"
 BUILD_AT = "2026-09-18 02:10"
 # ============================================================================
+# v1.9.1（2026-09-18 · 解耦阶段B：主轮关也独立补「详情+PDF」）
+#   - 根因（勇哥报「一轮下载完还挂详情待补」）：v1.8.4 把 main_round 默认关（防误标下架），
+#     但阶段B(详情+PDF)被一并关掉 → 降级分支只跑 sync_today_dates（列表壳），详情永不补。
+#   - 修复：把阶段B 从 main_round 解耦成独立环节 `_backfill_details_pdfs`（core/crawler.py）。
+#     run_round 降级分支（main_round 关）现在也会调它 → 一轮下载默认就含详情+PDF，
+#     消除「详情待补」长期挂起；阶段C(全期間下架基线)仍由 main_round 门控、默认关，
+#     不 reintroduce 误标下架风险。
+#   - 复用 _live_items 同一套 auth + _fetch_detail machinery；href 由 sync_today_dates
+#     落库到新增列 detail_href（绝对直链），补详情时直接 goto，绝不猜 URL、绝不写脏。
+#   - store.py 新增 detail_href 列（PROPERTY_COLUMNS + CREATE TABLE + _ADD_COLUMNS 幂等 ALTER）。
+#   - config.yaml 新增 backfill_cap=300 / backfill_max_minutes=20（可调）。
+#   - ⚠ 待真机：REINS 实际补详情需登录会话+代理+维护窗口外，门禁③⑤ 由勇哥真机轮验证；
+#     历史积压（detail_href 为空的旧项）需跑一次 _await_then_fix.py 全量补，或等其自然重上架。
+#   - 同版含「REINS 番号検索后端登录式」（Task B）：新增 crawler.reins_bukken_search
+#     + /api/reins/bukken_search 路由 + fieldmap.js 改调后端；解决真机反馈「番号没录入/没点検索/未登录」。
+#     番号検索页 URL/选择器走 config.yaml（site.bukken_search_url + selectors.bukken_search_*），
+#     待勇哥真实 DOM 取证后填（门禁②，绝不猜 selector）；未配置即返回明确提示。同样 待真机门禁③⑤。
+# ============================================================================
 # v1.9.0（2026-09-18 · 5 项修复 + VULN-01/02/03 安全加固）
 #   - A 降价字段裸 HTML 真根因修复：compare.html 字段构造器 F() 旧版漏转 `opt.html`
 #     → 价格/降价徽标里的 <span> 被 esc() 成文本，列表/对比页显示

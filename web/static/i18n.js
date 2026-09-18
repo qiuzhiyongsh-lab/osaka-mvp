@@ -1291,6 +1291,7 @@
   DICT['ja']['row.trade_type_tip']='取引態様'; DICT['ja']['cmp.hide_agency']='仲介情報を非表示（顧客版）';
 
   // v1.9.0：物件番号旁的「REINS 物件番号検索」按钮 —— 打开后的轻提示
+  ZH['detail.searching']='REINS 検索中…';
   ZH['detail.toast_open']='已带番号打开 REINS 検索页：{no}';
   ZH['detail.toast_copied']='已打开 REINS 検索页；番号 {no} 已复制，粘贴即可搜';
   DICT['zh-TW']['detail.toast_open']='已帶番號開啟 REINS 檢索頁：{no}';
@@ -1299,6 +1300,9 @@
   DICT['en']['detail.toast_copied']='Opened REINS search; no. {no} copied — just paste it';
   DICT['ja']['detail.toast_open']='REINS 物件番号検索を開きました：{no}';
   DICT['ja']['detail.toast_copied']='REINS 物件番号検索を開きました。番号 {no} をコピー済み（貼り付けで検索）';
+  DICT['ja']['detail.searching']='REINS 検索中…';
+  DICT['zh-TW']['detail.searching']='REINS 檢索中…';
+  DICT['en']['detail.searching']='Searching REINS…';
 
   // v1.4.0 · 同步状态面板 / 完成通知 / 「详情待补」
   ZH['row.detail_pending']='详情待补'; ZH['row.detail_pending_tip']='列表已下载，详情页还没抓（下一轮会自动补，不是下载失败）';
