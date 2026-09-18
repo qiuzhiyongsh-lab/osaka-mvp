@@ -133,9 +133,9 @@ selectors:
   detail_label: th
   detail_value: td
   pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
-  # v1.9.1 番号検索（后端登录式）：选择器待勇哥真实 DOM 取证后填（门禁②，绝不猜）
-  bukken_search_input: ''      # 番号输入框 selector（待真机）
-  bukken_search_button: ''    # 検索按钮 selector（待真机）
+  # v1.9.1 番号検索（后端登录式）：下列选择器待勇哥真实 DOM 取证后填（门禁②，绝不猜）
+  bukken_search_inputs: ''    # 物件番号输入框 selector，一次匹配「物件番号１..N」多个框（待真机）
+  bukken_search_button: ''    # 最下面的「検索」按钮 selector（待真机）
   bukken_result: ''           # 结果容器 selector（截图用，可空=截全页，待真机）
   image_item: div.photo img, ul.photoList li img
   login:

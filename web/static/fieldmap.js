@@ -282,31 +282,47 @@
      后端 selectors 来自 config.yaml（门禁②，待真机取证）。 */
   window.openBukkenSearch = function (no) {
     if (!no) return;
-    window.bukkenSearchRun(String(no));
+    window.bukkenSearchRun([String(no)]);
   };
 
-  window.bukkenSearchRun = function (no) {
+  // v1.9.1：支持**多个番号**（数组）→ 后端依次填进「物件番号１/２/…」再点最下面「検索」。
+  window.bukkenSearchRun = function (nos) {
+    if (typeof nos === 'string') nos = [nos];
+    nos = (nos || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
+    if (!nos.length) return;
     if (window.__bukkenSearching) return;
     window.__bukkenSearching = true;
-    if (window.bukkenToast) window.bukkenToast(window.t('detail.searching') || 'REINS 検索中…', no, false);
+    if (window.bukkenToast) window.bukkenToast(window.t('detail.searching') || 'REINS 検索中…', nos.join(','), false);
     fetch('/api/reins/bukken_search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({no: no})
+      body: JSON.stringify({nos: nos})
     }).then(function (r) { return r.json(); }).then(function (j) {
       window.__bukkenSearching = false;
       if (j && j.ok && j.image_url) {
-        window.bukkenShowResult(no, j.image_url, j.reins_url || '');
+        window.bukkenShowResult(nos, j.image_url, j.reins_url || '');
       } else {
-        window.bukkenFallback(no, j && j.error ? j.error : '');
+        window.bukkenFallback(nos[0], j && j.error ? j.error : '');
       }
     }).catch(function (e) {
       window.__bukkenSearching = false;
-      window.bukkenFallback(no, String(e));
+      window.bukkenFallback(nos[0], String(e));
     });
   };
 
-  window.bukkenShowResult = function (no, img, reinsUrl) {
+  // v1.9.1：把对比栏里已选的多个番号一次性拿到 REINS 番号検索页批量填号検索。
+  window.bukkenSearchAll = function () {
+    var nos = (window.CompareBox && window.CompareBox.nos()) || [];
+    if (!nos.length) {
+      if (window.bukkenToast) window.bukkenToast(window.t('cmp.reins_batch_empty') || '对比栏为空', '', false);
+      return;
+    }
+    window.bukkenSearchRun(nos);
+  };
+
+  window.bukkenShowResult = function (nos, img, reinsUrl) {
+    if (typeof nos === 'string') nos = [nos];
+    var label = (nos || []).join('、');
     var ov = document.getElementById('bukkenModal');
     if (!ov) {
       ov = document.createElement('div');
@@ -324,7 +340,7 @@
     }
     var body = ov.querySelector('#bukkenBody');
     body.innerHTML = '<div style="font-weight:700;margin-bottom:8px;">REINS 物件番号検索：'
-      + window.htmlEscape(no) + '</div>'
+      + window.htmlEscape(label) + '</div>'
       + '<img src="' + img + '?t=' + Date.now() + '" style="max-width:100%;border:1px solid #ddd;"/>'
       + '<div style="margin-top:10px;">'
       + (reinsUrl ? '<a href="' + reinsUrl + '" target="_blank" rel="noopener" class="qbtn">在 REINS 打开</a> ' : '')
@@ -332,7 +348,7 @@
     ov.style.display = 'flex';
     var cp = ov.querySelector('#bukkenCopy');
     if (cp) cp.onclick = function () {
-      try { navigator.clipboard.writeText(no); if (window.bukkenToast) window.bukkenToast(window.t('detail.toast_copied') || '', no, true); } catch (e) {}
+      try { navigator.clipboard.writeText(label); if (window.bukkenToast) window.bukkenToast(window.t('detail.toast_copied') || '', label, true); } catch (e) {}
     };
   };
 

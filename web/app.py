@@ -1714,17 +1714,22 @@ def create_app():
 @app.route("/api/reins/bukken_search", methods=["POST"])
 def api_reins_bukken_search():
     body = request.get_json(silent=True) or {}
-    no = str((body.get("no") or request.args.get("no") or "")).strip()
-    if not no:
+    nos = body.get("nos") if "nos" in body else body.get("no")
+    if nos is None:
+        nos = request.args.get("nos") or request.args.get("no")
+    if isinstance(nos, str):                       # 允许 "a,b" / "a，b" 这种串
+        nos = nos.replace("，", ",").replace(" ", ",").split(",")
+    nos = [str(x).strip() for x in (nos or []) if str(x).strip()]
+    if not nos:
         return jsonify({"ok": False, "error": "缺少番号"}), 400
     try:
-        r = reins_bukken_search(CFG, log, no)
+        r = reins_bukken_search(CFG, log, nos)
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
     if not r.get("ok"):
         return jsonify({"ok": False, "error": r.get("error", "番号検索失败")}), 502
     return jsonify({"ok": True, "image_url": r.get("image_url"),
-                    "reins_url": r.get("reins_url", "")})
+                    "reins_url": r.get("reins_url", ""), "filled": r.get("filled", 0)})
 
 
 @app.route("/bukken_shot/<path:filename>")

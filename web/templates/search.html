@@ -216,6 +216,7 @@
     <div class="cmpslots" id="cmpslots"></div>
     <div class="cmpacts">
       <a class="btn primary" id="cmpgo" href="/compare" data-i18n="cmp.go">开始对比</a>
+      <button class="ghost" id="cmpReins" data-i18n="cmp.reins_batch">REINS 检索</button>
       <button class="ghost" id="cmpclear" data-i18n="cmp.clear">清空</button>
     </div>
   </div>
@@ -1316,6 +1317,11 @@ document.getElementById('cmpclear').addEventListener('click', function(){
     CompareBox.clear();
     markRows();                     // v1.9.0：清空后立刻把行上的「已选」高亮复位（别等通知绕一圈）
   }
+});
+// v1.9.1：把对比栏里已选的多个番号，一次性送到 REINS 番号検索页批量填号+検索（后端登录式）。
+var _cmpReins = document.getElementById('cmpReins');
+if(_cmpReins) _cmpReins.addEventListener('click', function(){
+  if(window.bukkenSearchAll) window.bukkenSearchAll();
 });
 document.getElementById('cmpgo').addEventListener('click', function(e){
   if(CompareBox.count() < 2){

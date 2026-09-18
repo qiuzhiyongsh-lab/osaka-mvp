@@ -2963,38 +2963,61 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
 #   需勇哥在真实 DOM 上取证后填（门禁②）。任一未配置即返回 ok:False + 明确提示，
 #   绝不发带猜 selector 的请求（避免写脏/误点）。
 # ===================================================================
-def reins_bukken_search(cfg, log, no: str) -> dict:
-    """后端登录式「物件番号検索」：填号 + 点検索 + 截图，回传 {ok, image_url, reins_url}。"""
-    if not no:
+def reins_bukken_search(cfg, log, nos) -> dict:
+    """后端登录式「物件番号検索」：填号(**可多个**) + 点最下面「検索」 + 截图。
+
+    回传 {ok, image_url, reins_url, filled}。
+    v1.9.1：支持多个番号 —— 依次填进「物件番号１/２/…」多个框（勇哥：多个编号分别
+    填到下面的多个框），再点最下面的「検索」。nos 可为字符串或列表。
+    选择器全部走 config.yaml（site.bukken_search_url + selectors.bukken_search_inputs/
+    button/result），**绝不硬编码猜 locator**（门禁②）；未配置或匹配不到输入框 → 明确报错。
+    """
+    if isinstance(nos, str):
+        nos = [nos]
+    nos = [str(x).strip() for x in (nos or []) if x is not None and str(x).strip()]
+    if not nos:
         return {"ok": False, "error": "番号为空"}
     sel = (cfg.get("selectors") or {})
     site = (cfg.get("site") or {})
     url = (site.get("bukken_search_url") or "").strip()
-    inp = (sel.get("bukken_search_input") or "").strip()
+    # 优先多框键 bukken_search_inputs；兼容旧单框键 bukken_search_input
+    inp = (sel.get("bukken_search_inputs") or sel.get("bukken_search_input") or "").strip()
     btn = (sel.get("bukken_search_button") or "").strip()
     res = (sel.get("bukken_result") or "").strip()
     if not (url and inp and btn):
         return {"ok": False, "error": "番号検索 URL/输入框/検索按钮 未配置"
-                                  "（待真机：在 config.yaml 的 site.bukken_search_url 与"
-                                  " selectors.bukken_search_input/button 填真实 DOM）"}
+                                  "（待真机：在 config.yaml 填 site.bukken_search_url 与"
+                                  " selectors.bukken_search_inputs/button 的真实 DOM）"}
     root_dir = Path(cfgmod.paths(cfg)["root"])
     shots_dir = root_dir / "bukken_shots"
     shots_dir.mkdir(parents=True, exist_ok=True)
-    safe = re.sub(r"[^A-Za-z0-9]", "", str(no))
+    safe = re.sub(r"[^A-Za-z0-9]", "", "_".join(nos))[:40]
     fname = "bukken_%s.png" % (safe or "x")
     fpath = shots_dir / fname
+    filled = 0
     auth = Auth(cfg, cfgmod.paths(cfg)["session"])
     with _sync_playwright() as p:
         browser = auth.launch(p, headless=cfg["browser"].get("headless", False))
         ctx, page = auth.open_authed_page(browser, log=log)
         _mask_webdriver(ctx)
-        log("✓ 阶段Bukken 会话有效，进入番号検索")
+        log("✓ 阶段Bukken 会话有效，进入番号検索（%d 个番号）" % len(nos))
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(1500)
             _check_maintenance(page, log)
-            page.fill(inp, no, timeout=8000)            # 填番号
-            page.locator(btn).first.click(timeout=8000)  # 点検索
+            boxes = page.locator(inp)                 # 一次匹配「物件番号１..N」多个框
+            n_box = boxes.count()
+            if n_box < 1:
+                return {"ok": False, "error": "没找到物件番号输入框"
+                                          "（选择器不匹配，待真机核对 selectors.bukken_search_inputs）"}
+            for i, one in enumerate(nos):
+                if i >= n_box:
+                    log("· 番号数(%d)超过输入框数(%d)，多余的忽略" % (len(nos), n_box))
+                    break
+                boxes.nth(i).fill(one, timeout=8000)   # 物件番号１、２、…
+                filled += 1
+            log("· 已填入 %d 个物件番号 → 点最下面的「検索」" % filled)
+            page.locator(btn).last.click(timeout=8000)  # 最下面的「検索」
             page.wait_for_load_state("networkidle", timeout=40000)
             page.wait_for_timeout(2000)
             try:
@@ -3016,7 +3039,8 @@ def reins_bukken_search(cfg, log, no: str) -> dict:
                 pass
     if not fpath.exists():
         return {"ok": False, "error": "截图未生成（REINS 可能未返回结果或选择器不匹配）"}
-    return {"ok": True, "image_url": "/bukken_shot/" + fname, "reins_url": reins_url}
+    return {"ok": True, "image_url": "/bukken_shot/" + fname, "reins_url": reins_url,
+            "filled": filled}
 
 
 def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
@@ -3319,6 +3343,14 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
             log("✓ 已入库：扫描 " + str(st["scanned"]) + " 条 / 落库 "
                 + str(st["fetched"]) + " 条 / 新盘 " + str(st["new"]) + " 条 / 变更 "
                 + str(st["changed"]) + " 条 / PDF " + str(st["pdf_saved"]) + " 份")
+        # v1.9.1（解耦阶段B · 统一各下载入口策略）：指定日期下载同样收一个独立「补详情+PDF」
+        #   pass，与 run_round 降级分支**共用同一个 _backfill_details_pdfs** ——
+        #   保证"任何入口下完的房源都含详情"（勇哥：几个下载位置都对应相同策略）。
+        try:
+            _bf = _backfill_details_pdfs(store, cfg, log, run_id)
+            stats["detail_backfilled"] = _bf.get("fetched", 0)
+        except Exception as _e:                    # noqa: BLE001
+            log("⚠ 阶段B 补详情失败（不影响列表）：%s" % (type(_e).__name__ + ": " + str(_e)))
         # ---- 收尾：导出 Excel + 按天页 ----
         try:
             from .exporter import export_day_excel, export_daily_page

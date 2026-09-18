@@ -1303,6 +1303,10 @@
   DICT['ja']['detail.searching']='REINS 検索中…';
   DICT['zh-TW']['detail.searching']='REINS 檢索中…';
   DICT['en']['detail.searching']='Searching REINS…';
+  ZH['cmp.reins_batch']='REINS 检索'; ZH['cmp.reins_batch_empty']='对比栏为空';
+  DICT['zh-TW']['cmp.reins_batch']='REINS 檢索'; DICT['zh-TW']['cmp.reins_batch_empty']='對比欄為空';
+  DICT['en']['cmp.reins_batch']='REINS search'; DICT['en']['cmp.reins_batch_empty']='Compare bar is empty';
+  DICT['ja']['cmp.reins_batch']='REINS 検索'; DICT['ja']['cmp.reins_batch_empty']='比較バーは空です';
 
   // v1.4.0 · 同步状态面板 / 完成通知 / 「详情待补」
   ZH['row.detail_pending']='详情待补'; ZH['row.detail_pending_tip']='列表已下载，详情页还没抓（下一轮会自动补，不是下载失败）';
