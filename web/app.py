@@ -30,7 +30,7 @@ from core import config as cfgmod                      # noqa: E402
 from core import credentials as creds_mod              # noqa: E402
 from core import version as ver                        # noqa: E402
 from core.auth import Auth, friendly_error            # noqa: E402
-from core.crawler import probe_query                  # noqa: E402
+from core.crawler import probe_query, reins_bukken_search   # noqa: E402
 from core import store as store_mod                   # noqa: E402
 from core.scheduler import Scheduler                  # noqa: E402
 from core.store import Store                          # noqa: E402
