@@ -40,6 +40,14 @@ from .auth import Auth, SessionExpired, _sync_playwright
 # 所以磁盘上永远要么没有、要么是一个完整文件，绝不会留半个；
 # 中断时**最多丢"正在下的那一个"**，此前所有 PDF 都已落盘。
 # ===========================================================================
+class _GeoFailed(RuntimeError):
+    """地区基线（大阪府/大阪市）直录失败——调用方应捕获并跳过该组，不杀整轮。
+
+    v1.9.2 引入：原直录分支失败直接 raise RuntimeError("中止本轮")，会把当天 12 组同步
+    全打死（2026-09-18 勇哥实抓：第 4 组 REINS 慢渲染 8s 超时 → 整轮中止、当天漏抓 8 组）。
+    改为专用异常，让调用方区分「地区直录瞬断」与「真问题（会话过期/真改版）」：
+    捕获 _GeoFailed → 跳过该组继续；其他异常（SessionExpired 等）仍向上中止保护数据。
+    """
 class _PdfWorker:
     def __init__(self, out_dir: Path, cookies: str, ua: str, log,
                  max_inflight: int = 2, timeout: float = 60.0):
@@ -1293,8 +1301,12 @@ def _live_items(store, cfg, log, trial: bool = False, sink=None,
                                    date_range=("全期間（不限日期）" if not _axis else _axis + "轴单搜"),
                                    round_tag="全期間主轮(数据主力+下架基线)")
                 # 保存条件只用来带出地区；物件種別/種目由此处覆盖（v1.2.3）
-                _apply_manual_conditions(page, sel,
-                                         {"kind": kind, "subtypes": subs}, log, cfg)
+                try:
+                    _apply_manual_conditions(page, sel,
+                                             {"kind": kind, "subtypes": subs}, log, cfg)
+                except _GeoFailed as _ge:
+                    log("⚠ 跳过本组（地区基线直录失败，已重试）：" + str(_ge)[:160])
+                    continue
                 _dismiss_modal(page)        # 検索前也可能有确认弹窗
 
                 page.locator(sel["search_button"]).first.click()
@@ -2207,6 +2219,49 @@ def _fill_subtype_slots(page, kind: str, subs: list[str], log) -> int:
     return n
 
 
+def _apply_geo_manual_retry(page, sel, pref, city, log, cfg, max_attempts=3) -> bool:
+    """直录地区基线（所在地１ 区块：都道府県名 + 所在地名１），REINS 慢渲染时重试，
+    避免因瞬时超时把整轮 12 组全打死。
+
+    v1.9.2 健壮性修复（勇哥 09-18 报「第 4 组地区直录 TimeoutError 整轮中止」）：
+    · 原 _apply_manual_conditions 直录分支 wait_for timeout=8000 写死，且失败即
+      raise RuntimeError("中止本轮") —— REINS 偏慢（同轮结果区曾等 45s）时，偶发一组
+      控件晚于 8s 渲染 → 整轮 12 组全废、当天漏抓。
+    · 现：超时提到 25000ms；失败先 page.goto 重进検索条件入力页 + 重展面板重试
+      （默认 3 次含首次）；仍失败返回 False，由调用方决定「跳过该组」而非杀整轮。
+    · 注意：地区直录是 _apply_manual_conditions 内**首步**页面操作（日期仅解析、種目在其后
+      才 fill），故重试 goto 重进条件页不会丢已填条件；重试成功后函数继续填種目。
+    """
+    _search_url = ((cfg or {}).get("site", {}) or {}).get("search_url")
+    for _attempt in range(1, max_attempts + 1):
+        try:
+            _pi = _ctrl_input(page, "都道府県名", area="所在地１").first
+            _pi.wait_for(state="visible", timeout=25000)
+            _pi.fill(pref, timeout=25000)
+            page.wait_for_timeout(400)
+            _ci = _ctrl_input(page, "所在地名１", area="所在地１").first
+            _ci.wait_for(state="visible", timeout=25000)
+            _ci.fill(city, timeout=25000)
+            page.wait_for_timeout(400)
+            log("· 已直录 地区基线：都道府県名=" + pref + " / 所在地名１=" + city
+                + "（所在地１ 区块，第 " + str(_attempt) + " 次成功）")
+            return True
+        except Exception as _e:  # noqa: BLE001
+            if _attempt < max_attempts and _search_url:
+                log("⚠ 地区直录第 " + str(_attempt) + " 次失败（" + type(_e).__name__
+                    + ": " + str(_e)[:120] + "），重进条件页重试…")
+                try:
+                    page.goto(_search_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(1200)
+                    _expand_search_panel(page, sel)
+                    page.wait_for_timeout(800)
+                except Exception as _ne:  # noqa: BLE001
+                    log("⚠ 重进条件页也失败（" + type(_ne).__name__ + "），继续下次重试")
+            else:
+                log("✗ 地区基线直录失败（" + type(_e).__name__ + ": " + str(_e)[:160] + "）")
+    return False
+
+
 def _apply_manual_conditions(page, sel, opts, log, cfg=None) -> None:
     """把用户手动选项套到 REINS 検索条件表单（label 锚定，与 BVID 无关）。
 
@@ -2270,27 +2325,18 @@ def _apply_manual_conditions(page, sel, opts, log, cfg=None) -> None:
         #     那些带 disabled 且会让 locator 命中多元素直接抛 Error（详见 _ctrl_input 注释）。
         _pref = ((cfg or {}).get("search", {}) or {}).get("prefecture", "大阪府")
         _city = ((cfg or {}).get("search", {}) or {}).get("city", "大阪市")
-        _geo_ok = False
-        try:
-            _pi = _ctrl_input(page, "都道府県名", area="所在地１").first
-            _pi.wait_for(state="visible", timeout=8000)
-            _pi.fill(_pref, timeout=8000)
-            page.wait_for_timeout(400)
-            _ci = _ctrl_input(page, "所在地名１", area="所在地１").first
-            _ci.wait_for(state="visible", timeout=8000)
-            _ci.fill(_city, timeout=8000)
-            page.wait_for_timeout(400)
-            _geo_ok = True
-            log("· 已直录 地区基线：都道府県名=" + _pref + " / 所在地名１=" + _city + "（所在地１ 区块）")
-        except Exception as _e:  # noqa: BLE001
-            log("✗ 地区基线直录失败（" + type(_e).__name__ + ": " + str(_e)[:160] + "）")
+        # v1.9.2：直录超时 8000→25000ms + 失败重进条件页重试（默认 3 次）；
+        # 仍失败抛 _GeoFailed（非 RuntimeError），由调用方「跳过该组」而非杀整轮。
+        _geo_ok = _apply_geo_manual_retry(page, sel, _pref, _city, log, cfg)
         if not _geo_ok:
-            # ⚠ v1.6.2：绝不静默继续。上一版就是在这里「⚠ 沿用默认所在地」把失败吞掉，
-            #   而 REINS 检索**要求 所在地/沿線/バス 其一必填**——没有地区条件时检索恒为空
-            #   或不可预期，整轮抓 0 条却被记成「正常完成」。宁可直接失败，也不污染数据。
-            raise RuntimeError(
-                "地区基线（大阪府/大阪市）录入失败，且未启用「読込」加载保存条件 —— "
-                "检索将无地区限定，已中止本轮以免抓空/污染。"
+            # ⚠ v1.6.2 的底线仍成立：REINS 检索**要求 所在地/沿線/バス 其一必填**，
+            #   没有地区条件时检索恒为空或不可预期，绝不能静默继续（否则抓 0 条记成完成）。
+            #   但 v1.9.2 把「整轮中止」改为「仅本组跳过」——瞬时超时（REINS 慢渲染）
+            #   不该杀死当天全部 12 组同步；真改版（持续失败）时该组当天漏抓会在日志标出。
+            raise _GeoFailed(
+                "地区基线（大阪府/大阪市）直录失败，且未启用「読込」加载保存条件 —— "
+                "已重试仍失败（可能 REINS 検索条件入力页改版）。检索将无地区限定，"
+                "本组跳过以免抓空/污染；其余组不受影响。"
                 "请核 REINS 検索条件入力页是否改版；或临时把 config search.use_saved_condition 置回 true。")
 
     # ---- 2) 物件種別 / 物件種目：按 REINS 原生槽位，一次检索最多填 4 个種目 ----
@@ -2843,7 +2889,11 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
             # 每次只设一个日期排（另一排由 _apply_manual_conditions 复位成「指定なし」）
             opts = {"date": day, "date_types": [field],
                     "kind": g["kind"], "subtypes": list(g["subtypes"])}
-            _apply_manual_conditions(page, sel, opts, log, cfg)
+            try:
+                _apply_manual_conditions(page, sel, opts, log, cfg)
+            except _GeoFailed as _ge:
+                log("⚠ 跳过本组（地区基线直录失败，已重试）：" + str(_ge)[:160])
+                continue
             _dismiss_modal(page)
             page.locator(sel["search_button"]).first.click()
             page.wait_for_load_state("networkidle", timeout=40000)
@@ -3261,7 +3311,11 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
                         log("✓ 会话有效，已进入検索条件入力页")
                     _expand_search_panel(page, sel)
                     page.wait_for_timeout(1000)
-                    _apply_manual_conditions(page, sel, o, log, cfg)
+                    try:
+                        _apply_manual_conditions(page, sel, o, log, cfg)
+                    except _GeoFailed as _ge:
+                        log("⚠ 跳过本组（地区基线直录失败，已重试）：" + str(_ge)[:160])
+                        continue
                     page.locator(sel["search_button"]).first.click()
                     page.wait_for_load_state("networkidle", timeout=40000)
                     page.wait_for_timeout(2500)
@@ -3442,7 +3496,11 @@ def probe_query_options(store, cfg, opts, progress_cb=None, limit: int = 8) -> d
                 _check_maintenance(page, log)
                 _expand_search_panel(page, sel)
                 page.wait_for_timeout(1000)
-                _apply_manual_conditions(page, sel, o, log, cfg)
+                try:
+                    _apply_manual_conditions(page, sel, o, log, cfg)
+                except _GeoFailed as _ge:
+                    log("⚠ 跳过本组（地区基线直录失败，已重试）：" + str(_ge)[:160])
+                    continue
                 page.locator(sel["search_button"]).first.click()
                 page.wait_for_load_state("networkidle", timeout=40000)
                 page.wait_for_timeout(2500)
