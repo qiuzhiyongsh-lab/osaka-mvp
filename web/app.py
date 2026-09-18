@@ -117,6 +117,12 @@ SCHED = Scheduler(STORE, CFG, log_fn=log)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["JSON_AS_ASCII"] = False
+# v1.9.1：静态资源（app.js / fieldmap.js / i18n.js / style.css）每次都要校验新鲜度。
+#   【为什么】改了前端 JS 但若 core/version.py 没抬版本 → base.html 的 ?v= 不变
+#   → 浏览器一直用旧缓存（本轮正是踩了这个：v1.9.1 改了 fieldmap.js/i18n.js，
+#   但 VERSION 漏抬，导致勇哥浏览器仍跑旧 JS）。max-age=0 + 强制校验后，
+#   即使 ?v 忘了抬，浏览器也会向服务端要最新版本，从根上杜绝这类"改了没生效"。
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 # ============================================================
 # v1.5.18：对外（线上分享）模式
