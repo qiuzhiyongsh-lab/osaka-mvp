@@ -1056,7 +1056,7 @@ def _needs_detail(existing) -> bool:
     return not (reg or chg)
 
 
-def _read_total(page, sel, log=None, timeout_s: float = 45.0) -> str:
+def _read_total(page, sel, log=None, timeout_s: float | None = None) -> str:
     """读「结果 N 件」那段文案 —— **等它真的出现再读**。
 
     【为什么要等】REINS 结果页是服务端渲染，房源越多渲染越慢。
@@ -1068,7 +1068,9 @@ def _read_total(page, sel, log=None, timeout_s: float = 45.0) -> str:
     """
     say = log or (lambda *_a, **_k: None)
     if timeout_s is None:
-        timeout_s = random.uniform(5.0, 8.0)  # v1.8.3（勇哥拍板）：真人节奏，5–8 秒随机，不再干等 45s
+        # v1.9.3（D4 修复）：REINS 偏慢时 45s 不够（今日タウン 类整组记「未知」→ 漏抓）。
+        #   改成 60–90s 随机上限，慢渲染组有充足时间出结果；快组仍即时返回，无额外延迟。
+        timeout_s = random.uniform(60.0, 90.0)
     locator = sel.get("result_total") or "div.text-dark.ml-3"
     deadline = time.time() + max(1.0, timeout_s)
     last = ""

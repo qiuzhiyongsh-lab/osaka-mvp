@@ -7,8 +7,26 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.2"
-BUILD_AT = "2026-09-18 10:55"
+VERSION = "1.9.3"
+BUILD_AT = "2026-09-18 12:28"
+# ============================================================================
+# v1.9.3（2026-09-18 · 推送链路修复 + D4 结果区超时修复）
+#   - 推送「未知原因」静默失败根因修复（勇哥报「线上永远旧 / 待上传 758 行」）：
+#     ① 真因：**publish.endpoint 从配置丢失（运行时为空）**，推送根本没发出去 —— 不是令牌过期、也不是网络。
+#        线上站 osaka-house-v2 自 09-17 16:27 最后一次成功上传后，每轮都因 endpoint 空而失败。
+#     ② 掩盖 bug：publisher.py post_rows 缺 endpoint 时早返回用单数 "error" 键，而 publish()
+#        读复数 "errors" 键 → 键名不匹配把真实原因「没有配置线上地址」吞成「未知原因」。
+#     ③ 修复：config.local.yaml 补回 endpoint=https://osaka-house-v2.app.workbuddy.host
+#        （URL 由 publish_state.last_endpoint + tools/_check_online.py 双重实证，非猜测）；
+#        post_rows 早返回改回 "errors" 键；publish() 调用方兜底读 error/errors 双键，绝不再吞。
+#     ④ 验证（借 8765 真实网络 POST /api/publish incr）：ok=true sent=758 upserted=758
+#        url=.../api/ingest → 线上站已刷新；令牌有效、网络通。last_at 更新 2026-09-18 12:25。
+#   - D4（PRD-17）：结果条数区 _read_total 默认 timeout 45s，REINS 偏慢时タウン 类整组记「未知」→ 漏抓。
+#     改默认 timeout_s=None → random.uniform(60,90)（慢渲染组有 60–90s 余量；快组仍即时返回，无额外延迟）。
+#     原 docstring 里「None→随机 5–8s」分支因默认非 None 从未触发，现改为 60–90s 并生效。
+#   - 门禁：推送修复属数据同步链路（非发布代码），已借 8765 真机端到端验证通过（门禁③⑤）；
+#     D4 属抓取超时控制流，未改 locator/检索结构。crawler.py/publisher.py py_compile 全绿。
+#     待勇哥重启 8765 吃 v1.9.3 后端（publisher.py 修复 + crawler.py D4 才生效）；发布线上版待拍板。
 # ============================================================================
 # v1.9.2（2026-09-18 · 抓取链路健壮性：直录超时+重试+只跳该组不杀整轮）
 #   - 勇哥实抓事故（桌面日志 10:41）：use_saved_condition=false 直录路径，

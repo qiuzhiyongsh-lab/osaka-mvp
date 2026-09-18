@@ -207,7 +207,9 @@ def post_rows(cfg: dict, rows: list[dict], log=None) -> dict:
     endpoint = str(pub.get("endpoint") or "").strip()
     token = str(pub.get("token") or "").strip()
     if not endpoint:
-        return {"ok": False, "error": "没有配置线上地址（publish.endpoint）"}
+        # ⚠ 必须用 "errors" 键（与正常返回一致），否则 publish() 读 res.get("errors")
+        #   （复数）会得到 []，把真实原因吞成「未知原因」。这是 2026-09-18 推送静默失败的根因。
+        return {"ok": False, "errors": ["没有配置线上地址（publish.endpoint）"]}
     url = endpoint.rstrip("/") + "/api/ingest"
     sent, upserted, errors = 0, 0, []
     total = len(rows)
@@ -279,7 +281,9 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
                   last_error=None)
         say("✓ 上传完成：%d 行 / 用时 %.1fs" % (res["sent"], (datetime.now() - t0).total_seconds()))
     else:
-        set_state(con, last_error="; ".join(res.get("errors") or [])[:500], last_mode=mode)
-        say("✗ 上传失败：" + ("; ".join(res.get("errors") or []) or "未知原因"))
+        # 兜底：任何来源若用单数 "error" 键，也要能读到，绝不吞成「未知原因」
+        _errs = res.get("errors") or (res.get("error") and [str(res.get("error"))]) or []
+        set_state(con, last_error="; ".join(_errs)[:500], last_mode=mode)
+        say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
     res["elapsed_s"] = round((datetime.now() - t0).total_seconds(), 1)
     return res
