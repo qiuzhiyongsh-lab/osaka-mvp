@@ -416,7 +416,7 @@ body.has-cmpbar main{padding-bottom:132px}
 /* 第 1 列：项目名（横向滚动时钉在左边） */
 .cmptable .cl{position:sticky;left:0;z-index:2;background:#f7f9fd;
   border-right:1px solid var(--line);border-bottom:1px solid var(--line-soft);
-  padding:8px 10px;color:var(--sub);font-weight:600;display:flex;align-items:center}
+  padding:8px 10px;color:var(--sub);font-weight:700;display:flex;align-items:center}
 .cmptable .cl.k{color:var(--brand);background:#eef3fb;font-weight:800}
 /* 数据格 */
 .cmptable .cc{border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);
@@ -774,6 +774,8 @@ details.sec > .secbody{padding:10px 18px 14px}
 #filterForm > .row:first-child .field > input,
 #filterForm > .row:first-child .field > select,
 #filterForm > .row:first-child .field .msp-btn{min-height:34px;height:34px;box-sizing:border-box}
+/* v1.9.10 §13：查询页筛选项字段名加粗（勇哥要求，纯字重变化，字号/颜色/布局不变） */
+#filterForm .field > span{font-weight:700}
 /* v1.8.6：详情页**内嵌** PDF（替掉原来的「打开本地 PDF」跳转按钮）
    宽度 100% = 与网页内容同宽；高度 78vh = 随窗口自适应（vh 随视口伸缩），
    再给 min-height 兜底，小窗口下也不会压成一条。 */
