@@ -1068,12 +1068,13 @@ def _read_total(page, sel, log=None, timeout_s: float | None = None) -> str:
     """
     say = log or (lambda *_a, **_k: None)
     if timeout_s is None:
-        # v1.9.3（D4 修复）：REINS 偏慢时 45s 不够（今日タウン 类整组记「未知」→ 漏抓）。
-        #   改成 60–90s 随机上限，慢渲染组有充足时间出结果；快组仍即时返回，无额外延迟。
-        timeout_s = random.uniform(60.0, 90.0)
+        # v1.9.4（PRD-19 R4 止血）：实测戸建/マンション 结果页 <2s 即出计数区；
+        #  タウン 类整组 65–85s 超时（R4 根因 = タウン 结果页结构不同，计数区永不出，
+        #  60–90s 是在追 phantom，纯浪费 ~60s×4/轮）。改 18s 短上限：真实页即时返回，
+        #  タウン 类 18s 即止 → 进入行数兜底，省 ~60s×4/轮且不误标「未知」。
+        timeout_s = 18.0
     locator = sel.get("result_total") or "div.text-dark.ml-3"
     deadline = time.time() + max(1.0, timeout_s)
-    last = ""
     while time.time() < deadline:
         try:
             txt = _safe_text(page, locator).strip()
@@ -1082,11 +1083,25 @@ def _read_total(page, sel, log=None, timeout_s: float | None = None) -> str:
         if txt:
             return txt
         try:
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(400)
         except Exception:                                    # noqa: BLE001
             return ""
-    if not last:
-        say("  · 结果条数区域迟迟没出现（%s 秒），本次记「未知」" % timeout_s)
+    # 计数区未在短上限内出现 → 行数兜底（不猜日文文案，纯数首頁行；
+    # 同时覆盖 R4 两个假设：「真0件」或「タウン構造相違导致选择器不中」）。
+    try:
+        rows = page.locator(sel.get("result_rows") or "div.p-table-body-row")
+        n_rows = rows.count()
+    except Exception:                                        # noqa: BLE001
+        n_rows = 0
+    if n_rows > 0:
+        # 有结果表但计数区缺失（疑タウン構造相違）：以首頁行数估分母，不漏抓
+        # （翻页循环仍按 result_rows 抓全行）。首頁行数≠総数时仅分母偏小，数据完整。
+        say("  · 結果総数区域未検出（%ss）；以首頁 %d 行估算総数（構造相違疑い，R4待真機）"
+            % (timeout_s, n_rows))
+        return "%d件（首頁行数・総数不明）" % n_rows
+    # 计数区缺失 且 首頁0行 → 疑0件 或 構造相違；记「未知」但不久等
+    # （真机DOM取证前不臆断0，避免把「结构不同有结果」误判成0件漏抓）
+    say("  · 结果条数区域迟迟没出现（%s 秒），且首頁0行 → 记「未知」（疑0件/タウン構造相違，R4待真機）" % timeout_s)
     return ""
 
 
