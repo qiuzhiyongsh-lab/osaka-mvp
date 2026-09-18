@@ -132,8 +132,13 @@ selectors:
   detail_label: th
   detail_value: td
   pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
-  bukken_search_inputs: ''
-  bukken_search_button: ''
+  # v1.9.10（待真机复验）：番号検索选择器 —— 真机 DOM 取证 2026-09-18（勇哥提供
+  # 「物件番号検索条件入力」页 HTML）：20 个输入框 = div.p-textbox.p-textbox-type-digit
+  # > input.p-textbox-input；検索按钮在页脚 div.p-frame-footer。
+  # ⚠ 绝不用 __BVID__xx（BootstrapVue 自动 id，不稳定），也不用 :has-text('物件番号１')
+  #   ——「物件番号１」是「物件番号１１」的前缀，子串匹配会重复命中 11 个框。
+  bukken_search_inputs: div.p-textbox.p-textbox-type-digit input.p-textbox-input
+  bukken_search_button: div.p-frame-footer button.btn-primary:has-text('検索')
   bukken_result: ''
   image_item: div.photo img, ul.photoList li img
   login:

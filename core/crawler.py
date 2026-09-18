@@ -3235,15 +3235,36 @@ def reins_bukken_search(cfg, log, nos) -> dict:
             boxes = page.locator(inp)                 # 一次匹配「物件番号１..N」多个框
             n_box = boxes.count()
             if n_box < 1:
+                # v1.9.10：番号検索页是 Nuxt SPA（客户端渲染），输入框可能晚于
+                # domcontentloaded 才挂上 → 首次 count=0 时补等一次，仍 0 才判不匹配。
+                page.wait_for_timeout(3000)
+                n_box = boxes.count()
+            if n_box < 1:
                 return {"ok": False, "error": "没找到物件番号输入框"
-                                          "（选择器不匹配，待真机核对 selectors.bukken_search_inputs）"}
+                                          "（选择器不匹配，待真机核对 selectors.bukken_search_inputs=%r）"
+                                          % inp}
+            log("· 番号検索页输入框命中 %d 个（选择器 %s）" % (n_box, inp))
+            mismatched = []
             for i, one in enumerate(nos):
                 if i >= n_box:
                     log("· 番号数(%d)超过输入框数(%d)，多余的忽略" % (len(nos), n_box))
                     break
                 boxes.nth(i).fill(one, timeout=8000)   # 物件番号１、２、…
-                filled += 1
-            log("· 已填入 %d 个物件番号 → 点最下面的「検索」" % filled)
+                # v1.9.10 门禁③：**填完必须回读**——回读值 ≠ 期望值即判失败，绝不静默计数
+                # （旧版只 filled += 1，无法证明真录进去了，正是「点了按钮编号没进去」这类
+                #   假成功的盲区）。
+                try:
+                    got = (boxes.nth(i).input_value(timeout=5000) or "").strip()
+                except Exception as _re:  # noqa: BLE001
+                    got = "<回读异常:%s>" % type(_re).__name__
+                if got != one.strip():
+                    mismatched.append("框#%d 期望%s 实得%s" % (i + 1, one.strip(), got))
+                else:
+                    filled += 1
+            if mismatched:
+                return {"ok": False, "error": "回读不一致（编号未真正录入）："
+                                          + "；".join(mismatched[:5])}
+            log("· 已填入 %d 个物件番号（回读一致）→ 点最下面的「検索」" % filled)
             page.locator(btn).last.click(timeout=8000)  # 最下面的「検索」
             page.wait_for_load_state("networkidle", timeout=40000)
             page.wait_for_timeout(2000)
