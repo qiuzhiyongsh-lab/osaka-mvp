@@ -526,6 +526,8 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
             try:
                 _ds = sync_today_dates(store, cfg, log, today=None, run_id=run_id)
                 stats["date_sync"] = _ds
+                if _ds.get("inlined"):
+                    log("✓ 概览页日期同步内联补详情 %d 条（主链统一，无需阶段B 兜底）" % _ds["inlined"])
             except Exception as e:                                 # noqa: BLE001
                 stats["errors"].append(f"今日日期同步失败：{type(e).__name__}: {e}")
                 log(f"⚠ 今日日期同步失败（不影响本轮）：{e}")
@@ -1056,6 +1058,62 @@ def _needs_detail(existing) -> bool:
     return not (reg or chg)
 
 
+def _read_zero_note(page) -> str:
+    """v1.9.5：识别 REINS 的「検索結果が0件です」无结果页，返回原文（供日志），否则空串。
+
+    【实证 · 2026-09-18 勇哥真机 DOM（PRD-19 R4 真根因）】
+        <div class="p-note mt-0 p-note-danger"> 検索結果が0件です。
+        検索条件を再入力してください。</div>
+      · 该页 **没有** `div.text-dark.ml-3`（计数区）→ 旧代码一路空等到 60–90s 上界；
+      · 该页 **也没有** `div.p-table-body-row`（结果表）→「本组收集 0 条」是**对**的，
+        不是漏抓！タウン 4 组「卡 65–85s + 0 条」= REINS 当日确実 0 件，却被误记「未知」。
+    只认「告示文案里真含 0件」的那条 note；500 件确认框 / 维护通知一律不认。
+    """
+    for _sel in ("div.p-note-danger", "div.p-note"):
+        try:
+            _loc = page.locator(_sel)
+            for _i in range(min(_loc.count(), 5)):
+                _t = (_loc.nth(_i).inner_text() or "").replace("\n", " ").strip()
+                # ⚠ 绝不能用 `"0件" in _t`：`500件` / `30件` / `10件` 里**都含子串「0件」**，
+                #   而「検索結果が500件を超えています」正是**有 500+ 条**的事前確認框
+                #   → 会被误判成 0 件、把 中古戸建/中古マンション 的条数清零（mock 单测 F 捕获）。
+                #   故判「0 件」且**前一位不是数字/逗号**；半角 0 与全角 ０ 都认。
+                if re.search(r"(?<![\d,，０-９])[0０]\s*件", _t):
+                    return _t[:80]
+        except Exception:                                    # noqa: BLE001
+            continue
+    return ""
+
+
+def _read_tab_count(page) -> int | None:
+    """v1.9.5：从结果页 tab 见出し「売一戸建(9件)」读**総件数** —— 種目无关的第 2 计数源。
+
+    【实证】同一批真机 DOM 里就有这个数，且与计数区同源：
+        0 件页：`<a class="nav-link active">売一戸建(0件)</a>`
+        有结果页：`<a class="nav-link active">売一戸建(9件)</a>`（同页计数区 = `1～9件 ／ 9件`）
+    【为什么求和】单種別检索只有 1 个 tab；万一 REINS 把检索外的種別也渲成 (0件)，
+    求和 = 0+0+…+N = N，两种解释下都等于该種別总数 —— 所以求和是稳的。
+    取每个 tab 里**最后**一个 `N件`（「a～b件 ／ N件」类文案取总数）。
+    一个都没匹配到 → None（≠0，绝不把「读不到」当「0 件」）。
+    """
+    try:
+        _loc = page.locator("ul.card-header-tabs a.nav-link")
+        _n = _loc.count()
+    except Exception:                                        # noqa: BLE001
+        return None
+    _tot, _hit = 0, False
+    for _i in range(min(_n, 10)):
+        try:
+            _t = (_loc.nth(_i).inner_text() or "").replace(" ", "")
+        except Exception:                                    # noqa: BLE001
+            continue
+        _nums = re.findall(r"([\d,]+)\s*件", _t)
+        if _nums:
+            _tot += int(_nums[-1].replace(",", ""))
+            _hit = True
+    return _tot if _hit else None
+
+
 def _read_total(page, sel, log=None, timeout_s: float | None = None) -> str:
     """读「结果 N 件」那段文案 —— **等它真的出现再读**。
 
@@ -1065,43 +1123,69 @@ def _read_total(page, sel, log=None, timeout_s: float | None = None) -> str:
     读回空串 → 日志打印「结果 未知」→ 线上覆盖的分母记不上
     → 概览页那个覆盖率百分比偏高、不可信（今天显示 98.9% 就是这么来的）。
     这里改成轮询等待，最多等 timeout_s 秒；期间页面在动就继续等。
+
+    v1.9.5（PRD-19 R4 真根因修正）：**0 件页既没有计数区、也没有结果表**，
+    所以「等不到计数区」≠「渲染慢」≠「漏抓」。改三级判定：
+        ① 每轮先看「検索結果が0件です」告示 → 命中即刻定 `0件`（<1s，不再空等）；
+        ② 主选择器 result_total（div.text-dark.ml-3）→ 戸建/マンション 走这条（实测 <2s）；
+        ③ 宽限 4s 后仍无 ②：读 tab 见出し件数（種目无关）→「N件（タブ見出し）」；
+           8s 后再退到首頁行数 →「N件（首頁行数・総数不明）」；最后才记「未知」。
+    保留 4s 宽限的意义：② 在戸建/マンション 上「<2s 即返」的既有行为不被兜底拖慢。
+    （v1.9.4 只把上限 60–90s 砍到 18s，仍属止血；v1.9.5 才把「0 件 = 成功」判对。）
     """
     say = log or (lambda *_a, **_k: None)
     if timeout_s is None:
         # v1.9.4（PRD-19 R4 止血）：实测戸建/マンション 结果页 <2s 即出计数区；
-        #  タウン 类整组 65–85s 超时（R4 根因 = タウン 结果页结构不同，计数区永不出，
-        #  60–90s 是在追 phantom，纯浪费 ~60s×4/轮）。改 18s 短上限：真实页即时返回，
-        #  タウン 类 18s 即止 → 进入行数兜底，省 ~60s×4/轮且不误标「未知」。
+        #  タウン 类整组 65–85s 超时（真因见 v1.9.5：0 件页**没有**计数区，纯空等，
+        #  60–90s 是在追 phantom）。18s 只作最终上界，正常 ①② 早就返回了。
         timeout_s = 18.0
     locator = sel.get("result_total") or "div.text-dark.ml-3"
-    deadline = time.time() + max(1.0, timeout_s)
+    _t0 = time.time()
+    deadline = _t0 + max(1.0, timeout_s)
+    _grace_tab = 4.0        # 4s 后才用 tab 件数兜底（不抢常用路径）
+    _grace_row = 8.0        # 8s 后才用行数兜底（更弱的口径，宁可多等一会）
     while time.time() < deadline:
+        # ① v1.9.5：明确 0 件页 → 立即定 0，绝不空等（实证 DOM 见 _read_zero_note）
+        _z = _read_zero_note(page)
+        if _z:
+            say("  · 結果 0 件（REINS 明示「" + _z + "」）→ 本組確実 0 件，非漏抓")
+            return "0件"
         try:
             txt = _safe_text(page, locator).strip()
         except Exception:                                    # noqa: BLE001
             txt = ""
         if txt:
             return txt
+        _el = time.time() - _t0
+        # ③ 宽限期后仍无计数区 → 種目无关的兜底，不再死等
+        if _el >= _grace_tab:
+            _tab = _read_tab_count(page)
+            if _tab is not None:
+                if _tab == 0:
+                    say("  · 結果 0 件（タブ見出し 0 件）→ 本組確実 0 件，非漏抓")
+                    return "0件"
+                say("  · 計数区未検出（%.0fs）；以タブ見出し %d 件 記総数（種目非依存の第2計数源）"
+                    % (_el, _tab))
+                return "%d件（タブ見出し）" % _tab
+            if _el >= _grace_row:
+                try:
+                    _nr = page.locator(
+                        sel.get("result_rows") or "div.p-table-body-row").count()
+                except Exception:                            # noqa: BLE001
+                    _nr = 0
+                if _nr > 0:
+                    # 有结果表但计数区缺失：以首頁行数估分母，不漏抓
+                    # （翻页循环仍按 result_rows 抓全行）。首頁行数≠総数时仅分母偏小，数据完整。
+                    say("  · 計数区未検出（%.0fs）；以首頁 %d 行 估算総数" % (_el, _nr))
+                    return "%d件（首頁行数・総数不明）" % _nr
         try:
             page.wait_for_timeout(400)
         except Exception:                                    # noqa: BLE001
             return ""
-    # 计数区未在短上限内出现 → 行数兜底（不猜日文文案，纯数首頁行；
-    # 同时覆盖 R4 两个假设：「真0件」或「タウン構造相違导致选择器不中」）。
-    try:
-        rows = page.locator(sel.get("result_rows") or "div.p-table-body-row")
-        n_rows = rows.count()
-    except Exception:                                        # noqa: BLE001
-        n_rows = 0
-    if n_rows > 0:
-        # 有结果表但计数区缺失（疑タウン構造相違）：以首頁行数估分母，不漏抓
-        # （翻页循环仍按 result_rows 抓全行）。首頁行数≠総数时仅分母偏小，数据完整。
-        say("  · 結果総数区域未検出（%ss）；以首頁 %d 行估算総数（構造相違疑い，R4待真機）"
-            % (timeout_s, n_rows))
-        return "%d件（首頁行数・総数不明）" % n_rows
-    # 计数区缺失 且 首頁0行 → 疑0件 或 構造相違；记「未知」但不久等
-    # （真机DOM取证前不臆断0，避免把「结构不同有结果」误判成0件漏抓）
-    say("  · 结果条数区域迟迟没出现（%s 秒），且首頁0行 → 记「未知」（疑0件/タウン構造相違，R4待真機）" % timeout_s)
+    # 不到 0 件告示 / 不到计数区 / tab 与行数都读不到 → 记「未知」但不久等
+    # （绝不臆断 0，避免把「结构不同但有结果」误判成 0 件漏抓）
+    say("  · 结果条数区域迟迟没出现（%s 秒），且无 0件告示 / 无 tab 件数 / 首頁0行 → 记「未知」"
+        % timeout_s)
     return ""
 
 
@@ -1339,7 +1423,11 @@ def _live_items(store, cfg, log, trial: bool = False, sink=None,
                 log(f"· {label} → 线上报告 {total_txt or '未知'} 件")
                 # v1.5.8：只有真正取到结果条数的组才算"抓过"，才进下架判定的作用域；
                 # 「結果 未知」/ 検索超时 等失败组一律不进 → 不会被误判下架。
-                if total_txt:
+                # v1.9.5 追加：**确认 0 件**（0件告示 / tab 0 件）的组也不进 ——
+                #   「0 条」不能证明任何房源下架（原教旨「缺席≠下架」）；若放进去，
+                #   mark_delisted 会把库里该種目在架房源连续 N 轮标 is_active=0
+                #   （2026-09-15 误标 1189 条事故同型）。宁可漏判，绝不误杀。
+                if total_txt and _parse_total(total_txt) != 0:
                     succeeded_subtypes.update(g["subtypes"])
                 # 线上覆盖（v1.2.7）：把这组的「線上総数」落库，回答「我下全了没有」
                 try:
@@ -2554,6 +2642,9 @@ def _log_session_summary(log, title, spec, results, stats, online_total):
     lines.append("  · 本地落库 %s 条（新盘 %s / 变更 %s）/ PDF %s 份"
                  % (stats.get("fetched", 0), stats.get("new", 0),
                     stats.get("changed", 0), stats.get("pdf_saved", 0)))
+    if stats.get("detail_backfilled"):
+        lines.append("  · 阶段B 自动补详情 %s 条（兜底补齐列表壳的详情/PDF，无需手动）"
+                     % stats["detail_backfilled"])
     if results:
         lines.extend(["", "【逐条件结果】（线上报告 / 本次下载）"])
         for i, r in enumerate(results, 1):
@@ -2872,6 +2963,7 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
         + "（共 %d 次检索）" % (n_axis_per_day * len(days)))
 
     collected: dict[str, dict] = {}
+    inlined_total = 0             # v1.9.8（P1）：跨组累计「内联补详情」条数
     # v1.5.15：发射「平台日期同步」阶段事件（前端 .phaser 面板实时显示）
     if run_id is not None:
         try:
@@ -2884,6 +2976,22 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
         # 统一入口：会话失效会自动用本地账号重登一次
         ctx, page = auth.open_authed_page(browser, log=log)
         _mask_webdriver(ctx)          # v1.4.0：抹掉自动化指纹（webdriver）
+        # v1.9.8（P1）：概览页日期同步也内联补详情/PDF（与设置页统一，详情回主链一等公民）
+        root_dir = Path(cfgmod.paths(cfg)["root"])
+        want_pdf = bool(cfg.get("download", {}).get("pdf", True))
+        worker = None
+        if want_pdf and cr.get("pdf_background", True):
+            try:
+                ua = page.evaluate("navigator.userAgent") or ""
+                ck = "; ".join(("%s=%s" % (c.get("name"), c.get("value")))
+                               for c in ctx.cookies() if c.get("name"))
+                n_inflight = max(1, int(cr.get("pdf_max_inflight", 2)))
+                worker = _PdfWorker(root_dir / "attachments", ck, ua, log,
+                                    max_inflight=n_inflight)
+                log("· PDF 后台下载已开启（最大在途 %d）" % n_inflight)
+            except Exception as _we:
+                log("· PDF 后台下载启动失败 → 退回同步：%s: %s" % (type(_we).__name__, _we))
+                worker = None
         nav_done = False
         # v1.8.2（D2）：把「日期 × 组 × 日期轴」拍平成一条作业队列——
         #   补前日时 days=[前日, 今天]，正常时 days=[今天]（行为与旧版逐字等价）。
@@ -2930,22 +3038,59 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
                 + day + " " + g["kind"] + "×" + "·".join(g["subtypes"]) + " / " + field
                 + " → " + (total or "未知"))
             got = 0
+            inlined = 0
+            rows_loc = page.locator(sel["result_rows"])
             for pg in range(1, max_pages + 1):
                 rows = _bulk_list_rows(page, sel["result_rows"])
-                for r in rows:
+                for i, r in enumerate(rows):
                     rec = r.get("rec") or {}
                     no = rec.get("property_no")
                     if not no:
                         continue
                     e = collected.setdefault(no, {"_base": {}})
                     e[col] = day
-                    # v1.9.1（解耦阶段B）：把列表行详情直链一并记下，供后续独立补详情复用，
-                    # 免得为拿直链重搜 REINS（也避免猜 URL 写脏）。
                     e["detail_href"] = r.get("href") or ""
                     for k in BASE_KEYS:
                         v = rec.get(k)
                         if v not in (None, "") and k not in e["_base"]:
                             e["_base"][k] = v
+                    # v1.9.8（P1）：每行与本地详情页比对——有则跳过，无则内联补详情+PDF
+                    existing = store.get_property(no)
+                    if _needs_detail(existing):
+                        need_pdf = bool(want_pdf) and not _pdf_exists(root_dir, no)
+                        try:
+                            det, _touched = _fetch_detail_inline(
+                                ctx, page, rows_loc, i, no, sel, cfg,
+                                pdf_worker=worker, want_pdf=need_pdf, log=log)
+                            if det:
+                                det["property_no"] = no
+                                try:
+                                    pipeline.ingest([det], store, cfg, run_id)
+                                    inlined += 1
+                                    log("  ✓ " + no + " 内联补详情"
+                                        + (" [PDF→后台]" if (need_pdf and det.get("pdf_url")) else ""))
+                                except Exception as _ie:
+                                    log("  ✗ " + no + " 内联写库失败："
+                                        + type(_ie).__name__ + ": " + str(_ie))
+                            else:
+                                log("  · " + no + " 内联详情为空（下轮重试）")
+                        except SessionExpired:
+                            raise
+                        except Exception as _ex:
+                            log("  ✗ " + no + " 内联详情失败："
+                                + type(_ex).__name__ + ": " + str(_ex))
+                        # 回收后台已下完的 PDF（立即记账、立即落盘）
+                        if worker is not None:
+                            for _no, _p, _ms, _err in worker.drain():
+                                if _p:
+                                    store.set_pdf(_no, _p)
+                                    log("  ↓ PDF 已落盘 " + _no + "（%.1fs）" % (_ms / 1000.0))
+                                else:
+                                    log("  ✗ PDF 失败 " + _no + "：" + str(_err))
+                        gap = random.uniform(3.0, 5.0)
+                        time.sleep(gap)
+                    else:
+                        log("  · 已存在 " + no + "（仅刷新列表字段）")
                     got += 1
                 nxt = page.locator(sel["next_page"]).first
                 if nxt.count() == 0 or not nxt.is_enabled():
@@ -2953,8 +3098,21 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
                 nxt.click()
                 page.wait_for_load_state("networkidle", timeout=30000)
                 page.wait_for_timeout(1200)
-            log("   本组收集 " + str(got) + " 条")
+            inlined_total += inlined
+            log("   本组收集 " + str(got) + " 条 / 内联补详情 " + str(inlined) + " 条")
             time.sleep(random.uniform(4, 8))
+        # v1.9.8（P1）：收尾回收后台 PDF 下载器（与阶段B 同款，避免泄漏/丢尾）
+        if worker is not None:
+            try:
+                worker.join(timeout=180)
+                for _no, _p, _ms, _err in worker.drain():
+                    if _p:
+                        store.set_pdf(_no, _p)
+                        log("  ↓ PDF 已落盘 " + _no + "（%.1fs）" % (_ms / 1000.0))
+                    else:
+                        log("  ✗ PDF 失败 " + _no + "：" + str(_err))
+            except Exception as _we2:
+                log("· PDF 收尾异常：" + type(_we2).__name__ + ": " + str(_we2))
         browser.close()
 
     # ---- 写库（update 已有 / insert 新建，都只动日期列 + 补缺失基础字段）----
@@ -3002,11 +3160,13 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
         except Exception as _e:                              # noqa: BLE001
             log("· 前日补齐水位写入失败（下次可能重复补一次，不影响数据）：%s" % _e)
     log("· 日期同步完成：搜集 " + str(len(collected)) + " / 更新 " + str(upd)
-        + " / 新建 " + str(ins) + "；本地[今 登録或変更]=" + str(n_union)
+        + " / 新建 " + str(ins) + " / **内联补详情 " + str(inlined_total) + "**"
+        + "；本地[今 登録或変更]=" + str(n_union)
         + "（reg=" + str(n_reg) + " / chg=" + str(n_chg) + "）"
         + ("；本轮已补前日 " + prev_fixed if prev_fixed else ""))
     return {"searched": n_axis_per_day * len(days), "collected": len(collected),
-            "updated": upd, "new": ins, "reg": n_reg, "chg": n_chg, "union": n_union,
+            "updated": upd, "new": ins, "inlined": inlined_total,
+            "reg": n_reg, "chg": n_chg, "union": n_union,
             "days": list(days), "backfill": prev_fixed}
 
 
@@ -3110,8 +3270,125 @@ def reins_bukken_search(cfg, log, nos) -> dict:
             "filled": filled}
 
 
-def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
+def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
+                        pdf_worker=None, need_pdf: bool = True, log=None) -> dict | None:
+    """v1.9.6：阶段B 用「物件番号検索」打开详情页抓全字段 + PDF。
+
+    REINS 列表行「詳細」是 <button> 无直链 → detail_href 全库恒空（jproperty.db 实测
+    2560 在架、非空=0），旧阶段B「必须带 href 才补」永远 0 候选、详情永远补不上。
+    唯一无 URL 的进详情方式 = 番号検索（site.bukken_search_url +
+    selectors.bukken_search_inputs/button，全部走 config.yaml，绝不猜 locator）。
+    流程：goto 番号検索页 → 填番号 → 点検索 → 点结果行「詳細」→ 解析 + PDF。
+    任一解析异常返回 None（绝不写脏）；SessionExpired 原样上抛。
+    """
+    log = log or (lambda *_a, **_k: None)
+    site = (cfg.get("site") or {})
+    url = (site.get("bukken_search_url") or "").strip()
+    inp = (sel.get("bukken_search_inputs") or "").strip()
+    btn = (sel.get("bukken_search_button") or "").strip()
+    if not (url and inp and btn):
+        return None
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1200)
+        _check_maintenance(page, log)
+        boxes = page.locator(inp)
+        if boxes.count() < 1:
+            log("  · " + property_no + " 番号検索 输入框未匹配，跳过")
+            return None
+        boxes.nth(0).fill(property_no, timeout=8000)
+        page.locator(btn).last.click(timeout=8000)
+        page.wait_for_load_state("networkidle", timeout=40000)
+        page.wait_for_timeout(1500)
+        # 结果列表点「詳細」（REINS 是 <button>，可能同标签或开新标签）
+        page.locator(sel["detail_button"]).first.click(timeout=8000)
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
+        page.wait_for_timeout(900)
+        dp = page
+        if ("物件詳細" not in (page.title() or "")) and ("GBK003100" not in (page.url or "")):
+            others = [p for p in ctx.pages if p is not page]
+            if others:
+                dp = others[-1]
+                dp.set_default_timeout(cfg["browser"].get("timeout_ms", 30000))
+        rec = _parse_detail(dp, property_no, cfg)
+        rec["property_no"] = property_no
+        if need_pdf and bool(cfg.get("download", {}).get("pdf", True)):
+            rec["pdf_url"] = _pdf_url_of(dp, sel)
+            try:
+                rec["source_url"] = dp.url
+            except Exception:
+                pass
+            if pdf_worker is not None and rec.get("pdf_url"):
+                pdf_worker.submit(property_no, rec["pdf_url"], referer=rec.get("source_url", ""))
+            elif not rec.get("pdf_url"):
+                # 详情页図面也是 <button>図面参照</button> 无 href → 点按钮下载
+                _b = _download_pdf_by_click(dp, log=log)
+                if _b:
+                    rec["pdf_bytes"] = _b
+        _pc = _photo_count_of(dp)
+        if _pc is not None:
+            rec["image_count"] = _pc
+            rec["has_photo"] = 1 if _pc > 0 else 0
+        return rec
+    except SessionExpired:
+        raise
+    except Exception as e:
+        log("  · " + property_no + " 番号検索 打开详情失败：" + type(e).__name__ + ": " + str(e))
+        return None
+    finally:
+        # 回番号検索结果页，下轮迭代会重新 goto 番号検索页，这里只是兜底清理
+        try:
+            page.go_back(wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(400)
+        except Exception:
+            pass
+
+
+def _backfill_via_inline(store, cfg, log, run_id, cand) -> dict:
+    """v1.9.6 兜底：番号検索选择器未配置时，复用「指定日期下载」(run_round_options) 的
+    行内点詳細路径补详情——这条路径今天已实补 400 条（已证可用），不依赖任何新选择器。
+    按待补壳的登録/変更日期分组，每组发一次指定日期下载（覆盖全部 6 種目）；
+    run_round_options 自带会话+落库、幂等（已补的会跳过）。"""
+    from datetime import datetime, timedelta
+    dates = set()
+    for r in cand:
+        r = dict(r)
+        for col in ("reg_date_iso", "chg_date_iso"):
+            v = (r.get(col) or "").strip()
+            if v:
+                dates.add(v)
+    if not dates:
+        dates = {datetime.now().strftime("%Y-%m-%d")}
+    # 仅取最近 14 天，避免历史海量日期把一轮拖死（壳都是近期同步产生的）
+    cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+    dates = sorted(d for d in dates if d >= cutoff)
+    if not dates:
+        dates = [datetime.now().strftime("%Y-%m-%d")]
+    log("· 阶段B 兜底（行内点詳細）：待补壳跨 %d 个日期，将逐日调用指定日期下载：%s"
+        % (len(dates), "、".join(dates)))
+    total = 0
+    for d in dates:
+        try:
+            st = run_round_options(store, cfg,
+                                   {"date": d,
+                                    "date_types": ["登録年月日", "変更年月日"]},
+                                   progress_cb=log)
+            total += int(st.get("fetched", 0) or 0)
+            log("  · 日期 %s 补详情 %d 条" % (d, int(st.get("fetched", 0) or 0)))
+        except SessionExpired:
+            raise
+        except Exception as e:
+            log("  ✗ 日期 %s 兜底补详情失败：" % d + type(e).__name__ + ": " + str(e))
+    log("· 阶段B 兜底完成：共补详情 %d 条 / 跨 %d 天（模式：行内点詳細，复用指定日期下载）"
+        % (total, len(dates)))
+    return {"fetched": total, "skipped": 0, "mode": "inline_fallback"}
+
+
+def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
     """后台补「详情页全字段 + PDF」—— 解耦自 main_round 的独立环节。"""
+    if _inner:
+        # 由 run_round_options 自身收尾调用时 no-op：避免与它的行内补详情递归/重复。
+        return {"fetched": 0, "skipped": 0}
     sel = cfg["selectors"]
     cr = (cfg.get("crawl") or {})
     root_dir = Path(cfgmod.paths(cfg)["root"])
@@ -3119,18 +3396,30 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
     cap = int(cr.get("backfill_cap", 300))
     max_minutes = float(cr.get("backfill_max_minutes", 20)) or 0.0
 
-    # 取待补清单（必须带 href，绝不对没有直链的行动手）
+    # v1.9.6：取待补清单＝在架「无详情的壳」（REINS 詳細 是 <button> 无直链，
+    # detail_href 全库恒空，旧 SQL 要求 detail_href 非空 → 永远 0 候选、详情永远补不上）。
+    # 不再依赖 detail_href；改为按「在架且 detail_json 空」选壳，每轮渐进清积压。
+    # 额外取 reg/chg 日期，供「行内点詳細」兜底按日期分组复用指定日期下载。
     try:
         cand = store.conn.execute(
-            "SELECT property_no, detail_href FROM properties "
-            "WHERE is_active=1 AND detail_href IS NOT NULL AND detail_href<>'' "
+            "SELECT property_no, reg_date_iso, chg_date_iso FROM properties "
+            "WHERE is_active=1 AND (detail_json IS NULL OR detail_json='') "
             "ORDER BY last_seen_at DESC LIMIT ?", (cap,)).fetchall()
     except Exception as e:
         log("· 阶段B 取待补清单失败：" + type(e).__name__ + ": " + str(e))
         return {"fetched": 0, "skipped": 0}
     if not cand:
-        log("· 阶段B：没有需要补详情的房源（列表壳都已齐备）")
+        log("· 阶段B：没有需要补详情的房源（在架壳都已齐备）")
         return {"fetched": 0, "skipped": 0}
+
+    # v1.9.6：番号検索 选择器是否就绪（REINS 詳細 无直链，只能靠番号検索进详情页）。
+    # 未配置 → 不猜 locator，改用「行内点詳細」兜底（复用已证的指定日期下载路径）。
+    bs_inp = (sel.get("bukken_search_inputs") or "").strip()
+    bs_btn = (sel.get("bukken_search_button") or "").strip()
+    if not (bs_inp and bs_btn):
+        log("· 阶段B：番号検索选择器未配置 → 改用「行内点詳細」兜底"
+            "（复用指定日期下载 run_round_options，今日已实补 400 条，已证可用）")
+        return _backfill_via_inline(store, cfg, log, run_id, cand)
 
     auth = Auth(cfg, cfgmod.paths(cfg)["session"])
     with _sync_playwright() as p:
@@ -3161,26 +3450,24 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
         skipped = 0
         for row in cand:
             no = row["property_no"]
-            href = (row["detail_href"] or "")
-            if not href or not str(href).startswith("http"):
-                skipped += 1
-                continue
             existing = store.get_property(no)
             have_detail = bool(existing and (existing["detail_json"]))
             need_pdf = bool(want_pdf) and not _pdf_exists(root_dir, no)
             if have_detail and not need_pdf:
                 skipped += 1
                 continue
+            # v1.9.6：REINS 詳細 是 <button> 无直链 → 走「番号検索」打开详情页
+            # （selectors.bukken_search_inputs/button 已就绪才会进到这里）。
             try:
-                d = _fetch_detail(ctx, page, None, no, sel, cfg,
-                                  pdf_worker=worker, need_pdf=need_pdf, href=href)
+                d = _fetch_detail_by_no(ctx, page, no, sel, cfg,
+                                       pdf_worker=worker, need_pdf=need_pdf, log=log)
             except SessionExpired:
                 raise
             except Exception as e:
                 log("  ✗ " + no + " 阶段B 详情失败：" + type(e).__name__ + ": " + str(e))
                 continue
             if not d:
-                log("  ✗ " + no + " 阶段B 详情为空（直链打不开，下轮重试）")
+                log("  ✗ " + no + " 阶段B 详情为空（番号検索未打开详情，下轮重试）")
                 continue
             d["property_no"] = no
             try:
@@ -3201,7 +3488,7 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None) -> dict:
                 if _p:
                     store.set_pdf(_no, _p)
         browser.close()
-    log("· 阶段B 完成：补详情 %d / 跳过 %d" % (done, skipped))
+    log("· 阶段B 完成（番号検索）：补详情 %d / 跳过 %d" % (done, skipped))
     return {"fetched": done, "skipped": skipped}
 
 
@@ -3369,6 +3656,11 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
                     if kept != got:
                         log("  · 去重：" + str(got) + " → " + str(kept)
                             + " 条（与前面组 / 日期重复）")
+                    # v1.9.5（PRD-19 R4 取证）：線上报告有条数、本组却 0 条入账
+                    #   → 列表行选择器疑不中，日志当场点出来（下一轮即可定性，不必再猜）
+                    if kept == 0 and _on:
+                        log("  ⚠ 本组 0 条入账，但線上报告 " + str(_on)
+                            + " 件 → 疑 result_rows(div.p-table-body-row) 不匹配，待查")
                     collected[before:] = dedup
                     # v1.6.5：累计逐条件结果（线上报告 / 本次下载），供结束汇总框
                     try:
@@ -3418,7 +3710,7 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
         #   pass，与 run_round 降级分支**共用同一个 _backfill_details_pdfs** ——
         #   保证"任何入口下完的房源都含详情"（勇哥：几个下载位置都对应相同策略）。
         try:
-            _bf = _backfill_details_pdfs(store, cfg, log, run_id)
+            _bf = _backfill_details_pdfs(store, cfg, log, run_id, _inner=True)
             stats["detail_backfilled"] = _bf.get("fetched", 0)
         except Exception as _e:                    # noqa: BLE001
             log("⚠ 阶段B 补详情失败（不影响列表）：%s" % (type(_e).__name__ + ": " + str(_e)))

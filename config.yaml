@@ -13,14 +13,14 @@ schedule:
     start: 07:00
     end: '22:00'
   run_on_start: false
-  random_min_minutes: 110.0
-  random_max_minutes: 130.0
+  random_min_minutes: 30.0
+  random_max_minutes: 35.0
 site:
   name: reins
   base_url: https://system.reins.jp
   login_url: https://system.reins.jp/login/main/KG/GKG001200
   search_url: https://system.reins.jp/main/BK/GBK001210
-  bukken_search_url: https://system.reins.jp/main/BK/GBK004100   # 番号検索页（默认 GBK004100，待真机确认）
+  bukken_search_url: https://system.reins.jp/main/BK/GBK004100
   detail_title_keyword: 物件詳細
 browser:
   channel: msedge
@@ -86,9 +86,8 @@ crawl:
     inline_fail_threshold: 5
   inline_detail: true
   main_round_enabled: false
-  # v1.9.1 解耦阶段B：主轮关时也独立补「详情+PDF」，让一轮下载默认完整
-  backfill_cap: 300            # 每轮最多补多少套（按 last_seen_at 倒序，渐进清积压）
-  backfill_max_minutes: 20     # 阶段B 单轮时长上限（到时剩余留待下一轮）
+  backfill_cap: 300
+  backfill_max_minutes: 20
   sync_dates_enabled: true
   sync_dates_backfill_prev_day: true
   sync_dates_prev_day_cutoff: '20:00'
@@ -133,10 +132,9 @@ selectors:
   detail_label: th
   detail_value: td
   pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
-  # v1.9.1 番号検索（后端登录式）：下列选择器待勇哥真实 DOM 取证后填（门禁②，绝不猜）
-  bukken_search_inputs: ''    # 物件番号输入框 selector，一次匹配「物件番号１..N」多个框（待真机）
-  bukken_search_button: ''    # 最下面的「検索」按钮 selector（待真机）
-  bukken_result: ''           # 结果容器 selector（截图用，可空=截全页，待真机）
+  bukken_search_inputs: ''
+  bukken_search_button: ''
+  bukken_result: ''
   image_item: div.photo img, ul.photoList li img
   login:
     id_field: input.p-textbox-input[type='text'], input[type='text']
@@ -150,9 +148,6 @@ publish:
   enabled: true
   mode: auto
   endpoint: ''
-  # ⚠ 真凭据**只放 config.local.yaml**（已 gitignore，绝不入库）。
-  # 这里保持空串 = 模板；加载顺序 _DEFAULTS ← config.yaml ← config.local.yaml
-  # （core/config.py::load()），所以运行时仍能拿到真 token。
   token: ''
   ingest_token: ''
   month_scope: ''

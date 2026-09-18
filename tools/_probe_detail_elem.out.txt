@@ -1,0 +1,94 @@
+==========================================================================
+SRC = result_page.html (exists=True size=267976)
+length = 253447
+「詳細」 出现次数 = 59
+
+--- #1 (offset 4653) ---
+   ...iv class="row"><div class="d-flex align-items-center justify-content-end col"><div class="p-icon ml-3 p-icon-type-ga p-icon-md"></div><span class="ml-1">物件画像あり</span> <div class="p-icon ml-3 p-icon-type-zu p-icon-md"></div><span class="ml-1">図面あり</span> <div class="p-icon ml-3 p-icon-type-sho p-icon-md"></div><span class="ml-1">所在地３または部屋番号入力あり</span></div></div> <div class="row"><div align="right" class="col">※間取タイプ、詳細間取にSが含まれる場合、納戸等を表します</div></div></div></ul></div><div class="tab-content" id="__BVID__544__BV_tab_container_"> <div role="tabpanel" aria-hidden="false" class="tab-pane p-tab active card-body" id="__BVID__549" aria-labelledby="__BVID__549___BV_tab_button__" s...
+
+--- #2 (offset 15226) ---
+   ...0-4180-6665 </span></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 19 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0">概要</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 21 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">詳細</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 23 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">図面</button></div></div><div class="p-table-body-row" style="g...
+
+--- #3 (offset 19220) ---
+   ...0-3809-6692 </span></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 19 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0">概要</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 21 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">詳細</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 23 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">図面</button></div></div><div class="p-table-body-row" style="g...
+
+--- #4 (offset 23163) ---
+   ...6-4391-3188 </span></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 19 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0">概要</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 21 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">詳細</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 23 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">図面</button></div></div><div class="p-table-body-row" style="g...
+
+--- #5 (offset 27105) ---
+   ...6-6454-1090 </span></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 19 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0">概要</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 21 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">詳細</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 23 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">図面</button></div></div><div class="p-table-body-row" style="g...
+
+--- #6 (offset 30969) ---
+   ...6-6282-7823 </span></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 19 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0">概要</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 21 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">詳細</button></div><div class="p-table-body-item" style="grid-row-start: 5; grid-column: 23 / span 2;"><button data-v-1e4f616c="" type="button" class="btn p-button m-0 py-0 btn-outline btn-block px-0">図面</button></div></div><div class="p-table-body-row" style="g...
+
+含 GBK 的片段数 = 6
+   GBK: GBK011100
+   GBK: GBK011200
+   GBK: GBK001210
+   GBK: GBK001310
+   GBK: GBK004100
+   GBK: GBK022100
+按钮类名线索（含 詳細/detail 的 class 片段）:
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0"
+   class="btn p-button m-0 py-0 btn-outline btn-block px-0"
+   class="btn p-button m-0 py-0 btn-outline btn-block px-0"
+   class="btn p-button d-none d-sm-block py-0 btn-outline btn-block px-0"
+   class="btn p-button m-0 py-0 btn-outline btn-block px-0"
+是否出现 <button> = True ; 出现次数 = 197
+含 '詳細' 的标签名统计:
+   []
+==========================================================================
+SRC = diag_after_search.html (exists=True size=102384)
+length = 94357
+「詳細」 出现次数 = 4
+
+--- #1 (offset 19583) ---
+   ...----></div> <!----></div></div></div></div><!----><!----></div> <div class="row align-items-center"><div class="col-auto"><h2 class="my-0">所在地・沿線</h2></div> <div class="small text-dark col-auto">お探しの物件の、所在地もしくは沿線駅を指定してください。</div></div> <div class="card p-card"><!----><!----><div class="card-body p-card-body"><!----><!----><!----> <div class="row"><div class="col"><div class="p-label"><span class="p-label-title">成約所在地詳細の表示</span> <!----></div> <span class="small text-dark"> 成約検索結果の詳細参照時に所在地名３等の表示選択項目を全て表示する場合、 下記のチェックを入れた後に開く <div class="col"></div> <span class="text-danger">取扱規約に「承諾する」必要があります。</span></span> <div class="p-checkbox"><div class="p-checkb...
+
+--- #2 (offset 19655) ---
+   ...ss="row align-items-center"><div class="col-auto"><h2 class="my-0">所在地・沿線</h2></div> <div class="small text-dark col-auto">お探しの物件の、所在地もしくは沿線駅を指定してください。</div></div> <div class="card p-card"><!----><!----><div class="card-body p-card-body"><!----><!----><!----> <div class="row"><div class="col"><div class="p-label"><span class="p-label-title">成約所在地詳細の表示</span> <!----></div> <span class="small text-dark"> 成約検索結果の詳細参照時に所在地名３等の表示選択項目を全て表示する場合、 下記のチェックを入れた後に開く <div class="col"></div> <span class="text-danger">取扱規約に「承諾する」必要があります。</span></span> <div class="p-checkbox"><div class="p-checkbox-input custom-control custom-checkbox"><input type="checkbox" disabled...
+
+--- #3 (offset 20045) ---
+   ...all text-dark"> 成約検索結果の詳細参照時に所在地名３等の表示選択項目を全て表示する場合、 下記のチェックを入れた後に開く <div class="col"></div> <span class="text-danger">取扱規約に「承諾する」必要があります。</span></span> <div class="p-checkbox"><div class="p-checkbox-input custom-control custom-checkbox"><input type="checkbox" disabled="disabled" class="custom-control-input" value="true" id="__BVID__91"><label class="custom-control-label" for="__BVID__91">成約検索結果の詳細参照時に所在地名３等の表示選択項目を全て表示する</label></div> <!----></div></div></div> <hr> <div class="col" style="background-color: rgb(255, 255, 153);"><div class="row"><div class="col-sm-auto"><span class="small" style="color: blue;"> 近畿圏域外を検索する際は「所在地範囲選択３」の下にある「所在地１〜...
+
+--- #4 (offset 51019) ---
+   ...eckbox-input custom-control custom-checkbox"><input type="checkbox" class="custom-control-input" value="true" id="__BVID__334"><label class="custom-control-label" for="__BVID__334">角部屋</label></div> <!----></div></div> <div class="small text-dark col">(マンション/外一)</div></div></div></div> <div class="row"><div class="col"><div class="p-label"><span class="p-label-title">間取タイプ</span> <span class="p-label-comment">※間取タイプ、詳細間取にSが含まれる場合、納戸等を表します。</span></div> <div class="row"><div class="col-sm-9"><div class="p-checkgroup"><div role="group" tabindex="-1" class="p-checkgroup-input bv-no-focus-ring" id="__BVID__337"><div class="row"><div class="col-sm-3 col-4"><div class="p-checkg...
+
+含 GBK 的片段数 = 6
+   GBK: GBK011100
+   GBK: GBK011200
+   GBK: GBK001210
+   GBK: GBK001310
+   GBK: GBK004100
+   GBK: GBK022100
+按钮类名线索（含 詳細/detail 的 class 片段）:
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+   class="btn p-button btn-outline btn-block px-0"
+是否出现 <button> = True ; 出现次数 = 25
+含 '詳細' 的标签名统计:
+   []
+==========================================================================
+SRC = live_search_page.html (exists=True size=3414)
+length = 3214
+「詳細」 出现次数 = 0
+
+含 GBK 的片段数 = 0
+按钮类名线索（含 詳細/detail 的 class 片段）:
+   class="btn btn-outline btn-block"
+   class="btn btn-outline btn-block"
+   class="btn btn-outline btn-block"
+   class="btn btn-outline btn-block"
+是否出现 <button> = False ; 出现次数 = 0
+含 '詳細' 的标签名统计:
+   []
+
+PROBE_DONE
