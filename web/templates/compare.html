@@ -2,6 +2,33 @@
 {% block title %}房源对比 · 大阪房源（本地版）{% endblock %}
 {% block body %}
 
+<style>
+/* v1.9.11 打印优化：对比页横向一页容下全部列。
+   Ctrl+P 后在打印对话框选「横向」+「缩放：1 页宽 × 1 页高（或「适合」）」即可整表一页。 */
+@page{ size:A4 landscape; margin:5mm; }
+@media print{
+  /* 隐藏非打印 UI：顶部导航 / 页脚 / 工具栏 / 滑动提示 / 结论卡 / 操作按钮 */
+  header.top, .foot, .cmp-hero .hero-side, .cmp-tools, .cmp-hint, .cmp-sum,
+  .cc-head .x, .cc-head .btn, .cc .btn, .cc .link{ display:none !important; }
+  /* 关掉横向滚动——这是打印被切成多张横向切片的根因 */
+  .cmpscroll{ overflow:visible !important; }
+  .cmp-card{ overflow:visible !important; padding:0 !important; }
+  /* 表格占满整页宽，列均分；首列固定窄，套房列 1fr 等分 */
+  .cmptable{ width:100% !important; min-width:0 !important;
+    grid-template-columns:86px repeat(var(--cols,2),1fr) !important; font-size:7.5px !important; }
+  .cmptable .cl{ position:static !important; padding:1px 3px !important; font-size:7.5px !important; }
+  .cmptable .cl-head{ position:static !important; padding:3px 4px !important; font-size:8.5px !important; }
+  .cmptable .cc{ padding:1px 3px !important; font-size:7.5px !important; gap:2px !important; }
+  .cmptable .cc-head{ padding:4px !important; font-size:8.5px !important; }
+  .cc-head .ad, .cc-head .nm, .cc-head .pr, .cc-head .ar{ font-size:8.5px !important; -webkit-line-clamp:3 !important; }
+  .cmptable .cc .bt{ font-size:7px !important; padding:0 4px !important; }
+  /* 防止行跨页断 */
+  .cmp-card, .cmptable, .cmpgroup, .cl, .cc, .cc-head, .cl-head{ break-inside:avoid !important; }
+  /* 强制打印背景色（最优标记 / 核心字段高亮可见） */
+  *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+}
+</style>
+
 <div class="card hero cmp-hero">
   <div class="hero-main">
     <h1 data-i18n="cmp.h1">房源横向对比</h1>
