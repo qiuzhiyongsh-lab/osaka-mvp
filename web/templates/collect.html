@@ -281,6 +281,24 @@
         <option value="platform" data-i18n="pub.caliber.pl">平台登録/変更日</option>
       </select>
     </label>
+    <label class="field"><span data-i18n="pub.date_from">上传日期 起</span>
+      <input type="date" id="pub_date_from">
+    </label>
+    <label class="field"><span data-i18n="pub.date_to">上传日期 止</span>
+      <input type="date" id="pub_date_to">
+    </label>
+  </div>
+
+  <!-- v1.9.9：上传独立定时器（启动/暂停 + 周期 + 下次上传时间） -->
+  <div class="row" style="margin:10px 0 4px;align-items:center;gap:10px;flex-wrap:wrap">
+    <span><span data-i18n="pub.auto">自动上传定时器</span>：<b id="pub_auto_state" class="muted">—</b></span>
+    <button id="pub_toggle_btn" onclick="togglePublish()">暂停</button>
+    <label class="field" style="flex:0 0 auto"><span data-i18n="pub.interval">上传周期（分钟）</span>
+      <input id="pub_interval" type="number" step="1" min="1" value="10" style="width:90px">
+    </label>
+    <button class="ghost" onclick="previewPublish()" data-i18n="pub.preview">预览会传多少</button>
+    <span class="muted" id="pub_preview_count"></span>
+    <span class="muted" id="pub_loop_next"></span>
   </div>
 
   <div class="actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -301,9 +319,10 @@ async function loadPublishStatus(){
   try{
     const j = await postJSON('/api/publish/status', {});
     const c = j.config || {};
-    const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = v || ''; };
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.value = (v==null?'':v); };
     set('pub_mode', c.mode); set('pub_endpoint', c.endpoint);
     set('pub_month', c.month_scope); set('pub_caliber', c.scope_caliber);
+    set('pub_interval', c.interval_minutes); set('pub_date_from', c.date_from); set('pub_date_to', c.date_to);
     const st = j.state || {};
     const last = document.getElementById('pub_last');
     if(last){
@@ -312,22 +331,56 @@ async function loadPublishStatus(){
            + (st.last_error ? ' ｜ 上次失败：' + st.last_error : ''))
         : (window.t('pub.never') || '还没传过');
     }
+    // v1.9.9：独立定时器状态（启动/暂停 + 下次上传时间）
+    const loop = j.loop || {};
+    const autoState = document.getElementById('pub_auto_state');
+    const toggleBtn = document.getElementById('pub_toggle_btn');
+    if(autoState){
+      autoState.textContent = loop.running ? (window.t('pub.on')||'运行中') : (window.t('pub.off')||'已暂停');
+      autoState.className = 'muted ' + (loop.running ? 'on' : 'off');
+    }
+    if(toggleBtn){ toggleBtn.textContent = loop.running ? (window.t('pub.pause')||'暂停') : (window.t('pub.start')||'启动'); }
+    const nextEl = document.getElementById('pub_loop_next');
+    if(nextEl){ nextEl.textContent = loop.next_run_at ? ((window.t('pub.next')||'下次上传：') + loop.next_run_at) : ''; }
     if(j.busy){
       const box = document.getElementById('pub_log');
       if(box){ box.style.display='block'; box.textContent = (j.log||[]).join('\n'); }
       setTimeout(loadPublishStatus, 3000);
+    } else {
+      setTimeout(loadPublishStatus, 5000);   // 轮询：保持定时器状态/下次上传时间新鲜
     }
   }catch(e){ /* 静默：设置页其它功能不受影响 */ }
 }
 async function savePublish(){
+  const gv = (id) => ((document.getElementById(id)||{}).value || '');
   const body = {
-    mode: (document.getElementById('pub_mode')||{}).value,
-    endpoint: (document.getElementById('pub_endpoint')||{}).value,
-    month_scope: (document.getElementById('pub_month')||{}).value,
-    scope_caliber: (document.getElementById('pub_caliber')||{}).value
+    mode: gv('pub_mode'),
+    endpoint: gv('pub_endpoint'),
+    month_scope: gv('pub_month'),
+    scope_caliber: gv('pub_caliber'),
+    interval_minutes: gv('pub_interval'),
+    date_from: gv('pub_date_from'),
+    date_to: gv('pub_date_to')
   };
   try{ await postJSON('/api/publish/settings', body); alert(window.t('pub.saved')||'上传设置已保存'); }
   catch(e){ alertErr(e, window.t('pub.h')||'上传'); }
+}
+async function togglePublish(){
+  const btn = document.getElementById('pub_toggle_btn');
+  const cur = btn ? btn.textContent : '';
+  const enable = cur === (window.t('pub.start')||'启动');
+  try{
+    const j = await postJSON('/api/publish/toggle', {enabled: enable});
+    if(j && j.message) alert(j.message);
+  }catch(e){ alertErr(e, window.t('pub.h')||'上传'); }
+}
+async function previewPublish(){
+  const el = document.getElementById('pub_preview_count');
+  if(el) el.textContent = (window.t('pub.previewing')||'计算中…');
+  try{
+    const j = await postJSON('/api/publish/preview', {});
+    if(el) el.textContent = (j.count!=null) ? ((window.t('pub.preview_count')||'范围内共 ') + j.count + ' 行') : '';
+  }catch(e){ if(el) el.textContent = (window.t('pub.preview_fail')||'预览失败'); }
 }
 async function runPublish(mode){
   try{

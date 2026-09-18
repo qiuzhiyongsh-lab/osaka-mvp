@@ -77,6 +77,10 @@
       'pub.h': '上傳到線上', 'pub.hint': '把本機抓到的房源推到線上網站（只傳詳情內容，不傳 PDF）',
       'pub.mode': '上傳方式', 'pub.mode.auto': '① 自動完成（每輪抓完自動增量推送）', 'pub.mode.manual': '② 手動方式（點按鈕才上傳）',
       'pub.endpoint': '線上地址', 'pub.month': '上傳月份', 'pub.caliber': '月份口徑',
+      'pub.date_from': '上傳日期 起', 'pub.date_to': '上傳日期 止', 'pub.auto': '自動送信タイマー',
+      'pub.interval': '送信間隔（分）', 'pub.preview': '預覽會傳多少', 'pub.on': '運行中',
+      'pub.off': '已暫停', 'pub.pause': '暫停', 'pub.start': '啟動', 'pub.next': '下次送信：',
+      'pub.previewing': '計算中…', 'pub.preview_count': '範圍內共 ', 'pub.preview_fail': '預覽失敗',
       'pub.caliber.dl': '下載日（本機抓到的月份）', 'pub.caliber.pl': '平台登錄/變更日',
       'pub.save': '保存上傳設置', 'pub.btn_full': '立即上傳（全量重傳）', 'pub.btn_incr': '增量推送（只傳新增 / 變化）',
       'pub.last': '上次上傳：', 'pub.nopdf': '不傳 PDF，只傳詳情內容', 'pub.never': '還沒傳過', 'pub.saved': '上傳設置已保存',
@@ -237,6 +241,10 @@
       'pub.h': 'Publish to website', 'pub.hint': 'Push local listings to the public site (details only, no PDF)',
       'pub.mode': 'Upload mode', 'pub.mode.auto': '(1) Automatic (incremental after each crawl)', 'pub.mode.manual': '(2) Manual (button only)',
       'pub.endpoint': 'Site URL', 'pub.month': 'Month', 'pub.caliber': 'Month basis',
+      'pub.date_from': 'From date', 'pub.date_to': 'To date', 'pub.auto': 'Auto-upload timer',
+      'pub.interval': 'Interval (min)', 'pub.preview': 'Preview count', 'pub.on': 'Running',
+      'pub.off': 'Paused', 'pub.pause': 'Pause', 'pub.start': 'Start', 'pub.next': 'Next upload: ',
+      'pub.previewing': 'Calculating…', 'pub.preview_count': 'In range: ', 'pub.preview_fail': 'Preview failed',
       'pub.caliber.dl': 'Download date', 'pub.caliber.pl': 'Platform registration/change date',
       'pub.save': 'Save upload settings', 'pub.btn_full': 'Upload now (full)', 'pub.btn_incr': 'Incremental push',
       'pub.last': 'Last upload: ', 'pub.nopdf': 'No PDF, details only', 'pub.never': 'Never uploaded', 'pub.saved': 'Upload settings saved',
@@ -403,6 +411,10 @@
       'pub.h': 'サイトへ公開', 'pub.hint': '本機の物件を公開サイトへ送信（詳細のみ、PDF なし）',
       'pub.mode': '送信モード', 'pub.mode.auto': '① 自動（各ラウンド後に差分送信）', 'pub.mode.manual': '② 手動（ボタン操作時のみ）',
       'pub.endpoint': 'サイト URL', 'pub.month': '対象月', 'pub.caliber': '月の基準',
+      'pub.date_from': '開始日', 'pub.date_to': '終了日', 'pub.auto': '自動送信タイマー',
+      'pub.interval': '送信間隔（分）', 'pub.preview': 'プレビュー（送信なし）', 'pub.on': '稼働中',
+      'pub.off': '停止中', 'pub.pause': '一時停止', 'pub.start': '開始', 'pub.next': '次回送信：',
+      'pub.previewing': '計算中…', 'pub.preview_count': '範囲内：', 'pub.preview_fail': 'プレビュー失敗',
       'pub.caliber.dl': 'ダウンロード日', 'pub.caliber.pl': '登録日/変更日',
       'pub.save': '送信設定を保存', 'pub.btn_full': '今すぐ送信（全件）', 'pub.btn_incr': '差分送信',
       'pub.last': '最終送信：', 'pub.nopdf': 'PDF なし、詳細のみ', 'pub.never': '未送信', 'pub.saved': '送信設定を保存しました',
@@ -760,6 +772,10 @@
   ZH['search.date_caliber.reg']='登録日（平台新建）';
   ZH['search.date_caliber.dl']='下载日（本地抓到）';
   ZH['pub.h']='上传到线上'; ZH['pub.never']='还没传过'; ZH['pub.saved']='上传设置已保存';
+  ZH['pub.date_from']='上传日期 起'; ZH['pub.date_to']='上传日期 止'; ZH['pub.auto']='自动上传定时器';
+  ZH['pub.interval']='上传周期（分钟）'; ZH['pub.preview']='预览会传多少'; ZH['pub.on']='运行中';
+  ZH['pub.off']='已暂停'; ZH['pub.pause']='暂停'; ZH['pub.start']='启动'; ZH['pub.next']='下次上传：';
+  ZH['pub.previewing']='计算中…'; ZH['pub.preview_count']='范围内共 '; ZH['pub.preview_fail']='预览失败';
   ZH['cat.ms_hint']='点选即可，可多选';
   // D7/D5（v1.8.2）：roundplan.*（检索计划卡）/ recon.*（概览对账卡）
   ZH['roundplan.h']='每轮检索计划'; ZH['roundplan.hint']='自动更新每一轮抓什么；改完立即生效';

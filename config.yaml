@@ -153,6 +153,11 @@ publish:
   month_scope: ''
   scope_caliber: download
   batch_size: 200
+  # v1.9.9：上传独立定时器（与抓取轮解耦）
+  auto_enabled: true          # 自动上传总开关（独立定时器是否运行）
+  interval_minutes: 10        # 上传周期（分钟）；低于 1 夹到 1
+  date_from: ''               # 上传筛选起（YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS）；空=不限
+  date_to: ''                 # 上传筛选止；空=不限；只填日期自动补到当天 23:59:59
 ai:
   api_key: ''
   model: doubao-seed-1.6

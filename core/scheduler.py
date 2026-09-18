@@ -71,6 +71,7 @@ class Scheduler:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._busy = threading.Event()
+        self._rearm = threading.Event()      # v1.9.9：配置热改时打断 sleep、按新参数重算下一轮
         # 「指定日期下载」要独占：暂停自动轮次 + 挡住其它触发（详见 exclusive()）
         self._paused = False
         self._paused_reason = ""
@@ -214,6 +215,17 @@ class Scheduler:
         self._log("调度已停止")
         return "已停止"
 
+    def rearm(self) -> None:
+        """v1.9.9：更新方式（间隔/时段）热改后，立刻按新参数重算下一轮。
+
+        - 置位 _rearm → _loop 的分片 sleep 立即跳出、清位后回到循环顶重算 delay
+          （不跑轮次、不丢弃已排程、不重连 REINS）。
+        - 解决「改了设置下一轮时间不变」的 bug：之前只改 cfg 不重算，
+          下一轮仍按旧参数走。
+        """
+        self._rearm.set()
+        self._log("⟳ 更新方式已改动，下一轮将按新参数重算")
+
     # ---------------- 手动 ----------------
     def trigger_manual(self, trigger: str = "manual", scale: float = 0.25,
                        trial: bool = False, resume: bool = False) -> dict:
@@ -279,13 +291,18 @@ class Scheduler:
             self.next_run_at = target
             self._log(f"下一轮：{target.strftime('%H:%M:%S')}")
 
-            # 分片 sleep，便于随时停止
+            # 分片 sleep，便于随时停止；配置热改时由 rearm() 打断重算
             waited = 0.0
-            while waited < delay and not self._stop.is_set():
+            while waited < delay and not self._stop.is_set() and not self._rearm.is_set():
                 time.sleep(min(5.0, delay - waited))
                 waited += 5.0
             if self._stop.is_set():
                 break
+            # v1.9.9：配置热改 → 立刻按新参数重算下一轮（不跑轮次、不丢排程）
+            if self._rearm.is_set():
+                self._rearm.clear()
+                self._log("⟳ 下一轮已按新参数重算")
+                continue
 
             if not self._sched().get("enabled"):
                 break

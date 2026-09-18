@@ -7,8 +7,8 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.8"
-BUILD_AT = "2026-09-18 17:50"
+VERSION = "1.9.9"
+BUILD_AT = "2026-09-18 18:40"
 # ============================================================================
 # v1.9.5（2026-09-18 · 抓取链路：0 件页识别 + 種目无关的第 2 计数源；含 v1.9.4 止血）
 #   - v1.9.4 止血：_read_total 默认上限 60–90s → 18s（戸建/マンション 实测 <2s 即出计数区，
@@ -45,6 +45,25 @@ BUILD_AT = "2026-09-18 17:50"
 #     实测节奏约 4–6s/条（含拟人停顿），与设置页一致（"慢但稳"），非 bug。
 #   - 门禁：③ 真机 e2e 待勇哥双击重启 8765 复验（看 server.log「概览页日期同步内联补详情 N 条」
 #     + 前端「详情待补」清零）→ 通过即 commit + 发布（appId wbapp_C65E82hYRMCjxjcwW2Ph1E）。
+# ============================================================================
+# v1.9.9（2026-09-18 18:40 · 更新周期重算 + 上传独立定时器 + 日期段筛选）
+#   - 需求1（截图1「时间设置没更新到下一轮」）：core/scheduler.py 加 rearm()（threading.Event），
+#     _loop 分片 sleep 中检查 self._rearm → 跳出立即按新参数重算 delay/next_run_at（不跑轮次、
+#     不丢排程）；web/app.py /api/schedule 保存后调 SCHED.rearm()。验收：保存设置后 ≤5 秒
+#     「下一轮」时间按新参数刷新（之前只在每轮跑完瞬间算一次，热改不打断 sleep 故不更新）。
+#   - 需求2（截图2「启动/暂停 + 周期 + 日期段」）：core/publisher.py 新增
+#     · _scope_where 支持 date_from/date_to（闭区间；download 口径=COALESCE(last_seen_at,
+#       first_seen_at)，platform 口径=reg/chg_date_iso）；与上/替代旧 month_scope。
+#     · PublishLoop 独立上传线程：按 publish.interval_minutes（默认10，下限夹1）周期检查本地库，
+#       有增量才推、空轮回静默（轻量、不碰 REINS）。PUBLIC 模式禁用。
+#     · preview_scope：只算不发（设置页「预览会传多少」按钮用）。
+#     · /api/publish/settings 扩 auto_enabled/interval_minutes/date_from/date_to 四键 + 启停 loop；
+#       /api/publish/toggle（启动/暂停）、/api/publish/preview（计数）、/api/publish/status 带 loop 状态。
+#     · collect.html「上传到线上」加 启动/暂停按钮 + 周期输入 + 日期段 + 预览 + 下次上传时间；
+#       i18n.js 补 13 个 pub.* 键（4 语言）。
+#   - 铁律：8765 进程只能勇哥双击 start_mvp.bat 重启才生效，我绝不动；PUBLIC 模式不启上传定时器。
+#   - 门禁：③ 真机 e2e 待勇哥双击重启 8765 复验（看 server.log「⟳ 下一轮已按新参数重算」+
+#     「☁ 上传定时器已启动」+ 设置页按钮可启停、预览出数）→ 通过即 commit + 发布。
 # ============================================================================
 # v1.9.7（2026-09-18 16:30 · 下载崩溃修复 + R6 日志清晰度）
 #   - 修复 v1.9.6 阶段B 兜底的运行时崩溃：_backfill_via_inline 对 sqlite3.Row 调 .get()

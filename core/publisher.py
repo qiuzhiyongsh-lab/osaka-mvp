@@ -24,9 +24,11 @@ import io
 import json
 import os
 import sqlite3
+import threading
+import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 本地列 → 列映射（v1.6 同源透传）。
 # 旧版曾把本地列重命名为旧线上列名（building_name→title、address→address_raw…），
@@ -131,18 +133,41 @@ def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
 # 取数据
 # --------------------------------------------------------------------------
 def _scope_where(cfg: dict, mode: str, watermark: str | None):
-    """返回 (where_sql, args)。mode='full' 取全范围；mode='incr' 只取水位线之后的。"""
+    """返回 (where_sql, args)。mode='full' 取全范围；mode='incr' 只取水位线之后的。
+
+    v1.9.9 新增：date_from / date_to（日期段筛选，替代/补充旧的 month_scope）。
+      口径同 scope_caliber：
+        · download —— COALESCE(last_seen_at, first_seen_at)（本地下载日）
+        · platform —— COALESCE(chg_date_iso, reg_date_iso)（平台登録/変更日）
+      date_to 若只给日期(YYYY-MM-DD) 自动补到当天 23:59:59，闭区间更直观。
+    """
     pub = (cfg.get("publish") or {})
-    month = str(pub.get("month_scope") or "").strip()      # 例：2026-09
+    month = str(pub.get("month_scope") or "").strip()      # 例：2026-09（旧，兼容）
     caliber = str(pub.get("scope_caliber") or "download").strip()
+    date_from = str(pub.get("date_from") or "").strip()
+    date_to = str(pub.get("date_to") or "").strip()
     where, args = [], []
-    if month:
+    col = ("COALESCE(chg_date_iso, reg_date_iso)"
+           if caliber == "platform"
+           else "COALESCE(last_seen_at, first_seen_at)")
+    # 月份口径（兼容旧配置）：没填日期段时才回退到 month_scope
+    if (not date_from and not date_to) and month:
         if caliber == "platform":
             where.append("(substr(chg_date_iso,1,7)=? OR substr(reg_date_iso,1,7)=?)")
             args += [month, month]
         else:
             where.append("substr(COALESCE(last_seen_at,first_seen_at),1,7)=?")
             args.append(month)
+    # 日期段口径（新）：闭区间 [date_from, date_to]
+    if date_from:
+        where.append(col + " >= ?")
+        args.append(date_from)
+    if date_to:
+        dt = date_to
+        if len(date_to) == 10:          # YYYY-MM-DD → 当天结束
+            dt = date_to + " 23:59:59"
+        where.append(col + " <= ?")
+        args.append(dt)
     if mode == "incr" and watermark:
         # 水位线之后「又被看到过」的行 → 增量
         where.append("COALESCE(last_seen_at,first_seen_at) > ?")
@@ -287,3 +312,128 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
         say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
     res["elapsed_s"] = round((datetime.now() - t0).total_seconds(), 1)
     return res
+
+
+def preview_scope(cfg: dict, con: sqlite3.Connection, limit: int = 5, log=None) -> dict:
+    """预览：按当前 publish 配置（月份/口径/日期段）算「会推多少行 + 样本」，不真正发送。
+
+    v1.9.9 新增，供设置页「预览会传多少」按钮调用——先验证日期段/口径筛选是否如预期，
+    避免一拍脑袋就全量推送、推完才发现范围错了。
+    """
+    say = log or (lambda *_a, **_k: None)
+    # 与 build_rows 完全一致：直接复用 _scope_where 的返回（不加 is_active），
+    # 保证「预览 count」==「实际发布 count」，用户看到的数就是真会推的数。
+    inner, args = _scope_where(cfg, "full", None)
+    cur = con.cursor()
+    cnt = cur.execute("SELECT count(*) AS c FROM properties WHERE " + inner, args).fetchone()
+    total = int(cnt[0]) if cnt else 0
+    cols = ["property_no", "building_name", "address", "reg_date_iso", "chg_date_iso"]
+    rows = cur.execute(
+        "SELECT " + ",".join(cols) + " FROM properties WHERE " + inner +
+        " ORDER BY last_seen_at DESC LIMIT ?",
+        args + [int(limit)]).fetchall()
+    # 不依赖 con.row_factory：用列名 zip 元组，任何连接都能跑（含测试用裸连接）
+    sample = [dict(zip(cols, r)) for r in rows]
+    say("· 预览：范围内共 %d 行（前 %d 条示例）" % (total, min(int(limit), total)))
+    return {"count": total, "sample": sample}
+
+
+# --------------------------------------------------------------------------
+# v1.9.9：上传独立定时器（与抓取轮解耦）
+# --------------------------------------------------------------------------
+class PublishLoop:
+    """独立上传线程：按 publish.interval_minutes 周期（默认 10 分钟）检查本地库，
+    有新盘/变更就增量推到线上，没有就静默跳过（不碰 REINS、不刷日志刷屏）。
+
+    与 v1.5.19 的「每轮抓完 _auto_push」互补：
+      · 抓取轮尾巴的 _auto_push = 抓完立刻推（最新鲜）
+      · 本循环 = 周期兜底（即便长时间不抓、或 _auto_push 失败，也能按周期补推）
+    两者都走 publisher.publish(incr) 的水位线，幂等、不重复推。
+    """
+
+    def __init__(self, store, cfg: dict, log_fn=None):
+        self.store = store
+        self.cfg = cfg
+        self._log = log_fn or (lambda m: None)
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self.next_run_at: datetime | None = None
+        self.last_run_at: str = ""
+        self.last_count: int = 0
+        self.last_error: str = ""
+        self.enabled: bool = False
+
+    @property
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def _interval_seconds(self) -> float:
+        pub = (self.cfg.get("publish") or {})
+        m = float(pub.get("interval_minutes") or 10)
+        if m < 1:
+            m = 1
+        # 下限保护：低于 1 分钟 = 高频刷线上接口，夹到 1 分钟
+        return m * 60.0
+
+    def _is_enabled(self) -> bool:
+        pub = (self.cfg.get("publish") or {})
+        return bool(pub.get("auto_enabled")) and bool(pub.get("enabled"))
+
+    def status(self) -> dict:
+        return {
+            "running": self.running,
+            "enabled": self._is_enabled(),
+            "interval_minutes": (self.cfg.get("publish") or {}).get("interval_minutes", 10),
+            "next_run_at": self.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if self.next_run_at else None,
+            "last_run_at": self.last_run_at or None,
+            "last_count": self.last_count,
+            "last_error": self.last_error or "",
+        }
+
+    def start(self) -> str:
+        if self.running:
+            return "已在运行"
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="publish-loop")
+        self._thread.start()
+        self._log("☁ 上传定时器已启动（每 %d 分钟检查一次）" % int(self._interval_seconds() // 60))
+        return "已启动"
+
+    def stop(self) -> str:
+        self._stop.set()
+        self.next_run_at = None
+        self._log("☁ 上传定时器已停止")
+        return "已停止"
+
+    def _loop(self):
+        while not self._stop.is_set():
+            self.enabled = self._is_enabled()
+            if not self.enabled:
+                self.next_run_at = None
+                time.sleep(2)
+                continue
+            delay = self._interval_seconds()
+            self.next_run_at = datetime.now() + timedelta(seconds=delay)
+            self._log("☁ 下次上传：%s" % self.next_run_at.strftime("%H:%M:%S"))
+            # 分片 sleep，便于随时停止 / 配置热改实时生效
+            waited = 0.0
+            while waited < delay and not self._stop.is_set():
+                time.sleep(min(2.0, delay - waited))
+                waited += 2.0
+            if self._stop.is_set():
+                break
+            if not self._is_enabled():
+                continue
+            try:
+                r = publish(self.cfg, self.store.conn, mode="incr", log=self._log)
+                self.last_count = int(r.get("sent") or 0)
+                self.last_run_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if r.get("errors"):
+                    self.last_error = "; ".join(r.get("errors"))[:500]
+                else:
+                    self.last_error = ""
+                # 区间未变 / 无新数据：publish 内部已记「跳过」，这里不重复刷
+            except Exception as e:                                # noqa: BLE001
+                self.last_error = "%s: %s" % (type(e).__name__, e)
+                self._log("☁ 上传定时器异常：" + self.last_error)
+        self._log("☁ 上传定时器线程已退出")

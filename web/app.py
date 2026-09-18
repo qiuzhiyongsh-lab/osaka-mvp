@@ -33,6 +33,7 @@ from core.auth import Auth, friendly_error            # noqa: E402
 from core.crawler import probe_query, reins_bukken_search   # noqa: E402
 from core import store as store_mod                   # noqa: E402
 from core.scheduler import Scheduler                  # noqa: E402
+from core.publisher import PublishLoop                 # noqa: E402
 from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 
@@ -114,6 +115,7 @@ except Exception as _e:
 
 
 SCHED = Scheduler(STORE, CFG, log_fn=log)
+PUB_LOOP = PublishLoop(STORE, CFG, log_fn=log)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["JSON_AS_ASCII"] = False
@@ -217,6 +219,7 @@ def _refresh_cfg():
     CFG = cfgmod.load()
     PATHS = cfgmod.paths(CFG)
     SCHED.cfg = CFG
+    PUB_LOOP.cfg = CFG
     return CFG
 
 
@@ -1333,17 +1336,22 @@ def api_publish_status():
         "busy": _PUB["busy"], "mode": _PUB["mode"],
         "log": _PUB["log"][-40:], "result": _PUB["result"],
         "state": st,
+        "loop": PUB_LOOP.status(),
         "config": {"enabled": bool(pub.get("enabled", True)),
                    "mode": pub.get("mode", "auto"),
+                   "auto_enabled": bool(pub.get("auto_enabled", False)),
+                   "interval_minutes": pub.get("interval_minutes", 10),
                    "endpoint": pub.get("endpoint", ""),
                    "month_scope": pub.get("month_scope", ""),
+                   "date_from": pub.get("date_from", ""),
+                   "date_to": pub.get("date_to", ""),
                    "scope_caliber": pub.get("scope_caliber", "download")},
     })
 
 
 @app.post("/api/publish/settings")
 def api_publish_settings():
-    """保存上传设置（自动 / 手动 + 线上地址 + 月份范围）。"""
+    """保存上传设置（自动开关 / 周期 / 日期段 / 线上地址 / 口径）。"""
     cfg = _refresh_cfg()
     body = request.get_json(force=True, silent=True) or {}
     p = cfg.setdefault("publish", {})
@@ -1351,19 +1359,83 @@ def api_publish_settings():
         p["enabled"] = bool(body["enabled"])
     if "mode" in body and str(body["mode"]) in ("auto", "manual"):
         p["mode"] = str(body["mode"])
-    for k in ("endpoint", "token", "month_scope", "scope_caliber"):
+    for k in ("endpoint", "token", "month_scope", "scope_caliber",
+              "date_from", "date_to"):
         if k in body:
             p[k] = str(body[k] or "").strip()
     if "scope_caliber" in p and p["scope_caliber"] not in ("download", "platform"):
         p["scope_caliber"] = "download"
+    # v1.9.9：自动上传总开关 + 周期
+    if "auto_enabled" in body:
+        p["auto_enabled"] = bool(body["auto_enabled"])
+    if "interval_minutes" in body:
+        try:
+            p["interval_minutes"] = max(1, int(float(body["interval_minutes"])))
+        except Exception:
+            pass
     cfgmod.save(cfg)
-    log("上传设置已保存：mode=%s endpoint=%s 月份=%s(%s)"
-        % (p.get("mode"), p.get("endpoint"), p.get("month_scope"),
+    PUB_LOOP.cfg = cfg
+    # 自动开关变化 → 启停独立上传定时器（对外/线上模式不跑）
+    if p.get("auto_enabled") and not PUBLIC and not PUB_LOOP.running:
+        PUB_LOOP.start()
+    elif not p.get("auto_enabled") and PUB_LOOP.running:
+        PUB_LOOP.stop()
+    log("上传设置已保存：auto=%s 周期=%s分 日期段=%s~%s 口径=%s"
+        % (p.get("auto_enabled"), p.get("interval_minutes"),
+           p.get("date_from") or "不限", p.get("date_to") or "不限",
            p.get("scope_caliber")))
     return jsonify({"status": "ok", "config": {
         "enabled": p.get("enabled"), "mode": p.get("mode"),
+        "auto_enabled": p.get("auto_enabled"),
+        "interval_minutes": p.get("interval_minutes"),
         "endpoint": p.get("endpoint"), "month_scope": p.get("month_scope"),
+        "date_from": p.get("date_from"), "date_to": p.get("date_to"),
         "scope_caliber": p.get("scope_caliber")}})
+
+
+@app.post("/api/publish/toggle")
+def api_publish_toggle():
+    """启动 / 暂停独立上传定时器（不删配置，只是停线程）。"""
+    cfg = _refresh_cfg()
+    p = cfg.setdefault("publish", {})
+    enable = bool((request.get_json(force=True, silent=True) or {}).get("enabled", True))
+    p["auto_enabled"] = enable
+    cfgmod.save(cfg)
+    PUB_LOOP.cfg = cfg
+    if enable:
+        if PUBLIC:
+            return jsonify({"status": "blocked",
+                            "message": "线上展示版不运行上传定时器"}), 403
+        if not PUB_LOOP.running:
+            PUB_LOOP.start()
+        msg = "上传定时器已启动"
+    else:
+        if PUB_LOOP.running:
+            PUB_LOOP.stop()
+        msg = "上传定时器已暂停"
+    return jsonify({"status": "ok", "enabled": enable, "running": PUB_LOOP.running,
+                    "message": msg})
+
+
+@app.post("/api/publish/preview")
+def api_publish_preview():
+    """预览：按当前配置算「会推多少行 + 前 5 条样本」，不真正发送（v1.9.9）。"""
+    cfg = _refresh_cfg()
+    limit = int((request.get_json(force=True, silent=True) or {}).get("limit", 5))
+    try:
+        from core.publisher import preview_scope
+        import sqlite3
+        con = sqlite3.connect(str(PATHS["db"]))
+        con.row_factory = sqlite3.Row
+        r = preview_scope(cfg, con, limit=limit, log=log)
+        con.close()
+        return jsonify({"status": "ok", "count": r["count"], "sample": r["sample"],
+                        "config": {"date_from": (cfg.get("publish") or {}).get("date_from", ""),
+                                   "date_to": (cfg.get("publish") or {}).get("date_to", ""),
+                                   "scope_caliber": (cfg.get("publish") or {}).get("scope_caliber", "download"),
+                                   "month_scope": (cfg.get("publish") or {}).get("month_scope", "")}})
+    except Exception as e:                                       # noqa: BLE001
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.post("/api/env")
@@ -1444,6 +1516,7 @@ def api_schedule():
         s["enabled"] = bool(body["enabled"])
     cfgmod.save(cfg)
     SCHED.cfg = cfg
+    SCHED.rearm()          # v1.9.9：配置热改后立即重算下一轮时间
     log(f"更新设置已保存：{SCHED.describe()}")
 
     # enabled 变化时同步启停线程
@@ -1742,7 +1815,12 @@ def bukken_shot(filename):
 if __name__ == "__main__":
     log(f"本地站点启动：http://{CFG['web']['host']}:{CFG['web']['port']}")
     log(f"数据落盘目录：{PATHS['root']}")
-    if CFG.get("schedule", {}).get("enabled"):
-        SCHED.start()
+    if not PUBLIC:
+        if CFG.get("schedule", {}).get("enabled"):
+            SCHED.start()
+        if (CFG.get("publish") or {}).get("auto_enabled"):
+            PUB_LOOP.start()
+    else:
+        log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),
             debug=False, use_reloader=False, threaded=True)
