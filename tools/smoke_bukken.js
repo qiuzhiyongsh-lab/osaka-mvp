@@ -38,7 +38,7 @@ global.window.OSAKA_PUBLIC = false;
 global.window.REINS_BUKKEN_SEARCH_URL = 'https://system.reins.jp/main/BK/GBK004100';
 global.fetch = () => Promise.reject(new Error('offline-smoke'));  // 本地路径走 catch → bukkenFail
 
-const src = fs.readFileSync(path.join(__dirname, 'web/static/fieldmap.js'), 'utf-8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'web/static/fieldmap.js'), 'utf-8');
 try {
   eval(src);
 } catch (e) {
