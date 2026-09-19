@@ -252,6 +252,24 @@ def main() -> int:
         print(f"③b 账户种子：**未找到** {src_seed} —— 请先跑 `python tools/seed_accounts.py`；"
               f"否则线上拿不到初始账户，将按兜底降级为开放态")
 
+    # ── ③c AI 结构独立库（v1.9.25）：随同步带上，否则线上「AI 结构」为空 ──
+    #   线上主库落点 = published root(=TARGET) / output_root(被强制为 ./data) / jproperty.db，
+    #   AI 结构库与主库同目录：web/app.py 用 Path(PATHS["db"]).parent / "ai_pdf_store.db" 定位。
+    src_ai = MVP / "data" / "ai_pdf_store.db"
+    if src_ai.exists():
+        ai_dir = TARGET / "data"
+        ai_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_ai, ai_dir / "ai_pdf_store.db")
+        try:
+            _c = sqlite3.connect(str(ai_dir / "ai_pdf_store.db"))
+            n_ai = _c.execute("SELECT COUNT(*) FROM ai_structure").fetchone()[0]
+            _c.close()
+        except Exception:
+            n_ai = -1
+        print(f"③c AI 结构库：{src_ai.name} → {ai_dir / 'ai_pdf_store.db'}，{n_ai} 条")
+    else:
+        print("③c AI 结构库：**未找到** data/ai_pdf_store.db —— 先跑 tools/import_ai_pdf_excel.py")
+
     # ── ④ 线上入口 ──
     if not dry:
         (TARGET / "serve_public.py").write_text(SERVE_PUBLIC, encoding="utf-8")
