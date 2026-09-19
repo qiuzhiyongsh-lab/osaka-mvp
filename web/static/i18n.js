@@ -1256,7 +1256,7 @@
   // 查询页：紧凑列表行的短标签（原先硬编码 専有/土地/建物/所在階/階建/築/画像 N 枚/取得）
   ZH['row.excl']='専有'; ZH['row.land']='土地'; ZH['row.bldg']='建物';
   ZH['row.floor']='所在階'; ZH['row.floors']='階建'; ZH['row.built']='築';
-  ZH['row.imgs']='画像 {n} 枚'; ZH['row.fetched']='取得';
+  ZH['row.imgs']='画像 {n} 枚'; ZH['row.fetched']='取得'; ZH['row.no_pdf']='无 PDF';
   // v1.5.3：REINS 列表右侧三个图标的说明（画=照片 / 図=間取図 / 所=所在図）
   ZH['media.photo_n']='有照片（{n} 张）';
   ZH['media.photo_yes']='有照片（张数未知，还没抓详情）';
@@ -1266,7 +1266,7 @@
   ZH['unit.count']='条'; ZH['search.lib.viewclose']='）'; ZH['misc.nodetail']='(无详情)';
   DICT['zh-TW']['row.excl']='専有'; DICT['zh-TW']['row.land']='土地'; DICT['zh-TW']['row.bldg']='建物';
   DICT['zh-TW']['row.floor']='所在樓層'; DICT['zh-TW']['row.floors']='樓層數'; DICT['zh-TW']['row.built']='築';
-  DICT['zh-TW']['row.imgs']='圖片 {n} 張'; DICT['zh-TW']['row.fetched']='取得';
+  DICT['zh-TW']['row.imgs']='圖片 {n} 張'; DICT['zh-TW']['row.fetched']='取得'; DICT['zh-TW']['row.no_pdf']='無 PDF';
   DICT['zh-TW']['media.photo_n']='有照片（{n} 張）';
   DICT['zh-TW']['media.photo_yes']='有照片（張數未知，還沒抓詳情）';
   DICT['zh-TW']['media.plan_yes']='有間取圖（格局圖）';
@@ -1275,7 +1275,7 @@
   DICT['zh-TW']['unit.count']='筆'; DICT['zh-TW']['search.lib.viewclose']='）'; DICT['zh-TW']['misc.nodetail']='(無詳情)';
   DICT['en']['row.excl']='Excl.'; DICT['en']['row.land']='Land'; DICT['en']['row.bldg']='Bldg';
   DICT['en']['row.floor']='Floor'; DICT['en']['row.floors']='Floors'; DICT['en']['row.built']='Built';
-  DICT['en']['row.imgs']='Images {n}'; DICT['en']['row.fetched']='Fetched';
+  DICT['en']['row.imgs']='Images {n}'; DICT['en']['row.fetched']='Fetched'; DICT['en']['row.no_pdf']='No PDF';
   DICT['en']['media.photo_n']='Has photos ({n})';
   DICT['en']['media.photo_yes']='Has photos (count unknown — detail not fetched yet)';
   DICT['en']['media.plan_yes']='Has floor plan (間取図)';
@@ -1284,7 +1284,7 @@
   DICT['en']['unit.count']='items'; DICT['en']['search.lib.viewclose']=')'; DICT['en']['misc.nodetail']='(no details)';
   DICT['ja']['row.excl']='専有'; DICT['ja']['row.land']='土地'; DICT['ja']['row.bldg']='建物';
   DICT['ja']['row.floor']='所在階'; DICT['ja']['row.floors']='階建'; DICT['ja']['row.built']='築';
-  DICT['ja']['row.imgs']='画像 {n} 枚'; DICT['ja']['row.fetched']='取得';
+  DICT['ja']['row.imgs']='画像 {n} 枚'; DICT['ja']['row.fetched']='取得'; DICT['ja']['row.no_pdf']='PDFなし';
   DICT['ja']['media.photo_n']='写真あり（{n} 枚）';
   DICT['ja']['media.photo_yes']='写真あり（枚数不明・詳細未取得）';
   DICT['ja']['media.plan_yes']='間取図あり';

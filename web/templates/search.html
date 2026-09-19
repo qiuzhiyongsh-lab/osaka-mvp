@@ -230,7 +230,7 @@ var PAGE = 1, PAGES = 1, LIMIT = 50;
 var CMAX = 6;
 var LIB = null;          // 本机库概况（总条数 / 最近有数据的日期 / 今天条数 / 上轮运行）
 var CUR_SORT = 'updated', CUR_DIR = 'desc';   // R20：当前排序键 + 方向
-var COMPACT = false;                            // R22 B：简洁模式
+var COMPACT = true;                             // R-UI-3 / PRD-24：单行（UI 经理重设计）为默认；点「详细⇄简洁」切回多行
 var LAST_ROWS = null;                           // 当前结果行（切换视图时重渲染用）
 // R20：9 个排序键（与后端 _SORT_COLS 对应）
 var SORT_OPTS = [
@@ -768,7 +768,10 @@ function applyI18nSafe(el){
 
 /* ---------- R22 B：详细 ⇄ 简洁 切换 ---------- */
 function initViewMode(){
-  COMPACT = (localStorage.getItem('viewmode') === 'compact');
+  var v = localStorage.getItem('viewmode');
+  // PRD-24 R-UI-3：默认单行（compact）。仅当用户显式选过「详细」才回到多行；
+  // 首访 / 无存储值一律按 compact（否则 var COMPACT=true 会被空值覆盖成多行，违背需求）
+  COMPACT = (v === null) ? true : (v === 'compact');
 }
 function onViewToggle(){
   COMPACT = !COMPACT;
@@ -1135,8 +1138,15 @@ function unitPriceHtml(r){
   return h + '</div>';
 }
 
-/* R22 B 简洁模式：每行只留 价格 / 面積 / 間取り / 区 / 取得日（PRD 指定），行高 ~44px。
-   PDF / 徽章 / 番号 挪到详细模式或详情页，避免挤占首屏。点行展开看完整详情。 */
+/* 单行重设计（UI 经理主导，R-UI-3 / PRD-24）：
+   原则 = 同类放一起、重要的向前放。整行 5 个 cluster，左→右重要度递减：
+     ① qc-ops   ：操作与状态（加入对比 + 新增/变更/待补 + 取引態様「専任」）—— 我对这套房的动作与它的状态
+     ② qc-click ：位置与价格（地址·楼名 + 区 + 价格/降价 + ㎡単価/坪単価）—— 在哪、多少钱（最重要）
+     ③ qc-spec  ：房型与规模（面積 · 間取り · 駅）
+     ④ qc-meta  ：物件属性（種別 · 所在階/階建 · 築年月）
+     ⑤ qc-aux   ：辅助与入口（番号+REINS検索 · 図/照/画像 · 取得日 · 【本地PDF】【详情页】两按钮）
+   整行 nowrap + 横向滚动（窄屏 375px 也可看，不换行错版）；
+   点击「信息区(qc-click)」展开详情；按钮各自 stopPropagation，不误触展开。 */
 function renderCompactItem(r, i){
   var id = 'd' + i;
   var no = r.property_no || '';
@@ -1146,27 +1156,93 @@ function renderCompactItem(r, i){
               : (r.land_area ? num(r.land_area) + '㎡'
               : (r.building_area ? num(r.building_area) + '㎡' : ''));
   var cmpsub = [r.layout, cmparea, r.line_station].filter(function(x){ return !!x; }).join(' · ');
-  var areaTxt = r.exclusive_area ? num(r.exclusive_area) + '㎡'
-              : (r.land_area ? num(r.land_area) + '㎡'
-              : (r.building_area ? num(r.building_area) + '㎡' : '—'));
+  // —— 状态标（同 renderFullItem）——
+  var pending = (r.has_detail === false);
+  var tag = (r.tag ? '<span class="qtag qtag-' + esc(r.tag) + '">' + t('row.tag_' + r.tag) + '</span>' : '')
+          + (pending ? '<span class="qtag qtag-pending" title="' + esc(t('row.detail_pending_tip')) + '">'
+                     + esc(t('row.detail_pending')) + '</span>' : '');
+  var ttBadge = '';
+  if(r.trade_type){
+    var isSeller = (r.trade_type.indexOf('売主') >= 0);
+    ttBadge = '<span class="qtag qtag-tt' + (isSeller ? ' qtag-seller' : '') + '"'
+            + ' title="' + esc(t('row.trade_type_tip')) + '：' + esc(r.trade_type) + '">'
+            + esc(r.trade_type) + '</span>';
+  }
+  // —— 降价/涨价（平台历史变更，蓝底 + 「平台」标签）——
+  var drop = '', rate = '', up = false;
+  if(r.previous_price && r.price && r.price != r.previous_price){
+    up = r.price > r.previous_price;
+    var arrow = up ? '↑ ' : '↓ ';
+    var diff = Math.abs(r.previous_price - r.price);
+    var pct = (diff / Number(r.previous_price) * 100).toFixed(1) + '%';
+    var src = '<span class="qsrc">' + t('row.src_platform')
+            + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
+    drop = '<span class="qdrop qdrop-platform">' + arrow + wan(diff) + ' ' + src + '</span>';
+    rate = arrow + pct;
+  }
+  // —— 単価 ——
+  var sqm   = (r.unit_price_sqm   && Number(r.unit_price_sqm)   > 0) ? (Number(r.unit_price_sqm)/10000).toFixed(1)   + ' 万円' : '';
+  var tsubo = (r.unit_price_tsubo && Number(r.unit_price_tsubo) > 0) ? (Number(r.unit_price_tsubo)/10000).toFixed(1) + ' 万円' : '';
+  // —— 物件属性行 ——
+  var kindline = (r.kind && r.property_subtype) ? (r.kind + '／' + r.property_subtype)
+               : (r.kind || r.property_subtype || '');
   var dateTxt = r.last_seen_at ? String(r.last_seen_at).slice(0,10) : '—';
-  return '<div class="qitem compact-item" data-no="' + esc(no) + '"'
+
+  var h = '<div class="qitem compact-item" data-no="' + esc(no) + '"'
     +   ' data-nm="' + esc(cmpnm) + '" data-sub="' + esc(cmpsub) + '"'
     +   ' data-addr="' + esc(r.address || '') + '" data-ward="' + esc(r.ward || '') + '"'
-    +   ' data-area="' + esc(cmparea) + '">'
-    + '<div class="qcompact" onclick="toggleDetail(\'' + id + '\')">'
-    +   '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
-    +           ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
-    +   '<span class="qc-price">' + wan(r.price) + '</span>'
-    +   '<span class="qc-area">' + areaTxt + '</span>'
-    +   (r.unit_price_sqm && Number(r.unit_price_sqm) > 0 ? '<span class="qc-unit">' + (Number(r.unit_price_sqm)/10000).toFixed(1) + '</span>' : '')
-    +   (r.layout ? '<span class="qc-layout">' + esc(r.layout) + '</span>' : '')
-    +   (r.ward ? '<span class="qc-ward">' + esc(r.ward) + '</span>' : '')
-    +   '<span class="qc-date">' + dateTxt + '</span>'
-    +   '<span class="qc-addr">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '') + '</span>'
-    + '</div>'
-    + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
-    + '</div>';
+    +   ' data-area="' + esc(cmparea) + '">';
+  // 整行：横向排列、不换行
+  h += '<div class="qcompact">';
+  // ① 操作与状态
+  h +=   '<div class="qc-ops">'
+    +     '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
+    +             ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
+    +     tag + ttBadge
+    +   '</div>';
+  // ② 位置与价格（点击展开）
+  h +=   '<div class="qc-click" onclick="toggleDetail(\'' + id + '\')">'
+    +     '<span class="qc-loc">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '')
+    +       (r.ward ? ' <span class="qc-ward">' + esc(r.ward) + '</span>' : '') + '</span>'
+    +     '<span class="qc-pricebox">'
+    +       drop
+    +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
+    +       '<span class="price">' + wan(r.price) + '</span>'
+    +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    +     '</span>'
+    +     (sqm || tsubo ? '<span class="qc-unit">'
+    +       (sqm ? '㎡' + sqm : '') + (sqm && tsubo ? ' ｜ ' : '') + (tsubo ? '坪' + tsubo : '') + '</span>' : '')
+    +   '</div>';
+  // ③ 房型与规模
+  h +=   '<div class="qc-cluster qc-spec">'
+    +     (cmparea ? '<span>' + cmparea + '</span>' : '')
+    +     (r.layout ? '<span>' + esc(r.layout) + '</span>' : '')
+    +     (r.line_station ? '<span>' + esc(r.line_station) + '</span>' : '')
+    +   '</div>';
+  // ④ 物件属性
+  h +=   '<div class="qc-cluster qc-meta">'
+    +     (kindline ? '<span>' + esc(kindline) + '</span>' : '')
+    +     (r.floor ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
+    +     (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
+    +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
+    +   '</div>';
+  // ⑤ 辅助与入口（按钮各自 stopPropagation，不误触展开）
+  h +=   '<div class="qc-aux">'
+    +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
+    +     mediaBadges(r)
+    +     '<span class="qc-date">' + t('row.fetched') + ' ' + dateTxt + '</span>'
+    +     (r.pdf_url
+              ? '<a class="qbtn-mini" href="' + r.pdf_url + '" target="_blank"'
+                + ' onclick="event.stopPropagation()">' + t('detail.openpdf') + '</a>'
+              : '<a class="qbtn-mini disabled" href="javascript:void(0)"'
+                + ' onclick="event.stopPropagation()" title="' + esc(t('row.no_pdf')) + '">' + t('detail.openpdf') + '</a>')
+    +     '<a class="qbtn-mini ghost" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+    +         ' onclick="event.stopPropagation()">' + t('detail.srcpage') + '</a>'
+    +   '</div>';
+  h += '</div>';  // /qcompact
+  h += '<div class="qdetail" id="' + id + '" style="display:none"></div>'
+     + '</div>';
+  return h;
 }
 
 /* 对比栏里已选中的房子，如果出现在本页结果里，就用行上的 data-* 把摘要（地址·区·専有面積 等）补进去。

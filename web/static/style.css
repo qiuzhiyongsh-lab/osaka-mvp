@@ -594,18 +594,40 @@ details.sec > .secbody{padding:10px 18px 14px}
 .tool-btn:hover{background:#eaf1ff}
 .tool-btn.ghost{background:transparent;color:var(--sub);border-color:var(--line)}
 
-/* R22 B 简洁模式：每行只留 价格 / 面積 / 間取り / 区 / 取得日，行高 ~44px */
+/* 单行重设计（UI 经理主导，R-UI-3 / PRD-24）：同类放一起、重要的向前放。
+   整行 nowrap + 横向滚动（375px 也可看，不换行错版）；点「信息区」展开详情，按钮各自 stopPropagation。 */
 .qlist.compact{border-radius:10px}
 .compact-item{border-bottom:1px solid #eef1f7}
-.qcompact{display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer;flex-wrap:wrap}
-.qc-price{font-weight:800;color:var(--accent);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.qc-area{font-weight:700;color:var(--ink);font-size:13px;white-space:nowrap}
-.qc-layout{color:var(--sub);font-size:12.5px;white-space:nowrap}
-.qc-ward{color:var(--brand-ink);font-size:12.5px;white-space:nowrap}
-.qc-date{color:var(--sub);font-size:12px;white-space:nowrap}
-.qc-addr{color:var(--sub);font-size:12px;flex:1 1 200px;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.qcompact .qcmp{font-size:11px;padding:1px 8px}
+.qcompact{display:flex;align-items:stretch;gap:0;padding:5px 10px;cursor:default;overflow-x:auto}
+.qcompact > .qc-ops,
+.qcompact > .qc-click,
+.qcompact > .qc-aux{display:flex;align-items:center;gap:8px;padding:3px 10px;white-space:nowrap}
+/* 三大区之间用竖线分隔（同类聚拢、重要向前：操作→信息→辅助） */
+.qcompact > .qc-ops + .qc-click,
+.qcompact > .qc-click + .qc-aux{border-left:1px solid #e3e8f1}
+.qc-ops{flex:0 0 auto}
+.qc-click{flex:1 1 auto;min-width:120px;cursor:pointer}
+.qc-aux{flex:0 0 auto}
+.qc-loc{font-weight:600;color:var(--ink);font-size:13.5px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qc-ward{color:var(--brand-ink);font-size:12px;font-weight:600;margin-left:4px}
+.qc-pricebox{display:inline-flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums}
+.qc-pricebox .price{font-weight:800;color:var(--accent);font-size:14px}
+.qc-unit{color:var(--brand-ink);font-size:12px;font-weight:600;white-space:nowrap}
+.qc-cluster{font-size:12.5px;color:var(--sub)}
+.qc-cluster > span{white-space:nowrap}
+.qc-cluster > span + span{border-left:1px solid #dfe5f1;padding-left:8px}
+.qc-aux .mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--sub)}
+.qc-aux .qc-date{color:var(--sub);font-size:12px;margin:0 4px}
+.qc-aux .mdbset{margin:0 2px}
+.qc-aux .qbtn-mini{margin-left:4px}
+/* 单行小按钮：本地PDF / 详情页 / REINS検索 */
+.qbtn-mini{display:inline-flex;align-items:center;justify-content:center;
+  font-size:11.5px;line-height:1;padding:3px 9px;border-radius:7px;
+  border:1px solid #b9c8e2;background:#fff;color:var(--brand-ink);text-decoration:none;white-space:nowrap}
+.qbtn-mini:hover{background:#eaf1ff}
+.qbtn-mini.ghost{background:#f6f9ff;border-color:#cdd8ec}
+.qbtn-mini.disabled{opacity:.45;cursor:not-allowed}
+.qcompact .qcmp{font-size:11px;padding:2px 9px;flex:0 0 auto}
 /* 预览样本列表（指定日期下载 · 确定结果） */
 .slist{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
 .slist li{background:#f6f8fb;border:1px solid #e4e9f0;border-radius:8px;padding:8px 11px;

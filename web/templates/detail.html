@@ -96,23 +96,10 @@
   </div>
 </div>
 
-<!-- ②.5 AI 解读（v1.7.4 · PRD 09 需求 4）：房源 PDF 经 AI 提取的结构化内容。
-     数据存独立派生表 ai_extractions，不碰主数据；经 /api/ai/<番号> 异步加载，
-     不阻塞详情页首屏。放在「详细信息」与「变更历史」之间（勇哥指定的红框位置）。 -->
-<div class="card" id="aiCard">
-  <h2><span data-i18n="detail.ai_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
-  <div id="aiBody"></div>
-  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">暂无 AI 解读 · 点「重新生成」由本房源 PDF 提取。</div>
-  <div class="row" style="margin-top:10px">
-    <button class="btn ghost" id="aiRegen" onclick="aiRegenerate()" data-i18n="detail.ai_regen">重新生成</button>
-    <span class="muted" id="aiMeta"></span>
-  </div>
-</div>
-
 {# v1.8.6：PDF **直接在页面里完整展示**（勇哥要求）—— 替掉原来「重新生成」旁那个
    只做跳转的「打开本地 PDF」按钮。
    ① 宽度 = 网页内容宽度（100%）  ② 高度随窗口自适应（78vh，内部可滚动翻页）
-   ③ 位置 = AI 解读**下方** / 变更历史**上方**
+   ③ 位置 = 详细信息**下方** / AI 解读**上方**（R-UI-1 顺序：详细信息 → 房源図面 PDF → AI 解读 → 变更历史）
    实现：浏览器内置 PDF 查看器（iframe，零依赖），可翻页 / 缩放 / 打印。
    ⚠ PDF 只存在本机，线上站不传 PDF，所以这块线上不会出现。 #}
 {% if row.pdf_path %}
@@ -124,6 +111,19 @@
           title="物件図面 PDF"></iframe>
 </div>
 {% endif %}
+
+<!-- ②.5 AI 解读（v1.7.4 · PRD 09 需求 4）：房源 PDF 经 AI 提取的结构化内容。
+     数据存独立派生表 ai_extractions，不碰主数据；经 /api/ai/<番号> 异步加载，
+     不阻塞详情页首屏。放在「房源図面 PDF」与「变更历史」之间（R-UI-1 顺序调整）。 -->
+<div class="card" id="aiCard">
+  <h2><span data-i18n="detail.ai_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
+  <div id="aiBody"></div>
+  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">暂无 AI 解读 · 点「重新生成」由本房源 PDF 提取。</div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn ghost" id="aiRegen" onclick="aiRegenerate()" data-i18n="detail.ai_regen">重新生成</button>
+    <span class="muted" id="aiMeta"></span>
+  </div>
+</div>
 
 <!-- ③ 变更历史 / 快照：默认收起，避免把页面撑长 -->
 <details class="card sec">
