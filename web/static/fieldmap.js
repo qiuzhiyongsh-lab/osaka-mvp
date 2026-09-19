@@ -277,16 +277,14 @@
     window.openBukkenSearch(el.getAttribute('data-bukken'));
   }, true);
 
-  /* v1.9.20（勇哥 2026-09-19 真机反馈）—— 番号検索的三条铁律：
-     ① **不再出现第二个浏览器窗口**：后端已改无头搜索（见 crawler.reins_bukken_search），
-        结果只在**本页弹窗**里显示，且弹窗**不自动关闭**（勇哥：显示几秒就没了 → 要"保持不动"）。
-     ② 线上只读站（window.OSAKA_PUBLIC）没有 REINS 会话、也没有本机浏览器 → 后端必然失败，
-        故**不去调后端**，改成「复制番号 + 打开 REINS 番号検索页」。这一步**必须在点击手势内
-        同步执行** —— 旧版是在 fetch().then() 里才 window.open，那时用户手势已丢失，
-        Edge/Chrome 的弹窗拦截与剪贴板权限会双双拒绝，真机现象正是
-        「Edge 下页面跳不过去、编号也没录入」。
-     ③ 后端失败时同样**不再自动 window.open**，改为弹窗里给两个"真按钮"
-        （用户点 = 新手势，永远不会被拦），并把番号摆在上面。 */
+  /* v1.9.22（勇哥 2026-09-19 反馈）—— 番号検索【统一行为】：
+     线上站与本地站完全一致：点击后在【你当前浏览器的同一个窗口里再开一个标签页】
+     打开 REINS 物件番号検索页，并同步把编号复制到剪贴板；随后本页弹窗明确告知
+     “编号已复制，请在 REINS 标签页登录（如需）并粘贴编号、点検索”。
+     · 不再打开独立的第二个浏览器窗口（旧本地版后端 Playwright 弹出的独立 Edge）；
+     · 不再出现“开了标签页却没有任何提示、像卡住”的现象（旧线上版 bukkenLiveNote 未定义导致静默失败）。
+     为什么不能自动填号：REINS 会话在后端浏览器（Playwright）里，你当前浏览器没有该会话，
+     跨域 JS 也无法代填 REINS 输入框（物理限制）。故采用“复制 + 开页 + 明确提示”方案。 */
   window.openBukkenSearch = function (no) {
     if (!no) return;
     window.bukkenSearchRun([String(no)]);
@@ -318,7 +316,7 @@
     return false;
   };
 
-  // v1.9.20：线上站路径 —— **同步**复制 + **同步**开 REINS 番号検索页（必须在点击手势内）。
+  // v1.9.22：统一“开新标签页 + 复制 + 提示”，本地/线上共用，必须在点击手势内同步执行。
   window.bukkenOpenDirect = function (nos) {
     if (typeof nos === 'string') nos = [nos];
     nos = (nos || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
@@ -331,36 +329,68 @@
       window.bukkenFail(nos, 'window-blocked');
       return;
     }
-    if (window.bukkenToast) {
-      window.bukkenToast(window.t('detail.toast_copied') || '已打开 REINS 検索页', nos.join('、'), copied);
-    }
+    // 开了标签页 + 已复制编号，弹窗明确告知下一步，不再静默（修旧线上版“卡住”）。
+    window.bukkenLiveNote(nos, 'opened', url, copied);
   };
 
-  // v1.9.1：支持**多个番号**（数组）→ 后端依次填进「物件番号１/２/…」再点最下面「検索」。
+  // v1.9.22：番号検索主入口 —— 不再区分本地/线上，统一走前端“开新标签页”路径。
   window.bukkenSearchRun = function (nos) {
     if (typeof nos === 'string') nos = [nos];
     nos = (nos || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
     if (!nos.length) return;
-    if (window.OSAKA_PUBLIC) { window.bukkenOpenDirect(nos); return; }   // ② 线上站不走后端
     if (window.__bukkenSearching) return;
     window.__bukkenSearching = true;
-    if (window.bukkenToast) window.bukkenToast(window.t('detail.searching') || 'REINS 検索中…', nos.join(','), false);
-    fetch('/api/reins/bukken_search', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({nos: nos})
-    }).then(function (r) { return r.json(); }).then(function (j) {
+    try {
+      window.bukkenOpenDirect(nos);
+    } finally {
       window.__bukkenSearching = false;
-      if (j && j.ok && j.image_url) {
-        window.bukkenShowResult(nos, j.image_url, j.reins_url || '');
-      } else {
-        // ③ 失败/0件：也给弹窗（可带那张真实结果页截图），不再偷偷"复制+开窗"
-        window.bukkenFail(nos, (j && (j.error || j.message)) || '', j && j.image_url);
-      }
-    }).catch(function (e) {
-      window.__bukkenSearching = false;
-      window.bukkenFail(nos, String(e));
-    });
+    }
+  };
+
+  // v1.9.22：明确提示弹窗（替代旧版未定义的 bukkenLiveNote，修线上“开了页却像卡住”）。
+  window.bukkenLiveNote = function (nos, kind, url, copied) {
+    if (typeof nos === 'string') nos = [nos];
+    nos = (nos || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
+    if (!nos.length) return;
+    var label = nos.join('、');
+    var ov = document.getElementById('bukkenModal');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'bukkenModal';
+      ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);'
+        + 'z-index:9999;display:none;align-items:center;justify-content:center;';
+      ov.innerHTML = '<div style="background:#fff;max-width:92vw;max-height:88vh;overflow:auto;'
+        + 'border-radius:10px;padding:14px;position:relative;">'
+        + '<button id="bukkenClose" style="position:absolute;right:8px;top:6px;cursor:pointer;">✕</button>'
+        + '<div id="bukkenBody"></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function (e) {
+        if (e.target === ov || e.target.id === 'bukkenClose') ov.style.display = 'none';
+      });
+    }
+    var body = ov.querySelector('#bukkenBody');
+    body.innerHTML = '<div style="font-weight:700;margin-bottom:8px;">已在当前浏览器【新标签页】打开 REINS 检索页</div>'
+      + '<div style="margin-bottom:6px;">物件番号：<b>' + window.htmlEscape(label) + '</b></div>'
+      + '<div style="color:#1b5faa;font-size:13px;margin-bottom:8px;">编号已复制到剪贴板'
+      + (copied === false ? '（复制失败，请手动记录）' : '') + '，请在该标签页中：</div>'
+      + '<ol style="margin:0 0 10px 18px;font-size:13px;color:#333;line-height:1.7;">'
+      + '<li>若 REINS 提示登录，请先登录你的账号；</li>'
+      + '<li>把编号粘贴进「物件番号」输入框；</li>'
+      + '<li>点击「検索」即可查看该物件详情。</li></ol>'
+      + '<div style="margin-top:6px;">'
+      + '<a href="' + url + '" target="_blank" rel="noopener" class="qbtn" id="bukkenReopen">重新打开 REINS</a> '
+      + '<button class="qbtn" id="bukkenCopyBtn">复制番号</button> '
+      + '<button class="qbtn" id="bukkenOk">我知道了</button></div>';
+    ov.style.display = 'flex';
+    var reBtn = ov.querySelector('#bukkenReopen');
+    if (reBtn) reBtn.onclick = function () { window.bukkenOpenDirect(nos); };
+    var cp = ov.querySelector('#bukkenCopyBtn');
+    if (cp) cp.onclick = function () {
+      window.bukkenCopy(label);
+      if (window.bukkenToast) window.bukkenToast(window.t('detail.toast_copied') || '已复制番号', label, true);
+    };
+    var okBtn = ov.querySelector('#bukkenOk');
+    if (okBtn) okBtn.onclick = function () { ov.style.display = 'none'; };
   };
 
   // v1.9.1：把对比栏里已选的多个番号一次性拿到 REINS 番号検索页批量填号検索。

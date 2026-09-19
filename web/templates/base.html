@@ -11,6 +11,8 @@
      否则 Edge/Chrome 会拦弹窗、拒剪贴板）；
      本地站 → 走后端无头搜索，结果回本页弹窗。 -->
 <script>window.OSAKA_PUBLIC = {{ 'true' if public else 'false' }};</script>
+<!-- v1.9.22：把番号検索 URL 从 config 单一来源注入前端（与后端 selectors 同源，避免硬编码漂移）。 -->
+<script>window.REINS_BUKKEN_SEARCH_URL = {{ cfg['site']['bukken_search_url'] | tojson }};</script>
 <!-- 通用脚本（api/postJSON/alertErr 等）必须在页面内联脚本之前加载，
      否则查询页/概览页在加载时调用的 doQuery/refreshOverview 会找不到 api -->
 <script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>
