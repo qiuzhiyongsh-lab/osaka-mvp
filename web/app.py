@@ -213,6 +213,14 @@ def _access_guard():
     path = request.path
     if path in ("/login", "/api/auth/login", "/api/ping") or path.startswith("/static/"):
         return None
+    # ⚠ v1.9.19 🔴 修复（2026-09-19 实测事故）：/api/ingest 是**机器对机器**通道
+    #   —— 本机每轮抓完把数据 POST 到线上。它自带 `X-Publish-Token` 校验（见 api_ingest），
+    #   上传器没有、也不该有浏览器账户会话。v1.9.14 强制登录上线后本守卫把它一起拦了，
+    #   线上收到 `{"message":"未登录"}` 401，**数据自 06:35 起静默停更**（本地 NEW 数据上不去）。
+    #   豁免安全性：没带对令牌时 api_ingest 自己就返回 401「令牌不对」，等于多一层锁；
+    #   且本豁免**不放开页面**——页面仍照旧跳 /login。
+    if path == "/api/ingest":
+        return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
     emergency_ok = bool(code) and (

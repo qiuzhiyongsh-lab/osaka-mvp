@@ -230,7 +230,11 @@ def post_rows(cfg: dict, rows: list[dict], log=None) -> dict:
     say = log or (lambda *_a, **_k: None)
     pub = (cfg.get("publish") or {})
     endpoint = str(pub.get("endpoint") or "").strip()
-    token = str(pub.get("token") or "").strip()
+    # ⚠ v1.9.19：同一个密钥历史上被写成两个键名 —— 发送端读 `publish.token`，
+    #   而线上 `api_ingest` 只认 `publish.ingest_token`。一旦有人只改了其中一个，
+    #   就会出现「守卫放行了、令牌却不对」的**静默 401**（最难查的一类）。
+    #   这里做键名兜底：谁有值用谁，两个都空才判为未配置。
+    token = str(pub.get("token") or pub.get("ingest_token") or "").strip()
     if not endpoint:
         # ⚠ 必须用 "errors" 键（与正常返回一致），否则 publish() 读 res.get("errors")
         #   （复数）会得到 []，把真实原因吞成「未知原因」。这是 2026-09-18 推送静默失败的根因。
