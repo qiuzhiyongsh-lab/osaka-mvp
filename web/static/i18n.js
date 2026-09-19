@@ -80,6 +80,7 @@
       'pub.date_from': '上傳日期 起', 'pub.date_to': '上傳日期 止', 'pub.auto': '自動送信タイマー',
       'pub.interval': '送信間隔（分）', 'pub.preview': '預覽會傳多少', 'pub.on': '運行中',
       'pub.off': '已暫停', 'pub.pause': '暫停', 'pub.start': '啟動', 'pub.next': '下次送信：',
+      'pub.every': '每 ', 'pub.min': ' 分鐘自動上傳', 'pub.paused_tip': '已暫停（點「啟動」即按週期自動上傳）', 'pub.log_empty': '暫無上傳記錄',
       'pub.previewing': '計算中…', 'pub.preview_count': '範圍內共 ', 'pub.preview_fail': '預覽失敗',
       'pub.caliber.dl': '下載日（本機抓到的月份）', 'pub.caliber.pl': '平台登錄/變更日',
       'pub.save': '保存上傳設置', 'pub.btn_full': '立即上傳（全量重傳）', 'pub.btn_incr': '增量推送（只傳新增 / 變化）',
@@ -244,6 +245,7 @@
       'pub.date_from': 'From date', 'pub.date_to': 'To date', 'pub.auto': 'Auto-upload timer',
       'pub.interval': 'Interval (min)', 'pub.preview': 'Preview count', 'pub.on': 'Running',
       'pub.off': 'Paused', 'pub.pause': 'Pause', 'pub.start': 'Start', 'pub.next': 'Next upload: ',
+      'pub.every': 'Every ', 'pub.min': ' min auto-upload', 'pub.paused_tip': 'Paused (click Start to auto-upload by interval)', 'pub.log_empty': 'No upload records yet',
       'pub.previewing': 'Calculating…', 'pub.preview_count': 'In range: ', 'pub.preview_fail': 'Preview failed',
       'pub.caliber.dl': 'Download date', 'pub.caliber.pl': 'Platform registration/change date',
       'pub.save': 'Save upload settings', 'pub.btn_full': 'Upload now (full)', 'pub.btn_incr': 'Incremental push',
@@ -414,6 +416,7 @@
       'pub.date_from': '開始日', 'pub.date_to': '終了日', 'pub.auto': '自動送信タイマー',
       'pub.interval': '送信間隔（分）', 'pub.preview': 'プレビュー（送信なし）', 'pub.on': '稼働中',
       'pub.off': '停止中', 'pub.pause': '一時停止', 'pub.start': '開始', 'pub.next': '次回送信：',
+      'pub.every': '每 ', 'pub.min': ' 分自動送信', 'pub.paused_tip': '停止中（「開始」を押すと周期で自動送信）', 'pub.log_empty': '送信履歴なし',
       'pub.previewing': '計算中…', 'pub.preview_count': '範囲内：', 'pub.preview_fail': 'プレビュー失敗',
       'pub.caliber.dl': 'ダウンロード日', 'pub.caliber.pl': '登録日/変更日',
       'pub.save': '送信設定を保存', 'pub.btn_full': '今すぐ送信（全件）', 'pub.btn_incr': '差分送信',
@@ -775,6 +778,7 @@
   ZH['pub.date_from']='上传日期 起'; ZH['pub.date_to']='上传日期 止'; ZH['pub.auto']='自动上传定时器';
   ZH['pub.interval']='上传周期（分钟）'; ZH['pub.preview']='预览会传多少'; ZH['pub.on']='运行中';
   ZH['pub.off']='已暂停'; ZH['pub.pause']='暂停'; ZH['pub.start']='启动'; ZH['pub.next']='下次上传：';
+  ZH['pub.every']='每 '; ZH['pub.min']=' 分钟自动上传'; ZH['pub.paused_tip']='已暂停（点「启动」即按周期自动上传）'; ZH['pub.log_empty']='暂无上传记录';
   ZH['pub.previewing']='计算中…'; ZH['pub.preview_count']='范围内共 '; ZH['pub.preview_fail']='预览失败';
   ZH['cat.ms_hint']='点选即可，可多选';
   // D7/D5（v1.8.2）：roundplan.*（检索计划卡）/ recon.*（概览对账卡）

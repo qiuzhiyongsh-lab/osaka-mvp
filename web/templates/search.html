@@ -21,12 +21,15 @@
   {# v1.8.6：勇哥圈选「要合并成同一行」—— 原来这三项（取引態様 / 只看带PDF / 每页条数）
      是**单独一行**右对齐，现在并进下面 #filterForm 的第一行右端（与 关键词/区/物件種目 同一行）。
      「收起条件」单键改挂到卡片标题行右侧（见下方 hrow），保证筛选区折叠后**仍点得到**。 #}
-  <div id="filterForm">
+  <!-- v1.9.21：autocomplete="off" 关掉浏览器对筛选框的自动填充（此前浏览器把登录账号
+       "yongge" 自动填进关键词/价格框）。包成 <form> 是为了让 autocomplete 属性对内部所有
+       input 生效；onsubmit 拦截避免回车误提交刷新页面（查询仍由按钮 onclick=doQuery 触发）。 -->
+  <form id="filterForm" autocomplete="off" onsubmit="return false">
 <div class="row">
     {# v1.4.1：标签只留「关键词」两字，匹配范围与规则改悬停提示。
        v1.7.6：关键词框**缩短**（勇哥反馈太长），腾出的横向空间给后面的多选控件。 #}
     <label class="field" style="flex:0 1 240px"><span data-i18n="search.q" data-i18n-title="search.q.tip" title="地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り，模糊匹配，含即命中；空格分隔多词＝都要命中">关键词</span>
-      <input id="q" data-i18n-ph="search.q.ph" placeholder="例：中之島 / グランドメゾン / 3001407">
+      <input id="q" name="f_kw" autocomplete="off" data-i18n-ph="search.q.ph" placeholder="例：中之島 / グランドメゾン / 3001407">
     </label>
     <!-- v1.7.6：区改为**多选**（勇哥要求：像物件種目那样点选即生效，不需要再确认）。
          交互与物件種目一致：点 chip 即勾/消，底部「清空」+「已选 N 项」，不弹确认框。 -->
@@ -171,7 +174,7 @@
       勾几套房 → 底部「对比栏」→ 点「开始对比」可横向比 2–6 套
     </span>
   </div>
-</div><!-- /#filterForm -->
+</form><!-- /#filterForm -->
 <!-- R22 A：查询后筛选表单折叠成一行摘要；点「修改条件」展开 -->
 <div id="filterSummary" class="filter-summary" hidden></div>
 <!-- 本机库概况的「警告/运行中/操作按钮」分支（R21：从标题行拆出，单独占一行更醒目） -->

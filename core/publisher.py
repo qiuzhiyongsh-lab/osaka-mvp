@@ -345,6 +345,18 @@ def preview_scope(cfg: dict, con: sqlite3.Connection, limit: int = 5, log=None) 
 # --------------------------------------------------------------------------
 # v1.9.9：上传独立定时器（与抓取轮解耦）
 # --------------------------------------------------------------------------
+# v1.9.21：定时器上传日志共享缓冲 —— PUB_LOOP 的 _log 同时写这里，
+#   让 /api/publish/status 能把「自动定时器」的日志也回传给上传面板
+#   （此前 PUB_LOOP 只把日志交给 app.log() 进 server.log，上传面板永远看不到定时上传痕迹）。
+PUB_LOG: list = []
+
+
+def pub_log(msg):
+    PUB_LOG.append(str(msg))
+    if len(PUB_LOG) > 400:
+        PUB_LOG[:] = PUB_LOG[-400:]
+
+
 class PublishLoop:
     """独立上传线程：按 publish.interval_minutes 周期（默认 10 分钟）检查本地库，
     有新盘/变更就增量推到线上，没有就静默跳过（不碰 REINS、不刷日志刷屏）。
@@ -358,7 +370,9 @@ class PublishLoop:
     def __init__(self, store, cfg: dict, log_fn=None):
         self.store = store
         self.cfg = cfg
-        self._log = log_fn or (lambda m: None)
+        # v1.9.21：定时器日志同时进共享缓冲 PUB_LOG（回传面板）+ 原始 log_fn（server.log）
+        base = log_fn or (lambda m: None)
+        self._log = lambda m: (base(m), pub_log(m))
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self.next_run_at: datetime | None = None

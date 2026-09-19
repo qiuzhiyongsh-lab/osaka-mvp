@@ -1404,9 +1404,14 @@ def api_publish():
                     "message": "已开始全量重传" if mode == "full" else "已开始增量推送"})
 
 
-@app.get("/api/publish/status")
+@app.route("/api/publish/status", methods=["GET", "POST"])
 def api_publish_status():
-    """上传进度 + 上次上传状态（publisher 的 publish_state 表）。"""
+    """上传进度 + 上次上传状态（publisher 的 publish_state 表）。
+
+    v1.9.21：同时接受 GET/POST —— 前端 loadPublishStatus 用 postJSON（POST）调，
+    旧版只挂 @app.get → 405 → 前端静默 catch → 上传面板永不刷新（状态恒「—」、
+    按钮恒「暂停」、日志空白）。这是面板「死掉」的统一根因。
+    """
     cfg = _refresh_cfg()
     st = {}
     try:
@@ -1419,9 +1424,15 @@ def api_publish_status():
     except Exception as e:                                       # noqa: BLE001
         st = {"last_error": str(e)}
     pub = (cfg.get("publish") or {})
+    # v1.9.21：合并「自动定时器日志(PUB_LOG) + 手动上传日志(_PUB['log'])」，面板才看得到全貌
+    try:
+        from core.publisher import PUB_LOG as _PL
+        _combined = (_PL[-220:] + _PUB["log"][-220:])
+    except Exception:                                            # noqa: BLE001
+        _combined = _PUB["log"][-220:]
     return jsonify({
         "busy": _PUB["busy"], "mode": _PUB["mode"],
-        "log": _PUB["log"][-40:], "result": _PUB["result"],
+        "log": _combined, "result": _PUB["result"],
         "state": st,
         "loop": PUB_LOOP.status(),
         "config": {"enabled": bool(pub.get("enabled", True)),

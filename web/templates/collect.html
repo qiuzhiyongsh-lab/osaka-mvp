@@ -311,7 +311,7 @@
     <span data-i18n="pub.last">上次上传：</span><b id="pub_last">—</b>
     ｜ <span data-i18n="pub.nopdf">不上传 PDF，只传详情内容</span>
   </p>
-  <pre id="pub_log" style="display:none;max-height:240px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px"></pre>
+  <pre id="pub_log" style="display:block;max-height:280px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
 </div>
 <script>
 /* ---------- v1.5.6 上传到线上 ---------- */
@@ -341,10 +341,17 @@ async function loadPublishStatus(){
     }
     if(toggleBtn){ toggleBtn.textContent = loop.running ? (window.t('pub.pause')||'暂停') : (window.t('pub.start')||'启动'); }
     const nextEl = document.getElementById('pub_loop_next');
-    if(nextEl){ nextEl.textContent = loop.next_run_at ? ((window.t('pub.next')||'下次上传：') + loop.next_run_at) : ''; }
+    if(nextEl){
+      const iv = (loop.interval_minutes || c.interval_minutes || 10);
+      nextEl.textContent = loop.running
+        ? ((window.t('pub.every')||'每 ') + iv + (window.t('pub.min')||' 分钟自动上传')
+           + (loop.next_run_at ? (' ｜ ' + (window.t('pub.next')||'下次') + '：' + loop.next_run_at) : ''))
+        : (window.t('pub.paused_tip')||'已暂停（点「启动」即按周期自动上传）');
+    }
+    // v1.9.21：日志面板**常驻**显示合并日志（手动 + 自动定时器），不再只在 busy 时闪现
+    const box = document.getElementById('pub_log');
+    if(box){ box.textContent = (j.log && j.log.length) ? j.log.join('\n') : (window.t('pub.log_empty')||'暂无上传记录'); }
     if(j.busy){
-      const box = document.getElementById('pub_log');
-      if(box){ box.style.display='block'; box.textContent = (j.log||[]).join('\n'); }
       setTimeout(loadPublishStatus, 3000);
     } else {
       setTimeout(loadPublishStatus, 5000);   // 轮询：保持定时器状态/下次上传时间新鲜
@@ -367,12 +374,17 @@ async function savePublish(){
 }
 async function togglePublish(){
   const btn = document.getElementById('pub_toggle_btn');
-  const cur = btn ? btn.textContent : '';
+  const cur = btn ? btn.textContent.trim() : '';
+  // 当前文案「启动」=已暂停（点了要启动）；「暂停」=运行中（点了要暂停）
   const enable = cur === (window.t('pub.start')||'启动');
+  // 乐观翻转：先按意图改文案，1 秒后 loadPublishStatus 用服务端真状态校准，避免最多 5 秒的视觉滞后
+  if(btn){ btn.textContent = enable ? (window.t('pub.pause')||'暂停') : (window.t('pub.start')||'启动'); btn.disabled = true; }
   try{
     const j = await postJSON('/api/publish/toggle', {enabled: enable});
     if(j && j.message) alert(j.message);
   }catch(e){ alertErr(e, window.t('pub.h')||'上传'); }
+  if(btn) btn.disabled = false;
+  setTimeout(loadPublishStatus, 1000);
 }
 async function previewPublish(){
   const el = document.getElementById('pub_preview_count');
