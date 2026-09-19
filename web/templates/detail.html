@@ -112,16 +112,21 @@
 </div>
 {% endif %}
 
-<!-- ②.5 AI 解读（v1.7.4 · PRD 09 需求 4）：房源 PDF 经 AI 提取的结构化内容。
-     数据存独立派生表 ai_extractions，不碰主数据；经 /api/ai/<番号> 异步加载，
-     不阻塞详情页首屏。放在「房源図面 PDF」与「变更历史」之间（R-UI-1 顺序调整）。 -->
+<!-- ②.5 AI 结构（v1.9.25）：《大阪房源PDF数据总表》的 AI 识别成品。
+     数据存**独立库** data/ai_pdf_store.db，与主库分离、不碰主数据；
+     经 /api/ai-structure/<番号> 异步加载，不阻塞详情页首屏。
+     卡片自上而下：① 雷达图+综合分 ② 约200字 AI 结论 ③ 存疑提示 ④ 分组字段（可编辑）
+     放在「房源図面 PDF」与「变更历史」之间（R-UI-1 顺序）。 -->
 <div class="card" id="aiCard">
-  <h2><span data-i18n="detail.ai_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
+  <h2><span data-i18n="detail.ai_h">AI 结构</span> <span class="hint" id="aiHint"></span></h2>
   <div id="aiBody"></div>
-  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">暂无 AI 解读 · 点「重新生成」由本房源 PDF 提取。</div>
+  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">本房源尚未纳入 PDF AI 识别。</div>
   <div class="row" style="margin-top:10px">
-    <button class="btn ghost" id="aiRegen" onclick="aiRegenerate()" data-i18n="detail.ai_regen">重新生成</button>
     <span class="muted" id="aiMeta"></span>
+    <span style="flex:1"></span>
+    {# v1.9.26 / PRD 25：手动生成。**默认本地抽取（0 元）**，只有本地跑不满且
+       用户点确认后才走云端 —— 不允许静默花钱（勇哥 D1）。 #}
+    <button class="btn" id="aiRunBtn" type="button" onclick="runAI({force:true})"></button>
   </div>
 </div>
 
@@ -236,14 +241,108 @@ function paintLabels(){
 function paintAll(){ paintHints(); paintLabels(); refreshCmp(); }
 
 /* ------------------------------------------------------------------
-   AI 解读（v1.7.4）：从 /api/ai/<番号> 拉取 PDF 提取结果并渲染。
-   - 高亮卖点放最前（买家一眼看到「超高層・駅直結・降价」这些点）；
-   - 字段表复用详情页 .dinfo/.df/.dk/.dv 网格，风格与「详细信息」一致；
-   - 没有数据时空态引导，不报错不打扰。
+   AI 结构（v1.9.25）：从 /api/ai-structure/<番号> 拉取《大阪房源PDF数据总表》
+   的 AI 识别成品并渲染。数据存独立库，与主数据分离。
+   卡片自上而下四段：
+     ① 雷达图（六维打分）+ 综合分
+     ② 约 200 字 AI 结论
+     ③ 存疑提示：warn=红字、danger=红字黄底
+     ④ 分组字段表 —— 有则显示、无则不显；点任意值可直接编辑（写回独立库）
    ------------------------------------------------------------------ */
 function aiEsc(s){
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+/* 按当前界面语言取多语言标签（AI 结构里的字段名自带 zh/zh_tw/en/ja 四份） */
+function aiL(o){
+  if(!o) return '';
+  var l = localStorage.getItem('lang') || 'zh-CN';
+  if(l === 'zh-TW') return o.zh_tw || o.zh || '';
+  if(l === 'en')    return o.en || o.zh || '';
+  if(l === 'ja')    return o.ja || o.zh || '';
+  return o.zh || '';
+}
+/* 雷达图：纯 SVG 手绘，零依赖。六个维度按顺时针排布。 */
+function aiRadar(dims){
+  if(!dims || !dims.length) return '';
+  var size = 230, c = size / 2, R = 66, LR = 84, n = dims.length, g = '';
+  function pt(i, r){
+    var a = -Math.PI / 2 + i * 2 * Math.PI / n;
+    return [c + Math.cos(a) * r, c + Math.sin(a) * r];
+  }
+  [0.25, 0.5, 0.75, 1].forEach(function(k){
+    var p = [];
+    for(var i = 0; i < n; i++){ var q = pt(i, R * k); p.push(q[0].toFixed(1) + ',' + q[1].toFixed(1)); }
+    g += '<polygon points="' + p.join(' ') + '" fill="none" stroke="#e6eaf3" stroke-width="1"/>';
+  });
+  for(var i = 0; i < n; i++){
+    var q = pt(i, R);
+    g += '<line x1="' + c + '" y1="' + c + '" x2="' + q[0].toFixed(1) +
+         '" y2="' + q[1].toFixed(1) + '" stroke="#e6eaf3"/>';
+  }
+  var dp = [];
+  for(var i = 0; i < n; i++){
+    var q = pt(i, R * Math.max(dims[i].score, 1) / 100);
+    dp.push(q[0].toFixed(1) + ',' + q[1].toFixed(1));
+  }
+  g += '<polygon points="' + dp.join(' ') +
+       '" fill="rgba(22,50,92,.16)" stroke="#16325c" stroke-width="2" stroke-linejoin="round"/>';
+  for(var i = 0; i < n; i++){
+    var q = pt(i, R * Math.max(dims[i].score, 1) / 100);
+    g += '<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="3" fill="#16325c"/>';
+    var lp = pt(i, LR);
+    var an = Math.abs(lp[0] - c) < 8 ? 'middle' : (lp[0] > c ? 'start' : 'end');
+    g += '<text x="' + lp[0].toFixed(1) + '" y="' + (lp[1] + 2).toFixed(1) +
+         '" text-anchor="' + an + '" font-size="11" fill="#6b7690">' +
+         aiEsc(aiL(dims[i].label)) + '</text>';
+    g += '<text x="' + lp[0].toFixed(1) + '" y="' + (lp[1] + 15).toFixed(1) +
+         '" text-anchor="' + an + '" font-size="12" font-weight="700" fill="#16325c">' +
+         dims[i].score + '</text>';
+  }
+  return '<svg viewBox="0 0 ' + size + ' ' + size + '" class="ai-radar" ' +
+         'width="' + size + '" height="' + size + '">' + g + '</svg>';
+}
+/* 编辑：点一下变输入框，回车/失焦保存，Esc 取消。改完异常等级归 ok 并留审计。 */
+function aiBindEdit(el, col){
+  el.classList.add('ai-editable');
+  el.title = '点击可直接编辑';
+  el.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    if(el.querySelector('input')) return;
+    var old = el.getAttribute('data-raw') || el.textContent;
+    var inp = document.createElement('input');
+    inp.className = 'ai-input';
+    inp.value = old;
+    el.textContent = ''; el.appendChild(inp); inp.focus(); inp.select();
+    var closed = false;
+    function done(save){
+      if(closed) return; closed = true;
+      var v = inp.value;
+      if(!save || v === old){
+        el.textContent = old; return;
+      }
+      el.textContent = v;
+      el.setAttribute('data-raw', v);
+      el.classList.remove('ai-warn', 'ai-danger');
+      el.removeAttribute('title');
+      el.classList.add('ai-saving');
+      fetch('/api/ai-structure/' + encodeURIComponent(CUR_NO) + '/edit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({col: col, value: v})
+      }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .then(function(j){
+          el.classList.remove('ai-saving');
+          if(!(j && j.ok)){ el.classList.add('ai-danger'); }
+        })
+        .catch(function(){ el.classList.remove('ai-saving'); el.classList.add('ai-danger'); });
+    }
+    inp.addEventListener('blur', function(){ done(true); });
+    inp.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){ e.preventDefault(); done(true); }
+      else if(e.key === 'Escape'){ e.preventDefault(); done(false); }
+    });
+  });
 }
 function paintAI(j){
   var card = document.getElementById('aiCard');
@@ -252,54 +351,145 @@ function paintAI(j){
   var empty = document.getElementById('aiEmpty');
   var hint = document.getElementById('aiHint');
   var meta = document.getElementById('aiMeta');
-  var has = j && j.ok && j.status === 'ok' && j.result &&
-            ((j.result.fields && j.result.fields.length) ||
-             (j.result.highlights && j.result.highlights.length));
+  var has = !!(j && j.ok && j.status === 'ok' && j.structure);
   empty.style.display = has ? 'none' : '';
-  empty.textContent = (j && j.status === 'failed')
-    ? tf('detail.ai_failed', {err: (j.result && j.result.error) || ''})
-    : (CUR_PDF === 'true' ? t('detail.ai_none') : t('detail.ai_nopdf'));
-  if(!has){ body.innerHTML = ''; hint.textContent = ''; meta.textContent = ''; return; }
-  var r = j.result, html = '';
-  if(r.title) html += '<div style="font-weight:600;margin-bottom:6px">' + aiEsc(r.title) + '</div>';
-  if(r.highlights && r.highlights.length){
-    html += '<ul class="ai-hl" style="margin:0 0 10px 18px;padding:0">';
-    r.highlights.forEach(function(h){ html += '<li>' + aiEsc(h) + '</li>'; });
-    html += '</ul>';
+  if(!has){
+    body.innerHTML = ''; hint.textContent = ''; meta.textContent = '';
+    return;
   }
-  if(r.fields && r.fields.length){
-    html += '<div class="dinfo">';
-    r.fields.forEach(function(f){
-      html += '<div class="df"><span class="dk">' + aiEsc(f.label) +
-              '</span><span class="dv">' + aiEsc(f.value) + '</span></div>';
+  var html = '';
+
+  /* ① 雷达图 + 综合分 + 各维度分数条 */
+  var dims = (j.radar && j.radar.dims) || [];
+  html += '<div class="ai-top">';
+  html += '<div class="ai-radar-box">' + aiRadar(dims) +
+          '<div class="ai-overall"><b>' + (j.overall || 0) +
+          '</b><span>' + t('detail.ai_overall') + '</span></div></div>';
+  html += '<div class="ai-dims">';
+  dims.forEach(function(d){
+    html += '<div class="ai-dim" title="' + aiEsc(d.reason || '') + '">' +
+            '<span class="ai-dim-n">' + aiEsc(aiL(d.label)) + '</span>' +
+            '<span class="ai-dim-bar"><i style="width:' + d.score + '%"></i></span>' +
+            '<span class="ai-dim-s">' + d.score + '</span>' +
+            '<div class="ai-dim-r">' + aiEsc(d.reason || '') + '</div></div>';
+  });
+  html += '</div></div>';
+
+  /* ② 约 200 字 AI 结论 */
+  if(j.conclusion){
+    html += '<div class="ai-concl"><div class="ai-concl-h">' + t('detail.ai_concl') +
+            '</div><p>' + aiEsc(j.conclusion) + '</p></div>';
+  }
+
+  /* ③ 存疑提示 */
+  var an = j.anomalies || [];
+  if(an.length){
+    var nd = an.filter(function(a){ return a.level === 'danger'; }).length;
+    html += '<div class="ai-anom">' + tf('detail.ai_anom', {n: an.length}) +
+            '　<span class="ai-legend"><span class="ai-warn">' + t('detail.ai_warn') +
+            '</span>　<span class="ai-danger">' + t('detail.ai_danger') + '</span></span>' +
+            (nd ? '　<b>' + tf('detail.ai_danger_n', {n: nd}) + '</b>' : '') + '</div>';
+  }
+
+  /* ④ 分组字段：有则显示、无则不显（空值服务端已剔除） */
+  var groups = (j.structure && j.structure.groups) || [];
+  var nfield = 0;
+  groups.forEach(function(g, gi){
+    nfield += (g.fields || []).length;
+    html += '<details class="ai-group"' + (gi < 3 ? ' open' : '') + '><summary>' +
+            aiEsc(aiL(g.label)) + ' <span class="muted">(' + (g.fields || []).length +
+            ')</span></summary><div class="dinfo">';
+    (g.fields || []).forEach(function(f){
+      var cls = f.level === 'danger' ? 'ai-danger' : (f.level === 'warn' ? 'ai-warn' : '');
+      html += '<div class="df"><span class="dk">' + aiEsc(aiL(f.label)) +
+              '</span><span class="dv ' + cls + '" data-col="' + aiEsc(f.col) +
+              '" data-raw="' + aiEsc(f.value) + '"' +
+              (f.note ? ' title="' + aiEsc(f.note) + '"' : '') + '>' +
+              aiEsc(f.value) + '</span></div>';
     });
-    html += '</div>';
-  }
-  if(r.notes) html += '<div class="muted" style="margin-top:8px">' + aiEsc(r.notes) + '</div>';
+    html += '</div></details>';
+  });
   body.innerHTML = html;
-  hint.textContent = tf('detail.ai_hint2', {n: (r.fields || []).length});
-  meta.textContent = tf('detail.ai_updated', {time: (j.updated_at || '').slice(0, 16)}) +
-                     ((j.model && j.model !== 'manual') ? ' · ' + j.model : '');
+  body.querySelectorAll('.dv[data-col]').forEach(function(el){
+    aiBindEdit(el, el.getAttribute('data-col'));
+  });
+  hint.textContent = tf('detail.ai_hint2', {n: nfield});
+  meta.textContent = (j.extracted_at ? tf('detail.ai_updated', {time: j.extracted_at}) : '') +
+                     (j.edited ? ' · ' + t('detail.ai_edited') : '') +
+                     (j.source_file ? ' · ' + aiEsc(j.source_file) : '');
 }
 function loadAI(){
-  fetch('/api/ai/' + encodeURIComponent(CUR_NO))
+  fetch('/api/ai-structure/' + encodeURIComponent(CUR_NO))
     .then(function(r){ return r.json(); })
     .then(paintAI)
     .catch(function(){ paintAI(null); });
 }
-function aiRegenerate(){
-  var b = document.getElementById('aiRegen');
-  b.disabled = true; b.textContent = t('detail.ai_regen_running');
-  fetch('/api/ai/' + encodeURIComponent(CUR_NO) + '/run', {method: 'POST'})
-    .then(function(r){ return r.json().catch(function(){ return {}; }); })
-    .then(function(j){
-      b.disabled = false; b.textContent = t('detail.ai_regen');
-      if(!(j && j.ok)) alert((j && j.error) ? j.error : t('detail.ai_fail'));
-      loadAI();
-    })
-    .catch(function(){ b.disabled = false; b.textContent = t('detail.ai_regen'); });
-}
 loadAI();
+
+/* ---- 手动生成（v1.9.26 / PRD 25）----
+   本地优先：先跑本地文字层/OCR（0 元）；本地跑不满时**必须先问过用户**
+   才允许调云端模型（D1：不允许静默花钱）。 */
+var aiRunning = false;
+function aiSetBtn(txt, dis){
+  var b = document.getElementById('aiRunBtn');
+  if(b){ b.textContent = txt; b.disabled = !!dis; }
+}
+function aiMsg(el, msg, bad){
+  if(!el) return;
+  el.textContent = msg || '';
+  el.className = bad ? 'muted ai-warn' : 'muted';
+}
+function runAI(opts){
+  opts = opts || {};
+  if(aiRunning) return;
+  var meta = document.getElementById('aiMeta');
+  aiRunning = true;
+  aiSetBtn(t('detail.ai_regen_running'), true);
+  aiMsg(meta, t('detail.ai_regen_running'), false);
+  fetch('/api/ai/' + encodeURIComponent(CUR_NO) + '/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({force: !!opts.force,
+                          allow_cloud: !!opts.allow_cloud,
+                          force_cloud: !!opts.force_cloud})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(j){
+    aiRunning = false;
+    if(!(j && j.ok)){
+      aiSetBtn(t('detail.ai_regen'), false);
+      aiMsg(meta, (j && j.error) || t('detail.ai_fail'), true);
+      return;
+    }
+    if(j.status === 'skipped'){
+      aiSetBtn(t('detail.ai_regen'), false);
+      aiMsg(meta, j.reason || t('detail.ai_skipped'), false);
+      return;
+    }
+    if(j.status === 'incomplete'){
+      aiSetBtn(t('detail.ai_regen'), false);
+      /* ★ 关键点：本地没跑满 → 弹窗问，用户同意才带 allow_cloud 重发 */
+      if(confirm(tf('detail.ai_incomplete', {n: j.fields || 0}))){
+        runAI({force: true, allow_cloud: true});
+      }else{
+        aiMsg(meta, t('detail.ai_local_only'), false);
+        loadAI();
+      }
+      return;
+    }
+    aiSetBtn(t('detail.ai_regen'), false);
+    aiMsg(meta, j.route === 'cloud'
+      ? t('detail.ai_cloud_done')
+      : tf('detail.ai_local_done', {n: j.fields || 0}), false);
+    loadAI();
+  })
+  .catch(function(){
+    aiRunning = false;
+    aiSetBtn(t('detail.ai_regen'), false);
+    aiMsg(meta, t('detail.ai_fail'), true);
+  });
+}
+aiSetBtn(t('detail.ai_regen'), false);
 
 CompareBox.onChange(refreshCmp);
 window.addEventListener('i18n:changed', paintAll);

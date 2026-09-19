@@ -38,6 +38,7 @@ from core.publisher import PublishLoop                 # noqa: E402
 from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
+from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 AI 结构独立库)
 
 # 线上收数时**永不接受**的列（勇哥：PDF 不上传）
 NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
@@ -47,6 +48,39 @@ NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
 CFG = cfgmod.load()
 PATHS = cfgmod.paths(CFG)
 STORE = Store(PATHS["db"])
+# v1.9.25：AI 结构走**独立库文件** data/ai_pdf_store.db（勇哥要求与主数据分离）。
+# 它是 PDF 的 AI 识别解读层，与主库互不覆盖；缺文件也不影响主业务（缺即无 AI 结构）。
+# ⚠ PATHS["root"] 本身就是 data/ 目录（不是项目根），再拼 "data" 会变成 data/data/。
+#    所以这里以主库 PATHS["db"] 的父目录为准，保证与主库同处 data/ 下。
+AI_STORE = AIStructureStore(Path(PATHS["db"]).parent / "ai_pdf_store.db")
+
+# 日志（必须在 AI_SCHED 初始化之前定义，供其 init 失败时记录）。
+# 日志同时落盘：data/logs/server.log。服务"莫名其妙没了"时靠它查原因。
+LOG_DIR = Path(PATHS["root"]) / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "server.log"
+LOGS: deque[str] = deque(maxlen=400)
+
+def log(msg: str) -> None:
+    line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+    LOGS.append(line)
+    print(line, flush=True)
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > 2 * 1024 * 1024:
+            LOG_FILE.replace(LOG_FILE.with_suffix(".log.1"))
+        with LOG_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass                                          # 日志失败绝不影响主流程
+
+# v1.9.26 / PRD 25：每晚 23:00 起的本地 AI 抽取调度（独立线程，与主抓取调度互不干扰）。
+# 它只读本地 PDF、不碰 REINS 平台，所以夜里跑零冲突零风控。
+try:
+    from core.ai_scheduler import AIScheduler
+    AI_SCHED = AIScheduler(CFG, PATHS, AI_STORE, log_fn=log)
+except Exception as _e:                                     # noqa: BLE001
+    AI_SCHED = None
+    log(f"[AI定时] 初始化失败，AI 抽取定时不可用：{_e}")
 acc_mod.init(PATHS["db"])   # PRD-19：账户/审计表建表（幂等，复用主库）
 LOGS: deque[str] = deque(maxlen=400)
 TEST_RESULT: dict = {}            # 测试类操作的结构化结果，供页面轮询展示
@@ -726,33 +760,154 @@ def api_ai_put(property_no: str):
 
 @app.post("/api/ai/<property_no>/run")
 def api_ai_run(property_no: str):
-    """用 config.yaml → ai.* 配置的模型，对该房源 PDF 现跑一次 AI 提取。
+    """对该房源 PDF 现跑一次提取。**本地优先**（v1.9.26 / PRD 25 · D1）。
 
-    没配 api_key 时返回友好 400（走「AI 代跑/手动提交」路径不受影响）。
+    勇哥口径：能用本地（读文本 / OCR）解决的就绝不调云端；只有本地跑不出来，
+    并且用户**明确点同意**，才把 PDF 发给第三方模型。所以这里分三种结局：
+
+      - 本地成功        → 直接落库返回 route=local，**零云端调用**
+      - 本地不完整      → 返回 status=incomplete，由前端弹窗问「要不要花钱走云端」
+                          （未拿到 allow_cloud=true 前绝不发请求）
+      - 本地成功但被强制云端（allow_cloud 且 force_cloud）→ 才调模型
+
+    body: {"force": bool 忽略 pdf_hash 重跑, "allow_cloud": bool 同意走云端,
+           "force_cloud": bool 本地也能出结果但仍要云端}
     """
     _refresh_cfg()
+    if STORE.get_property(property_no) is None:
+        return jsonify({"ok": False, "error": f"物件 {property_no} 不在本地库"}), 404
+
+    pdf = PATHS["attachments"] / f"{property_no}.pdf"
+    if not pdf.exists():
+        return jsonify({"ok": False, "error":
+                        "本房源没有落盘 PDF，无法提取（先用列表页把 PDF 下载下来）"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    force = bool(data.get("force"))
+    allow_cloud = bool(data.get("allow_cloud"))
+    force_cloud = bool(data.get("force_cloud"))
+
+    le = CFG.get("local_extract") or {}
+    if not le.get("enabled", True):
+        return jsonify({"ok": False, "error":
+                        "本地抽取已在设置里关闭（local_extract.enabled=false）"}), 400
+
+    # ---------- ① 本地优先：文字层 → OCR（0 元）----------
+    from core import ai_pipeline
+    cfg = dict(le)
+    cfg["ai"] = CFG.get("ai") or {}
+    cfg["prefer_local"] = True
+    try:
+        # allow_cloud=False 是硬要求（D1）：本地没跑满也**绝不**在路由里私自烧钱，
+        # 必须先返回 incomplete 让前端问过用户。传 AI_STORE 让 pdf_hash 跳过生效。
+        res = ai_pipeline.run_one(property_no, PATHS, cfg, AI_STORE,
+                                  force=force, allow_cloud=False)
+    except Exception as e:                                  # noqa: BLE001
+        log(f"[AI] {property_no} 本地抽取异常：{e}")
+        return jsonify({"ok": False, "error": f"本地抽取失败：{e}"}), 500
+
+    if res.get("skipped"):
+        return jsonify({"ok": True, "status": "skipped", "property_no": property_no,
+                        "reason": res.get("reason", "PDF 未变化，无需重跑"),
+                        "route": "local"})
+
+    local_ok = bool(res.get("local_hit"))
+    if local_ok and not force_cloud:
+        ai_pipeline.save_fields(AI_STORE, property_no, res)
+        card = ai_pipeline.to_extraction_result(res)
+        STORE.upsert_ai_extraction(
+            property_no, card, model="local",
+            prompt_version="local-v1", pdf_hash=res.get("pdf_hash", ""),
+            cost_ms=res.get("ms"),
+        )
+        log(f"[AI] {property_no} 本地抽取完成（{res.get('ms')}ms，"
+            f"{len(res.get('fields') or {})} 字段，云端 0 次）")
+        return jsonify({"ok": True, "status": "ok", "property_no": property_no,
+                        "route": "local", "cloud_used": 0,
+                        "fields": len(res.get("fields") or {}),
+                        "ms": res.get("ms")})
+
+    # ---------- ② 本地不完整：先问，不静默花钱 ----------
+    if not allow_cloud:
+        return jsonify({
+            "ok": True, "status": "incomplete", "property_no": property_no,
+            "route": "local",
+            "fields": len(res.get("fields") or {}),
+            "rejected": [{"col": c, "raw": v, "reason": r}
+                         for c, v, r in (res.get("rejected") or [])[:12]],
+            "message": "本地只抽出部分字段。是否调用云端模型补全？（会产生费用）",
+        })
+
+    # ---------- ③ 用户同意后才调云端 ----------
     ai_cfg = CFG.get("ai") or {}
     if not (ai_cfg.get("api_key") or "").strip():
         return jsonify({"ok": False, "error":
-                        "未配置 AI API Key（config.yaml → ai.api_key）。"
-                        "申请火山方舟 Key 填入后即可一键重新生成。"}), 400
-    if STORE.get_property(property_no) is None:
-        return jsonify({"ok": False, "error": f"物件 {property_no} 不在本地库"}), 404
+                        "已同意走云端，但还没配 API Key（config.yaml → ai.api_key）。"
+                        "申请火山方舟 Key 填入后即可使用。"}), 400
     from core import ai_extract
     try:
         result, meta = ai_extract.extract_property(property_no, PATHS, ai_cfg)
     except FileNotFoundError:
         return jsonify({"ok": False, "error": "本房源没有落盘 PDF，无法提取"}), 404
     except Exception as e:                       # 模型/网络错误不拖垮页面
-        log(f"[AI] {property_no} 生成失败：{e}")
+        log(f"[AI] {property_no} 云端生成失败：{e}")
         return jsonify({"ok": False, "error": f"生成失败：{e}"}), 500
     STORE.upsert_ai_extraction(
         property_no, result, model=meta.get("model", ""),
         prompt_version=meta.get("prompt_version", ""),
         pdf_hash=_pdf_hash(property_no), cost_ms=meta.get("cost_ms"),
     )
-    log(f"[AI] {property_no} 生成完成（{meta.get('cost_ms', 0)}ms，model={meta.get('model')}）")
-    return jsonify({"ok": True, "property_no": property_no})
+    log(f"[AI] {property_no} 云端生成完成（{meta.get('cost_ms', 0)}ms，"
+        f"model={meta.get('model')}）")
+    return jsonify({"ok": True, "status": "ok", "property_no": property_no,
+                    "route": "cloud", "cloud_used": 1})
+
+
+# ============================================================
+# AI 结构（v1.9.25）：PDF 的 AI 识别结果，存**独立库** data/ai_pdf_store.db
+# 与上面的 /api/ai/*（PDF 单次动态提取）是两条不同的数据流：
+#   /api/ai/*            = 现场调模型跑一次，结果存主库 ai_extractions
+#   /api/ai-structure/*  = 《大阪房源PDF数据总表》批量识别的成品，存独立库
+# 详情页「AI 结构」卡片消费后者。
+# ============================================================
+@app.get("/api/ai-structure/<property_no>")
+def api_ai_structure_get(property_no: str):
+    """返回某房源的 AI 结构：雷达图 + 约200字结论 + 分组字段（含异常等级）。"""
+    rec = AI_STORE.get(property_no)
+    if rec is None:
+        return jsonify({"ok": True, "status": "none"})
+    return jsonify({"ok": True, "status": "ok", **rec})
+
+
+@app.post("/api/ai-structure/<property_no>/edit")
+def api_ai_structure_edit(property_no: str):
+    """编辑 AI 结构里的单个字段（勇哥要求：所有数据将来都可编辑）。
+
+    body: {"col": "専有面積（㎡）", "value": "63.06"}
+    改完该字段异常等级归 ok、整条标 edited=1，并在独立库留审计日志（可追溯原值）。
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    col = str(data.get("col") or "").strip()
+    if not col:
+        return jsonify({"ok": False, "error": "缺少字段名 col"}), 400
+    value = data.get("value")
+    value = "" if value is None else str(value)
+    actor = ""
+    try:
+        actor = (getattr(request, "user", None) or {}).get("username", "") or ""
+    except Exception:
+        pass
+    res = AI_STORE.edit_field(property_no, col, value, editor=actor)
+    if not res.get("ok"):
+        return jsonify(res), 404
+    log(f"[AI结构] {property_no} 字段 {col} 被改为「{value}」（{actor or '本机'}）")
+    return jsonify(res)
+
+
+@app.get("/api/ai-structure/<property_no>/edits")
+def api_ai_structure_edits(property_no: str):
+    """该房源 AI 结构的编辑历史（谁在什么时候把什么改成了什么）。"""
+    return jsonify({"ok": True, "items": AI_STORE.edit_log(property_no)})
 
 
 @app.get("/compare")
@@ -2089,6 +2244,9 @@ if __name__ == "__main__":
             SCHED.start()
         if (CFG.get("publish") or {}).get("auto_enabled"):
             PUB_LOOP.start()
+        # PRD 25：AI 抽取定时（每晚 23:00 窗口）—— 只读本地 PDF，与抓取时段不冲突
+        if AI_SCHED is not None and (CFG.get("schedule_ai") or {}).get("enabled"):
+            AI_SCHED.start()
     else:
         log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),

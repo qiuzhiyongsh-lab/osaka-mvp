@@ -848,3 +848,55 @@ details.sec > .secbody{padding:10px 18px 14px}
 .modal-row input{height:36px;padding:0 10px;border:1px solid #cdd8ea;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
 .modal-actions .btn{padding:8px 18px}
+
+/* ============================================================
+   AI 结构（v1.9.25）：雷达图 + 结论 + 分组字段 + 异常标注
+   异常色标遵循勇哥要求：存疑=红字；特别存疑=红字加黄底
+   ============================================================ */
+.ai-top{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+.ai-radar-box{flex:0 0 auto;text-align:center}
+.ai-radar{display:block}
+.ai-overall{margin-top:2px}
+.ai-overall b{font-size:26px;color:var(--brand);line-height:1}
+.ai-overall span{display:block;font-size:11.5px;color:var(--sub);margin-top:2px}
+.ai-dims{flex:1 1 320px;min-width:280px;display:flex;flex-direction:column;gap:7px}
+.ai-dim{display:grid;grid-template-columns:64px 1fr 30px;align-items:center;gap:8px}
+.ai-dim-n{font-size:12.5px;color:var(--ink);font-weight:600}
+.ai-dim-bar{height:7px;background:var(--line-soft);border-radius:4px;overflow:hidden}
+.ai-dim-bar i{display:block;height:100%;background:linear-gradient(90deg,#1f4a8a,#3b6fd4);border-radius:4px}
+.ai-dim-s{font-size:12.5px;font-weight:700;color:var(--brand);text-align:right}
+.ai-dim-r{grid-column:1/-1;font-size:11.5px;color:var(--sub);line-height:1.45;margin-top:-2px}
+
+.ai-concl{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin-bottom:12px}
+.ai-concl-h{font-size:12.5px;font-weight:700;color:var(--brand);margin-bottom:5px}
+.ai-concl p{margin:0;font-size:13px;line-height:1.75;color:var(--ink)}
+
+.ai-anom{font-size:12.5px;color:var(--warn);background:#fdf6e6;border:1px solid #f0e2c0;
+  border-radius:8px;padding:7px 11px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ai-legend{display:inline-flex;gap:10px}
+
+/* 异常数值标注：存疑=红字；特别存疑=红字+黄底 */
+.ai-warn{color:#c0392b;font-weight:600}
+.ai-danger{color:#c0392b;font-weight:700;background:#ffe9a8;padding:1px 5px;border-radius:4px;
+  box-shadow:0 0 0 1px #f0cf7a inset}
+
+.ai-group{border-top:1px solid var(--line-soft);padding:8px 0}
+.ai-group:first-of-type{border-top:none}
+.ai-group > summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--brand);
+  padding:4px 0;list-style:none}
+.ai-group > summary::-webkit-details-marker{display:none}
+.ai-group > summary::before{content:'▸ ';color:var(--sub)}
+.ai-group[open] > summary::before{content:'▾ '}
+
+/* 可编辑：平时看不出是输入框，鼠标悬停才提示，避免把页面搞得像表单 */
+.ai-editable{cursor:text;border-bottom:1px dashed transparent}
+.ai-editable:hover{border-bottom-color:#9fb4d8;background:#f4f8ff}
+.ai-input{width:100%;font:inherit;color:var(--ink);border:1px solid var(--brand);
+  border-radius:5px;padding:1px 4px;box-sizing:border-box;background:#fff}
+.ai-saving{opacity:.55}
+
+@media (max-width:820px){
+  .ai-top{flex-direction:column;align-items:center}
+  .ai-dims{width:100%}
+  .ai-dim{grid-template-columns:60px 1fr 28px}
+}
