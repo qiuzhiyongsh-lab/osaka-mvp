@@ -3,7 +3,7 @@ app:
   mode: live
   output_root: ./data
 schedule:
-  enabled: true
+  enabled: false
   mode: random
   interval_hours: 2.0
   random_min_hours: 1.0
@@ -13,8 +13,8 @@ schedule:
     start: 07:00
     end: '22:00'
   run_on_start: false
-  random_min_minutes: 30.0
-  random_max_minutes: 35.0
+  random_min_minutes: 55.0
+  random_max_minutes: 70.0
 site:
   name: reins
   base_url: https://system.reins.jp
@@ -132,11 +132,6 @@ selectors:
   detail_label: th
   detail_value: td
   pdf_link: a:has-text('PDF'), a:has-text('図面'), button:has-text('図面')
-  # v1.9.10（待真机复验）：番号検索选择器 —— 真机 DOM 取证 2026-09-18（勇哥提供
-  # 「物件番号検索条件入力」页 HTML）：20 个输入框 = div.p-textbox.p-textbox-type-digit
-  # > input.p-textbox-input；検索按钮在页脚 div.p-frame-footer。
-  # ⚠ 绝不用 __BVID__xx（BootstrapVue 自动 id，不稳定），也不用 :has-text('物件番号１')
-  #   ——「物件番号１」是「物件番号１１」的前缀，子串匹配会重复命中 11 个框。
   bukken_search_inputs: div.p-textbox.p-textbox-type-digit input.p-textbox-input
   bukken_search_button: div.p-frame-footer button.btn-primary:has-text('検索')
   bukken_result: ''
@@ -158,21 +153,15 @@ publish:
   month_scope: ''
   scope_caliber: download
   batch_size: 200
-  # v1.9.9：上传独立定时器（与抓取轮解耦）
-  auto_enabled: true          # 自动上传总开关（独立定时器是否运行）
-  interval_minutes: 10        # 上传周期（分钟）；低于 1 夹到 1
-  date_from: ''               # 上传筛选起（YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS）；空=不限
-  date_to: ''                 # 上传筛选止；空=不限；只填日期自动补到当天 23:59:59
+  auto_enabled: true
+  interval_minutes: 10
+  date_from: ''
+  date_to: ''
 ai:
   api_key: ''
   model: doubao-seed-1.6
   base_url: https://ark.cn-beijing.volces.com/api/v3
 public:
   access_code: ''
-# ── PRD-19 §17 · 账号与员工角色权限（2026-09-19 勇哥指令：**强制登录**）──
-#   auth_enabled=true → 未登录访问页面一律跳 /login，`/api/*` 返 401
-#   账户由线下 `tools/seed_accounts.py` 播种、经 sync 同步上云
-#   （UPSERT：更新角色/状态，**不覆盖线上已改过的密码**）
-#   防锁死兜底：web/app.py 启动时若账户表无可用账户 → 自动降级开放态并打日志
 accounts:
   auth_enabled: true
