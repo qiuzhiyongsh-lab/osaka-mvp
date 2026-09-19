@@ -3222,12 +3222,17 @@ def reins_bukken_search(cfg, log, nos) -> dict:
     fname = "bukken_%s.png" % (safe or "x")
     fpath = shots_dir / fname
     filled = 0
+    zeros = ""            # v1.9.20：0 件页告示原文（有值 = REINS 真回 0 件）
     auth = Auth(cfg, cfgmod.paths(cfg)["session"])
     with _sync_playwright() as p:
-        browser = auth.launch(p, headless=cfg["browser"].get("headless", False))
+        # ⚠ v1.9.20（勇哥 2026-09-19 真机反馈）：**强制无头**。
+        #   以前跟随 cfg.browser.headless(=false) → 点一次按钮就真的弹出一个 Edge 窗口，
+        #   搜完 browser.close() 把它关掉；真机现象「另开一个浏览器窗口、看到结果几秒就没了」。
+        #   番号検索的结果一律回本页弹窗（永不自关），所以这里绝不能再有可见窗口。
+        browser = auth.launch(p, headless=True)
         ctx, page = auth.open_authed_page(browser, log=log)
         _mask_webdriver(ctx)
-        log("✓ 阶段Bukken 会话有效，进入番号検索（%d 个番号）" % len(nos))
+        log("✓ 阶段Bukken 会话有效，进入番号検索（%d 个番号：%s）" % (len(nos), "、".join(nos)))
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(1500)
@@ -3249,12 +3254,27 @@ def reins_bukken_search(cfg, log, nos) -> dict:
                 if i >= n_box:
                     log("· 番号数(%d)超过输入框数(%d)，多余的忽略" % (len(nos), n_box))
                     break
-                boxes.nth(i).fill(one, timeout=8000)   # 物件番号１、２、…
+                tb = boxes.nth(i)                      # 物件番号１、２、…
+                # ⚠ v1.9.20（真机「0 件」根因）：**必须逐键真实键盘输入**。
+                #   番号框是 PrimeVue 的 p-textbox-type-digit（数字掩码组件）。旧版用
+                #   fill() 直接赋 DOM 值、绕过键盘事件 → 掩码组件不把它写进框架状态 →
+                #   REINS 实际拿「空条件」去检索 → 真机现象：框里看得见号、回读也一致，
+                #   结果却是「検索結果が0件です」（勇哥 2026-09-19 截图 + server.log 7 次）。
+                #   回读只能证明 DOM 有值、证明不了框架认账，故改成真键盘输入。
+                try:
+                    tb.click(timeout=8000)             # 掩码组件要先拿到真实焦点
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    tb.clear(timeout=5000)
+                except Exception:  # noqa: BLE001
+                    pass
+                tb.press_sequentially(one, delay=40, timeout=20000)
                 # v1.9.10 门禁③：**填完必须回读**——回读值 ≠ 期望值即判失败，绝不静默计数
                 # （旧版只 filled += 1，无法证明真录进去了，正是「点了按钮编号没进去」这类
                 #   假成功的盲区）。
                 try:
-                    got = (boxes.nth(i).input_value(timeout=5000) or "").strip()
+                    got = (tb.input_value(timeout=5000) or "").strip()
                 except Exception as _re:  # noqa: BLE001
                     got = "<回读异常:%s>" % type(_re).__name__
                 if got != one.strip():
@@ -3268,6 +3288,12 @@ def reins_bukken_search(cfg, log, nos) -> dict:
             page.locator(btn).last.click(timeout=8000)  # 最下面的「検索」
             page.wait_for_load_state("networkidle", timeout=40000)
             page.wait_for_timeout(2000)
+            # v1.9.20：**结果页要自证**——REINS 回 0 件时明确报错并把番号写进日志，
+            #   不再把一张「0件」截图当成功回传（那样真机排查极易误判为"数据给错了"）。
+            #   复用 v1.9.5 的真机实证识别器 —— 它能区分「0 件」与「500件を超えています」。
+            zeros = _read_zero_note(page)
+            if zeros:
+                log("· 番号検索结果页告示：" + zeros)
             try:
                 if res:
                     page.locator(res).first.screenshot(path=str(fpath))
@@ -3287,6 +3313,12 @@ def reins_bukken_search(cfg, log, nos) -> dict:
                 pass
     if not fpath.exists():
         return {"ok": False, "error": "截图未生成（REINS 可能未返回结果或选择器不匹配）"}
+    if zeros:
+        log("✗ 阶段Bukken REINS 返回 0 件（番号：%s）；若在 REINS 手工能搜到同一番号，"
+            "则说明是输入方式/默认条件差异，不是数据错" % "、".join(nos))
+        return {"ok": False, "zero": True, "image_url": "/bukken_shot/" + fname,
+                "reins_url": reins_url, "filled": filled,
+                "error": "REINS 返回 0 件（番号 %s）" % "、".join(nos)}
     return {"ok": True, "image_url": "/bukken_shot/" + fname, "reins_url": reins_url,
             "filled": filled}
 

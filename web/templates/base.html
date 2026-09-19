@@ -6,6 +6,11 @@
 <title>{% block title %}大阪房源查询系统（本地版）{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
 <link rel="icon" href="data:,">
+<!-- v1.9.20：把「是不是线上只读站」显式告诉前端。番号検索要据此分两条路：
+     线上站没有 REINS 会话/本机浏览器 → 直接「复制番号 + 打开検索页」（**点击手势内同步**，
+     否则 Edge/Chrome 会拦弹窗、拒剪贴板）；
+     本地站 → 走后端无头搜索，结果回本页弹窗。 -->
+<script>window.OSAKA_PUBLIC = {{ 'true' if public else 'false' }};</script>
 <!-- 通用脚本（api/postJSON/alertErr 等）必须在页面内联脚本之前加载，
      否则查询页/概览页在加载时调用的 doQuery/refreshOverview 会找不到 api -->
 <script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>

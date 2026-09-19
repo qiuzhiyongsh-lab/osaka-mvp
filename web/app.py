@@ -180,6 +180,10 @@ PUBLIC_HIDDEN_APIS = (
     "/api/login", "/api/credentials", "/api/download",
     "/api/query/test", "/api/mode", "/api/decide", "/api/sync",
     "/api/notifications/read", "/api/status", "/api/logs",
+    # v1.9.20：番号検索要开本机 Playwright + 已登录 REINS 会话，线上只读站两样都没有
+    #   → 以前线上点按钮必然 500，前端只能退化成"剪贴板+开窗"（Edge 下被拦）。
+    #   现在明确 403，前端按 OSAKA_PUBLIC 直接走"复制番号 + 打开 REINS 検索页"。
+    "/api/reins",
 )
 
 
@@ -1883,7 +1887,13 @@ def api_reins_bukken_search():
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
     if not r.get("ok"):
-        return jsonify({"ok": False, "error": r.get("error", "番号検索失败")}), 502
+        # v1.9.20：业务性失败（REINS 0 件 / 回读不一致 / 选择器不匹配）一律回 **200 + ok:false**，
+        #   并把 image_url 一起带上 —— 前端要能看到那张真实的结果页截图。
+        #   旧版回 502 有两个坑：① 网关可能把 502 包成 HTML，前端 r.json() 直接炸；
+        #   ② 前端拿不到截图，用户只看到一句干巴巴的失败。
+        return jsonify({"ok": False, "error": r.get("error", "番号検索失败"),
+                        "image_url": r.get("image_url"), "zero": bool(r.get("zero")),
+                        "reins_url": r.get("reins_url", ""), "filled": r.get("filled", 0)})
     return jsonify({"ok": True, "image_url": r.get("image_url"),
                     "reins_url": r.get("reins_url", ""), "filled": r.get("filled", 0)})
 

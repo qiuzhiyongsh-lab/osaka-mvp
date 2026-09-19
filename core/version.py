@@ -7,8 +7,36 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.19"
-BUILD_AT = "2026-09-19 10:22"
+VERSION = "1.9.20"
+BUILD_AT = "2026-09-19 10:43"
+# ============================================================================
+# v1.9.20（2026-09-19 10:43 · 番号検索改版：本页弹窗 + 线上不另开窗口 + 真键盘输入）
+#   【现象·真机 3 条反馈】勇哥 10:16–10:27 连点 7 次番号検索截图：
+#     ① 本地点按钮会"真的弹出一个 Edge 窗口，看到结果几秒就被关掉"（旧 headless:false）；
+#     ② 线上（微软 Edge）点按钮"页面跳不过去、编号没录入"；
+#     ③ server.log 显示号码回读一致、検索也点了，REINS 却回「検索結果が0件」——
+#        勇哥最初判断"给的数据不对"，但日志证明号码真录进去了，是输入方式问题。
+#   【根因·三条】A 旧版 `config.yaml browser.headless:false` → 后端 Playwright 真弹窗口 + 搜完
+#     browser.close() 关掉；B 线上站无 REINS 会话/无本机浏览器，后端必失败 → 前端在
+#     fetch().then() 里才 window.open（用户手势已丢）→ Edge 弹窗拦截+剪贴板拒双杀；
+#     C 番号框是 PrimeVue p-textbox-type-digit 数字掩码组件，旧版 fill() 绕开键盘事件 →
+#       掩码组件不写框架状态 → REINS 拿空条件搜 → 0 件（回读一致也只能证 DOM 有值，证不了框架认账）。
+#   【修复·前端】① base.html 注入 window.OSAKA_PUBLIC；② 番号検索改两条路：
+#     线上站（OSAKA_PUBLIC）→ **点击手势内同步**复制番号 + window.open REINS 検索页
+#     （不再在 fetch 后开窗，Edge 不再拦）；本地站 → fetch 后端无头搜索，结果回**本页弹窗**
+#     （bukkenShowResult/bukkenFail，永不自关、用户点✕才关）；③ 失败/0件统一 bukkenFail 弹窗
+#     （复制/打开都是用户主动点，永不被拦），不再自动 window.open。
+#   【修复·后端】① crawler.reins_bukken_search **强制 headless=True**（结果只回截图，不弹窗口）；
+#     ② 番号改用 tb.press_sequentially 逐键真键盘输入（掩码组件认账）；③ 结果页用 v1.9.5 的
+#     _read_zero_note 自证 0 件，明确回 ok:false+zero（不再把 0件截图当成功）；
+#     ④ 路由 /api/reins/bukken_search 业务性失败回 200+ok:false（旧版 502 会被网关包 HTML 害前端炸）；
+#     ⑤ 线上站该接口进 PUBLIC_HIDDEN_APIS → 403（前端按 OSAKA_PUBLIC 直接走复制+开窗，不再 500）。
+#   【门禁】① 历史结论已查（v1.9.5 的 _read_zero_note 复用，非新造轮子）；
+#     ③ 真机 e2e 待勇哥复验：本地点按钮=本页弹窗截图（不弹窗口、不自动关）、线上点按钮=同浏览器
+#       新标签打开 REINS 検索页且番号已复制；④ 失败弹窗按钮 window.open 在用户点击手势内，不被拦；
+#     ⑥ 发布后健康检查：线上 GET /search 内能 js 注入 OSAKA_PUBLIC=true；本地 8765 点按钮弹窗出截图。
+#   【不变量·保留】三处按钮（列表卡片/详情页/对比栏）仍统一汇到 openBukkenSearch → bukkenSearchRun，
+#     「逻辑一致」保持；REINS_BUKKEN_SEARCH_URL 仍来自 config.site.bukken_search_url（缺时回退常量）。
 # ============================================================================
 # v1.9.19（2026-09-19 10:22 · 🔴 修复「上传到线上」被强制登录守卫拦死 = 线上数据停更）
 #   【现象】勇哥导出的启动日志：06:35 起每轮推送线上均失败，稳定报
