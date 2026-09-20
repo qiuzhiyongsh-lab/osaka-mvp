@@ -7,9 +7,10 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.41"
-BUILD_AT = "2026-09-21 00:15"
+VERSION = "1.9.42"
+BUILD_AT = "2026-09-21 00:23"
 # ============================================================================
+# v1.9.42（2026-09-21 00:23 · 修「有 PDF 却図图标灰」：根因 = v1.8.3 起 PDF 下载移除了「列表図标」门禁，于是出现「有 PDF 但 has_floorplan=0」（查询页「図」图标灰掉，勇哥反馈「带 PDF 的中间那个应该亮」）。修法：① store 落库层加不变式「有 PDF ⇒ has_floorplan=1」（upsert_property/upsert_many，且库里已有 PDF 时防被打回 0）；② 历史回填 362 条（有 PDF 但 has_floorplan=0 → 1）。非显示 bug，是取数/回写缺口。）
 # v1.9.41（2026-09-21 00:15 · 查询页价格行新增「详情」按钮：详细/简洁两种模式的价格右侧（PDF 标签之后）各加一个蓝色「详情页面」按钮，直达 /p/编号 详情页（target=_blank，不丢查询结果；stopPropagation 防误触展开）。新增 .qbtn-detail 样式。）
 # v1.9.40（2026-09-20 23:43 · ① 线上详情页「重新生成」按 has_pdf 置灰——无落盘 PDF 时禁用+写清原因，根治线上点了必 404；按钮初始文案补齐 ② 线上只读加固：/api/ai/settings、/api/ai/generate 纳入 PUBLIC_HIDDEN_APIS，api_ai_run 加 PUBLIC 兜底，启停调度加 not PUBLIC 双保险 ③ 设置页保存后改拉完整状态回显（修「当前规则」文字被刷空）④ 正式生成：跑起来禁用按钮、跑完恢复、刷新页面后恢复进度轮询）
 # v1.9.39（2026-09-20 22:24 · 设置页新增「AI 读取时间」卡片：① 自动生成调度（启用/时段/单轮上限/并发/强制重跑，仿更新方式，保存即启停 AIScheduler）② 正式生成（按 PDF 落盘日期圈定 + 仅当天下载 + 强制重跑，后台批量跑 AI 抽取并实时进度轮询，仿下载条件）。后端：/api/ai/settings 扩收 schedule_ai、/api/ai/schedule/status、/api/ai/generate、/api/ai/generate/status；AIScheduler 抽出 _run_batch + 新增 generate() 复用管道。）
