@@ -360,15 +360,23 @@ def post_ai(cfg: dict, ai_rows: list[dict], log=None) -> dict:
             "upserted": upserted, "total": total, "errors": errors, "url": url}
 
 
-def _push_ai(cfg: dict, con: sqlite3.Connection, log=None) -> dict:
-    """v1.9.38：把本地 AI 结构增量推到线上 /api/ingest（ai_structure 键）。
+def _push_ai(cfg: dict, con: sqlite3.Connection, log=None,
+             force: bool = False) -> dict:
+    """v1.9.38：把本地 AI 结构推到线上 /api/ingest（ai_structure 键）。
 
     增量水位线 last_ai_at：上次成功推的基线；None=全量首推。失败只记 last_ai_error，
     不影响房源主数据推送结果。返回 {ok,sent,upserted,total,errors}。
+
+    v1.9.44（勇哥需求「强制同步上传」）：`force=True` → **忽略增量水位线**，
+    把本地 AI 结构库**全量**重推一遍（线上 == 本地），用于"线上漏了 AI 解读、
+    想一键补齐"的场景；推成功后水位线照样前移。
     """
     say = log or (lambda *_a, **_k: None)
     state = get_state(con)
-    ai_rows, ai_wm = build_ai_rows(AI_DB_DEFAULT, state.get("last_ai_at"), log=say)
+    base = None if force else state.get("last_ai_at")
+    if force:
+        say("· 强制同步：忽略 AI 增量水位线，全量重推本地 AI 解读")
+    ai_rows, ai_wm = build_ai_rows(AI_DB_DEFAULT, base, log=say)
     if not ai_rows:
         say("· 没有需要上传的 AI 结构（自 %s 无变化）" % (state.get("last_ai_at") or "无基线"))
         return {"ok": True, "sent": 0, "total": 0, "skipped": True}
@@ -406,10 +414,12 @@ def write_site_data(cfg: dict, rows: list[dict], log=None) -> str:
 # 对外总入口
 # --------------------------------------------------------------------------
 def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
-            log=None) -> dict:
+            log=None, force_ai: bool = False) -> dict:
     """执行一次上传。mode='incr' 增量（自动模式用）/ 'full' 全量重传（手动模式用）。
 
     v1.9.38：房源主数据 + AI 结构**两条腿都推**（AI 结构自动上线，不再依赖手动 sync+deploy）。
+    v1.9.44：`force_ai=True` → AI 结构**忽略增量水位线、全量重推**（「强制同步上传」按钮用；
+    与 mode='full' 的房源全量重传合起来 = 线上 100% 对齐本地）。
     """
     say = log or (lambda *_a, **_k: None)
     t0 = datetime.now()
@@ -438,7 +448,7 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
             say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
 
     # v1.9.38：AI 结构自动上线（独立于房源主数据分支，增量推、失败不阻断主数据）
-    ai_res = _push_ai(cfg, con, log=say)
+    ai_res = _push_ai(cfg, con, log=say, force=force_ai)
     res["elapsed_s"] = round((datetime.now() - t0).total_seconds(), 1)
     res["ai"] = ai_res
     return res

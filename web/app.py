@@ -1945,8 +1945,9 @@ def api_run():
 _PUB = {"busy": False, "log": [], "result": None, "mode": None}
 
 
-def _publish_worker(mode: str):
-    _PUB.update({"busy": True, "log": [], "result": None, "mode": mode})
+def _publish_worker(mode: str, force_ai: bool = False):
+    _PUB.update({"busy": True, "log": [], "result": None,
+                 "mode": mode, "force_ai": bool(force_ai)})
 
     def say(*a, **_k):
         _PUB["log"].append(" ".join(str(x) for x in a))
@@ -1960,7 +1961,8 @@ def _publish_worker(mode: str):
         import sqlite3
         con = sqlite3.connect(str(PATHS["db"]))
         con.row_factory = sqlite3.Row
-        _PUB["result"] = publish(cfg, con, mode=mode, log=say)
+        _PUB["result"] = publish(cfg, con, mode=mode, log=say,
+                                 force_ai=bool(_PUB.get("force_ai")))
     except Exception as e:                                       # noqa: BLE001
         _PUB["result"] = {"ok": False, "errors": [type(e).__name__ + ": " + str(e)]}
         say("✗ " + type(e).__name__ + ": " + str(e))
@@ -1980,9 +1982,15 @@ def api_publish():
         return jsonify({"status": "busy", "message": "已有上传在跑"}), 409
     _body = request.get_json(force=True, silent=True) or {}
     mode = "full" if str(_body.get("mode") or "full") == "full" else "incr"
-    threading.Thread(target=_publish_worker, args=(mode,), daemon=True).start()
+    # v1.9.44「强制同步上传」（勇哥）：force_ai=True → 房源全量重传 + AI **忽略增量水位线**全量重推
+    #   = 一键把线上补成 100% 与本地一致（不再受 last_ai_at 水位线限制）。
+    force_ai = bool(_body.get("force_ai"))
+    threading.Thread(target=_publish_worker, args=(mode, force_ai),
+                     daemon=True).start()
+    _msg = ("已开始强制同步上传（房源全量 + AI 全量重推）" if force_ai
+            else ("已开始全量重传" if mode == "full" else "已开始增量推送"))
     return jsonify({"status": "started", "mode": mode,
-                    "message": "已开始全量重传" if mode == "full" else "已开始增量推送"})
+                    "force_ai": force_ai, "message": _msg})
 
 
 @app.route("/api/publish/status", methods=["GET", "POST"])

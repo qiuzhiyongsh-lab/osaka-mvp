@@ -7,9 +7,10 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.43"
-BUILD_AT = "2026-09-21 00:39"
+VERSION = "1.9.44"
+BUILD_AT = "2026-09-21 00:53"
 # ============================================================================
+# v1.9.44（2026-09-21 00:53 · 「上传到线上」卡片新增「强制同步上传（房源+AI 全量）」：房源走 mode=full 全量重传；AI 解读**忽略增量水位线 last_ai_at** 全量重推（publisher._push_ai(force=True) / publish(force_ai=True) / /api/publish 收 force_ai）。一键把线上补齐成与本地 100% 一致，不再受增量水位线限制。前端二次确认防误触。）
 # v1.9.43（2026-09-21 00:39 · 🔴修「设置页 AI 读取时间保存后回显旧值/像没保存」：根因 = `_refresh_cfg()` 只刷新 SCHED/PUB_LOOP，**漏了 AI_SCHED** → AI_SCHED.status() 恒按启动时 cfg 报数 → 保存成功后前端拉状态把表单刷回旧值（落盘其实成功，如 max_per_run 已 1000，页面却显示 300）。修：_refresh_cfg 同步 AI_SCHED.cfg；另加固前端 saveAISched —— 保存后核验服务端回读的 启用/单轮上限/并发 是否与提交一致，对不上明确提示「需重启本地服务」。）
 # v1.9.42（2026-09-21 00:23 · 修「有 PDF 却図图标灰」：根因 = v1.8.3 起 PDF 下载移除了「列表図标」门禁，于是出现「有 PDF 但 has_floorplan=0」（查询页「図」图标灰掉，勇哥反馈「带 PDF 的中间那个应该亮」）。修法：① store 落库层加不变式「有 PDF ⇒ has_floorplan=1」（upsert_property/upsert_many，且库里已有 PDF 时防被打回 0）；② 历史回填 362 条（有 PDF 但 has_floorplan=0 → 1）。非显示 bug，是取数/回写缺口。）
 # v1.9.41（2026-09-21 00:15 · 查询页价格行新增「详情」按钮：详细/简洁两种模式的价格右侧（PDF 标签之后）各加一个蓝色「详情页面」按钮，直达 /p/编号 详情页（target=_blank，不丢查询结果；stopPropagation 防误触展开）。新增 .qbtn-detail 样式。）

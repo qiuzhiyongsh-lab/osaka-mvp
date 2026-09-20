@@ -373,6 +373,11 @@
     <button class="ghost" onclick="savePublish()" data-i18n="pub.save">保存上传设置</button>
     <button onclick="runPublish('full')" data-i18n="pub.btn_full">立即上传（全量重传）</button>
     <button class="ghost" onclick="runPublish('incr')" data-i18n="pub.btn_incr">增量推送（只传新增 / 变化）</button>
+    <!-- v1.9.44（勇哥需求）：一键把线上补齐成与本地 100% 一致 ——
+         房源走 full 全量重传；AI 解读**忽略增量水位线**全量重推（后端 force_ai）。 -->
+    <button class="ghost" style="border-color:#c9a227;color:#8a6d10"
+            onclick="runPublish('full', true)"
+            title="把本地全部房源 + 全部 AI 解读重新推送一遍、覆盖线上（不再受增量水位线限制）">强制同步上传（房源+AI 全量）</button>
   </div>
 
   <p class="muted" style="margin:10px 0 0">
@@ -594,9 +599,10 @@ async function previewPublish(){
     if(el) el.textContent = (j.count!=null) ? ((window.t('pub.preview_count')||'范围内共 ') + j.count + ' 行') : '';
   }catch(e){ if(el) el.textContent = (window.t('pub.preview_fail')||'预览失败'); }
 }
-async function runPublish(mode){
+async function runPublish(mode, forceAi){
   try{
-    const j = await postJSON('/api/publish', {mode: mode});
+    if(forceAi && !confirm('强制同步上传：将把本地【全部房源】+【全部 AI 解读】（含已推过的）重新推送一遍、覆盖线上。这会把线上补齐成与本地 100% 一致，继续？')) return;
+    const j = await postJSON('/api/publish', {mode: mode, force_ai: !!forceAi});
     const box = document.getElementById('pub_log');
     if(box){ box.style.display='block'; box.textContent = j.message || ''; }
     setTimeout(loadPublishStatus, 1500);
