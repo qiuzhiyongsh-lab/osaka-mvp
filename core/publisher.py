@@ -93,6 +93,13 @@ def _ensure_state(con: sqlite3.Connection) -> None:
         "  last_error TEXT"
         ")"
     )
+    # v1.9.37-hotfix：失败也记时间戳，避免 last_error 孤立误判。
+    #   （失败分支只写 last_error、不刷新 last_at → 旧 502 会停在上次成功时间戳，
+    #    看起来像"当前故障"。加 last_error_at 让错误与发生时间成对出现。）
+    try:
+        con.execute("ALTER TABLE publish_state ADD COLUMN last_error_at TEXT")
+    except Exception:
+        pass
     con.commit()
 
 
@@ -101,30 +108,38 @@ def get_state(con: sqlite3.Connection) -> dict:
     row = con.execute("SELECT * FROM publish_state WHERE id=1").fetchone()
     if row is None:
         return {"last_at": None, "last_count": 0, "last_mode": None,
-                "last_endpoint": None, "last_error": None}
+                "last_endpoint": None, "last_error": None, "last_error_at": None}
     try:
         keys = row.keys()
         return {k: row[k] for k in keys}
     except Exception:                                        # noqa: BLE001
         return {"last_at": row[1], "last_count": row[2], "last_mode": row[3],
-                "last_endpoint": row[4], "last_error": row[5]}
+                "last_endpoint": row[4], "last_error": row[5],
+                "last_error_at": row[6] if len(row) > 6 else None}
 
 
 def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
               last_mode=None, last_endpoint=None, last_error=None) -> None:
     _ensure_state(con)
     cur = get_state(con)
+    # last_error=None 即「清空」（所有调用方：成功/无行传 None 清、失败传字符串设）；
+    #   ⚠ 旧实现用 `last_error if not None else cur["last_error"]` 把 None 当「保留」，
+    #   导致成功分支永远清不掉错误 → 陈旧 502 赖在 last_error 不走的真 bug，已修正。
+    # 失败(resolved last_error 非 None)→记当前时间；成功/清空→置 None（与 last_error 同生命周期）
+    _error_at = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                 ) if last_error else None
     con.execute(
-        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error)"
-        " VALUES (1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at)"
+        " VALUES (1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
         " last_at=excluded.last_at, last_count=excluded.last_count,"
         " last_mode=excluded.last_mode, last_endpoint=excluded.last_endpoint,"
-        " last_error=excluded.last_error",
+        " last_error=excluded.last_error, last_error_at=excluded.last_error_at",
         (last_at if last_at is not None else cur["last_at"],
          last_count if last_count is not None else cur["last_count"],
          last_mode if last_mode is not None else cur["last_mode"],
          last_endpoint if last_endpoint is not None else cur["last_endpoint"],
-         last_error if last_error is not None else cur["last_error"]),
+         last_error,
+         _error_at),
     )
     con.commit()
 
