@@ -7,8 +7,18 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.31"
-BUILD_AT = "2026-09-20 14:18"
+VERSION = "1.9.32"
+BUILD_AT = "2026-09-20 15:30"
+# ============================================================================
+# v1.9.32（2026-09-20 15:30 · MVP 操作员视角上线：补 GAP-1 / GAP-2 两处纯前端）
+#   【需求·勇哥】MVP 以最轻量方式先行：线下详情页手动触发 AI 生成，线上只读展示。
+#   【GAP-1 等待秒数】runAI 启动 setInterval 每秒更新「稍等… Ns」（i18n 新增 detail.ai_interpret_wait
+#     四语），fetch 返回/异常 clearInterval，进入真正读取/结果展示。
+#   【GAP-2 人工修改蓝字】style.css 加 .ai-edited{color:#3b6fd4;font-weight:600}；
+#     paintAI 渲染 .dv 时读 f.edited 加 ai-edited（编辑优先于红/黄底）；
+#     aiBindEdit 保存成功(ok)给 el 加 ai-edited、失败去蓝加红。后端 edit_field 已逐字段留痕 edited=True，
+#     本改动纯前端、离线安全、可回退，不碰后端/线上约束。
+#   【验证】node --check 校验内联 JS 语法；grep 三处落位；真机 e2e 待勇哥本地 8765 复验。
 # ============================================================================
 # v1.9.31（2026-09-20 14:18 · PRD-25 落地：①「AI 结构」→「AI 解读」全链路重命名 ② 修 editor 留痕 ③ 设置项手动选 AI 读取種目）
 #   【需求·勇哥】"AI 解读（原 AI 结构）将来要可编辑、可手动选择哪些種目走 AI 读取"；吸收豆包评审 v1.2.0。

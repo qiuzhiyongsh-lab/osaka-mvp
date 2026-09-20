@@ -892,6 +892,8 @@ details.sec > .secbody{padding:10px 18px 14px}
 .ai-warn{color:#c0392b;font-weight:600}
 .ai-danger{color:#c0392b;font-weight:700;background:#ffe9a8;padding:1px 5px;border-radius:4px;
   box-shadow:0 0 0 1px #f0cf7a inset}
+/* GAP-2（v1.9.32）：人工修改过的字段标蓝字，与「存疑红字 / 特别存疑红字黄底」区分 */
+.ai-edited{color:#3b6fd4;font-weight:600}
 
 .ai-group{border-top:1px solid var(--line-soft);padding:8px 0}
 .ai-group:first-of-type{border-top:none}

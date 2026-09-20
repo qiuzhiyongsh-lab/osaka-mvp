@@ -333,9 +333,10 @@ function aiBindEdit(el, col){
       }).then(function(r){ return r.json().catch(function(){ return {}; }); })
         .then(function(j){
           el.classList.remove('ai-saving');
-          if(!(j && j.ok)){ el.classList.add('ai-danger'); }
+          if(!(j && j.ok)){ el.classList.remove('ai-edited'); el.classList.add('ai-danger'); }
+          else { el.classList.add('ai-edited'); }
         })
-        .catch(function(){ el.classList.remove('ai-saving'); el.classList.add('ai-danger'); });
+        .catch(function(){ el.classList.remove('ai-saving'); el.classList.remove('ai-edited'); el.classList.add('ai-danger'); });
     }
     inp.addEventListener('blur', function(){ done(true); });
     inp.addEventListener('keydown', function(e){
@@ -400,7 +401,7 @@ function paintAI(j){
             aiEsc(aiL(g.label)) + ' <span class="muted">(' + (g.fields || []).length +
             ')</span></summary><div class="dinfo">';
     (g.fields || []).forEach(function(f){
-      var cls = f.level === 'danger' ? 'ai-danger' : (f.level === 'warn' ? 'ai-warn' : '');
+      var cls = f.edited ? 'ai-edited' : (f.level === 'danger' ? 'ai-danger' : (f.level === 'warn' ? 'ai-warn' : ''));
       html += '<div class="df"><span class="dk">' + aiEsc(aiL(f.label)) +
               '</span><span class="dv ' + cls + '" data-col="' + aiEsc(f.col) +
               '" data-raw="' + aiEsc(f.value) + '"' +
@@ -445,7 +446,14 @@ function runAI(opts){
   var meta = document.getElementById('aiMeta');
   aiRunning = true;
   aiSetBtn(t('detail.ai_interpret_regen_running'), true);
-  aiMsg(meta, t('detail.ai_interpret_regen_running'), false);
+  /* GAP-1（v1.9.32）：等待秒数实时提示——每秒刷新「稍等… Ns」，
+     进入真正读取 / 结果展示后由 aiStopWait() 清除。 */
+  var aiWaitSec = 0;
+  var aiWaitTimer = setInterval(function(){
+    aiWaitSec++;
+    aiMsg(meta, tf('detail.ai_interpret_wait', {n: aiWaitSec}), false);
+  }, 1000);
+  function aiStopWait(){ if(aiWaitTimer){ clearInterval(aiWaitTimer); aiWaitTimer = null; } }
   fetch('/api/ai/' + encodeURIComponent(CUR_NO) + '/run', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -455,7 +463,7 @@ function runAI(opts){
   })
   .then(function(r){ return r.json(); })
   .then(function(j){
-    aiRunning = false;
+    aiRunning = false; aiStopWait();
     if(!(j && j.ok)){
       aiSetBtn(t('detail.ai_interpret_regen'), false);
       aiMsg(meta, (j && j.error) || t('detail.ai_interpret_fail'), true);
@@ -484,7 +492,7 @@ function runAI(opts){
     loadAI();
   })
   .catch(function(){
-    aiRunning = false;
+    aiRunning = false; aiStopWait();
     aiSetBtn(t('detail.ai_interpret_regen'), false);
     aiMsg(meta, t('detail.ai_interpret_fail'), true);
   });
