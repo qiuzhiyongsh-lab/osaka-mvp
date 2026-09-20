@@ -25,9 +25,9 @@ local_extract:
   ocr_timeout_sec: 60
   ocr_max_pages: 1
   tesseract_path: ''
-  ocr_enrich_important: true   # v1.9.34：详情页手动抽取时，优先列（勇哥点名）缺失即强制 OCR 补全
   fallback_model: true
   fallback_max_per_run: 50
+  ocr_enrich_important: true
 schedule_ai:
   enabled: true
   timezone: local
@@ -40,6 +40,10 @@ schedule_ai:
   force_rerun: false
   backfill_all: false
   backfill_batch: 300
+ai_read_scope:
+- 売一戸建
+- 売マンション
+- 売土地
 site:
   name: reins
   base_url: https://system.reins.jp
@@ -186,12 +190,6 @@ ai:
   api_key: ''
   model: doubao-seed-1.6
   base_url: https://ark.cn-beijing.volces.com/api/v3
-# v1.9.31 / PRD-25：AI 读取范围（手动勾选哪些種目走 AI 读取）。
-# 故意放在 ai 块【之外】的顶层键 —— ai 块（含真 api_key）在 config.local.yaml，
-# cfgmod.save 会把整个 ai 块当私密键剔除，导致 read_kinds 永远写不回 config.yaml（core/config.py VULN-01）。
-# 顶层 ai_read_scope 不在 local.yaml、也不匹配 SECRET_* 模式 → 可正常持久化且不泄密。
-# 空=全部種目都读；非空=只对勾选的 REINS 大类（売マンション/売一戸建/売土地）做 AI 读取。
-ai_read_scope: []
 public:
   access_code: ''
 accounts:

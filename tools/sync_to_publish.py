@@ -259,14 +259,51 @@ def main() -> int:
     if src_ai.exists():
         ai_dir = TARGET / "data"
         ai_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_ai, ai_dir / "ai_pdf_store.db")
+        dst_ai = ai_dir / "ai_pdf_store.db"
+        # ⚠ v1.9.37-hotfix（2026-09-20 实测血案）：ai_pdf_store.db 是 **WAL** 模式。
+        #   8765 每次抽取只往 <db>-wal 追加，主文件 md5/mtime 可以长时间不变；
+        #   原实现用 shutil.copy2 只拷主文件 → **最近几条抽取结果整批漏发**。
+        #   当日实测：本地含 WAL 共 210 条，同步后线上只有 205 条（少 5 套房源的
+        #   AI 解读，勇哥在线上点开就是「本房源尚未纳入 PDF AI 识别」）。
+        #   修法：① 先 wal_checkpoint(TRUNCATE) 把 WAL 并回主文件；
+        #        ② 再用 sqlite3 backup API 做一致性快照（即便 8765 正占着也完整）；
+        #        ③ 最后复核条数，不一致就显式报警，绝不静默漏发。
+        n_src = -1
+        how = "backup API（一致性快照）"
+        if not dry:
+            try:
+                _s = sqlite3.connect(str(src_ai), timeout=20)
+                _s.execute("PRAGMA busy_timeout=20000")
+                try:
+                    if str((_s.execute("PRAGMA journal_mode").fetchone() or [""])[0]
+                           ).lower() == "wal":
+                        _p = _s.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                        print(f"③c₀ WAL 合并：checkpoint(TRUNCATE) → {_p}")
+                except Exception as _e:                            # noqa: BLE001
+                    print(f"③c₀ WAL 合并跳过（8765 占用中）：{type(_e).__name__}: {_e}")
+                n_src = _s.execute("SELECT COUNT(*) FROM ai_structure").fetchone()[0]
+                _d = sqlite3.connect(str(dst_ai))
+                _s.backup(_d)          # 读穿 WAL → 目标库与本地逐页一致
+                _d.close()
+                _s.close()
+            except Exception as _e:                                # noqa: BLE001
+                how = f"copy2 兜底（backup 失败：{type(_e).__name__}: {_e}）"
+                shutil.copy2(src_ai, dst_ai)
+        else:
+            shutil.copy2(src_ai, dst_ai)
         try:
-            _c = sqlite3.connect(str(ai_dir / "ai_pdf_store.db"))
+            _c = sqlite3.connect(str(dst_ai))
             n_ai = _c.execute("SELECT COUNT(*) FROM ai_structure").fetchone()[0]
             _c.close()
         except Exception:
             n_ai = -1
-        print(f"③c AI 结构库：{src_ai.name} → {ai_dir / 'ai_pdf_store.db'}，{n_ai} 条")
+        if not dry and n_src >= 0 and n_ai != n_src:
+            print(f"③c AI 结构库：⚠⚠ **条数不一致** 本地 {n_src} → 目标 {n_ai}，"
+                  f"线上会缺 {n_src - n_ai} 条，请检查！")
+        elif not dry:
+            print(f"③c AI 结构库：{src_ai.name} → {dst_ai}，{n_ai} 条 ✓ 与本地一致（{how}）")
+        else:
+            print(f"③c AI 结构库：{src_ai.name} → {dst_ai}，{n_ai} 条（--dry）")
     else:
         print("③c AI 结构库：**未找到** data/ai_pdf_store.db —— 先跑 tools/import_ai_pdf_excel.py")
 
