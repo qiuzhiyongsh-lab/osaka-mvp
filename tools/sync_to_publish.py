@@ -140,15 +140,36 @@ CFG = cfgmod.load()
 PATHS = cfgmod.paths(CFG)
 
 _seed = ROOT.parent / "data" / "site_data.json"
+# v1.9.45：种子触发**不再只比行数** —— 行数相同但内容已变（例如某列批量回填、
+#   房源改价改面积）时也必须重灌。判据改成"数据包生成时间印章" site_data.stamp。
+_stamp = ROOT.parent / "data" / "site_data.stamp"
 _store = Store(PATHS["db"])
 if _seed.exists():
     try:
         payload = json.loads(_seed.read_text(encoding="utf-8"))
         rows = payload.get("rows") or []
+        gen = str(payload.get("generated_at") or "")
         have = _store.conn.execute(
             "SELECT COUNT(*) c FROM properties").fetchone()["c"]
-        if have != len(rows) or have == 0:
+        prev = ""
+        try:
+            if _stamp.exists():
+                prev = _stamp.read_text(encoding="utf-8").strip()
+        except Exception:                                          # noqa: BLE001
+            prev = ""
+        # 三者任一成立就重灌：① 空库（新容器） ② 行数变了 ③ 数据包内容印章变了
+        need = (have == 0) or (have != len(rows)) or (bool(gen) and gen != prev)
+        if need:
+            print("[种子] 触发重灌：库内 %d 条 / 数据包 %d 条 / 印章 %s → %s"
+                  % (have, len(rows), prev or "(无)", gen or "(无)"), flush=True)
             _store.upsert_many(rows, log=lambda s: print("[种子] " + s, flush=True))
+            try:
+                _stamp.write_text(gen, encoding="utf-8")
+            except Exception as _e:                                # noqa: BLE001
+                print("[种子] 印章写入失败（下次会重灌，不影响本次）：%s" % _e,
+                      flush=True)
+        else:
+            print("[种子] 已是最新（印章 %s），跳过重灌" % (gen or "(无)"), flush=True)
         print("[种子] 数据包 %s（%d 条），库内现有 %d 条" % (
             payload.get("generated_at"), len(rows),
             _store.conn.execute("SELECT COUNT(*) c FROM properties").fetchone()["c"]),
