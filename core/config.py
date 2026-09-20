@@ -38,6 +38,10 @@ _DEFAULTS: dict[str, Any] = {
         "max_per_run": 300, "workers": 2, "run_on_start": False,
         "force_rerun": False, "backfill_all": False, "backfill_batch": 300,
     },
+    # v1.9.31 / PRD-25：AI 读取范围（设置项手动勾选哪些種目走 AI 读取）。
+    # 故意放顶层、不放在 ai 块内 —— ai 块含真 api_key（在 config.local.yaml），
+    # cfgmod.save 会整块剔除私密键，read_kinds 写不回；顶层 ai_read_scope 可正常持久化。
+    "ai_read_scope": [],
 }
 
 

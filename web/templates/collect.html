@@ -257,6 +257,22 @@
   </p>
 </div>
 
+<!-- ============ AI 读取范围（PRD-25：手动选择哪些数据走 AI 读取） ============ -->
+<div class="card step" id="aiReadCard">
+  <h2>AI 读取范围
+    <span class="hint">勾选的種目才会被 AI 读取（PDF→结构化）；留空=全部種目都读</span></h2>
+  <div id="aiReadKinds" style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0">
+    <label class="chk"><input type="checkbox" class="ai-kind" value="売一戸建" checked> 売一戸建</label>
+    <label class="chk"><input type="checkbox" class="ai-kind" value="売マンション" checked> 売マンション</label>
+    <label class="chk"><input type="checkbox" class="ai-kind" value="売土地" checked> 売土地</label>
+  </div>
+  <div class="actions" style="margin-top:8px;display:flex;gap:8px">
+    <button class="ghost" onclick="saveAIRead()">保存 AI 读取设置</button>
+    <span class="muted" id="aiReadMsg"></span>
+  </div>
+  <script>window.__aiReadKinds = {{ (cfg.get('ai_read_scope') or []) | tojson }};</script>
+</div>
+
 <!-- ============ v1.5.6：上传到线上 ============ -->
 <div class="card step" id="publishCard">
   <h2><span data-i18n="pub.h">上传到线上</span>
@@ -314,6 +330,24 @@
   <pre id="pub_log" style="display:block;max-height:280px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
 </div>
 <script>
+/* ---------- v1.9.26 / PRD-25：AI 读取范围设置（手动选择哪些数据走 AI 读取） ---------- */
+function loadAIRead(){
+  var rk = window.__aiReadKinds || [];
+  document.querySelectorAll('.ai-kind').forEach(function(c){
+    c.checked = !rk.length || rk.indexOf(c.value) >= 0;   // 空列表=全勾
+  });
+}
+function saveAIRead(){
+  var sel = Array.prototype.slice.call(document.querySelectorAll('.ai-kind:checked'))
+                 .map(function(c){ return c.value; });
+  postJSON('/api/ai/settings', {read_kinds: sel}).then(function(j){
+    var m = document.getElementById('aiReadMsg');
+    if(m) m.textContent = (j && j.status === 'ok') ? '已保存 ✅' : ('失败：' + ((j && j.error) || ''));
+  }).catch(function(e){
+    var m = document.getElementById('aiReadMsg'); if(m) m.textContent = '保存出错：' + e;
+  });
+}
+loadAIRead();
 /* ---------- v1.5.6 上传到线上 ---------- */
 async function loadPublishStatus(){
   try{

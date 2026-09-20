@@ -112,15 +112,15 @@
 </div>
 {% endif %}
 
-<!-- ②.5 AI 结构（v1.9.25）：《大阪房源PDF数据总表》的 AI 识别成品。
+<!-- ②.5 AI 解读（v1.9.25）：《大阪房源PDF数据总表》的 AI 识别成品。
      数据存**独立库** data/ai_pdf_store.db，与主库分离、不碰主数据；
-     经 /api/ai-structure/<番号> 异步加载，不阻塞详情页首屏。
+     经 /api/ai-interpret/<番号> 异步加载，不阻塞详情页首屏。
      卡片自上而下：① 雷达图+综合分 ② 约200字 AI 结论 ③ 存疑提示 ④ 分组字段（可编辑）
      放在「房源図面 PDF」与「变更历史」之间（R-UI-1 顺序）。 -->
 <div class="card" id="aiCard">
-  <h2><span data-i18n="detail.ai_h">AI 结构</span> <span class="hint" id="aiHint"></span></h2>
+  <h2><span data-i18n="detail.ai_interpret_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
   <div id="aiBody"></div>
-  <div class="empty" id="aiEmpty" data-i18n="detail.ai_none">本房源尚未纳入 PDF AI 识别。</div>
+  <div class="empty" id="aiEmpty" data-i18n="detail.ai_interpret_none">本房源尚未纳入 PDF AI 识别。</div>
   <div class="row" style="margin-top:10px">
     <span class="muted" id="aiMeta"></span>
     <span style="flex:1"></span>
@@ -241,7 +241,7 @@ function paintLabels(){
 function paintAll(){ paintHints(); paintLabels(); refreshCmp(); }
 
 /* ------------------------------------------------------------------
-   AI 结构（v1.9.25）：从 /api/ai-structure/<番号> 拉取《大阪房源PDF数据总表》
+   AI 解读（v1.9.25）：从 /api/ai-interpret/<番号> 拉取《大阪房源PDF数据总表》
    的 AI 识别成品并渲染。数据存独立库，与主数据分离。
    卡片自上而下四段：
      ① 雷达图（六维打分）+ 综合分
@@ -253,7 +253,7 @@ function aiEsc(s){
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-/* 按当前界面语言取多语言标签（AI 结构里的字段名自带 zh/zh_tw/en/ja 四份） */
+/* 按当前界面语言取多语言标签（AI 解读里的字段名自带 zh/zh_tw/en/ja 四份） */
 function aiL(o){
   if(!o) return '';
   var l = localStorage.getItem('lang') || 'zh-CN';
@@ -326,7 +326,7 @@ function aiBindEdit(el, col){
       el.classList.remove('ai-warn', 'ai-danger');
       el.removeAttribute('title');
       el.classList.add('ai-saving');
-      fetch('/api/ai-structure/' + encodeURIComponent(CUR_NO) + '/edit', {
+      fetch('/api/ai-interpret/' + encodeURIComponent(CUR_NO) + '/edit', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({col: col, value: v})
@@ -364,7 +364,7 @@ function paintAI(j){
   html += '<div class="ai-top">';
   html += '<div class="ai-radar-box">' + aiRadar(dims) +
           '<div class="ai-overall"><b>' + (j.overall || 0) +
-          '</b><span>' + t('detail.ai_overall') + '</span></div></div>';
+          '</b><span>' + t('detail.ai_interpret_overall') + '</span></div></div>';
   html += '<div class="ai-dims">';
   dims.forEach(function(d){
     html += '<div class="ai-dim" title="' + aiEsc(d.reason || '') + '">' +
@@ -377,7 +377,7 @@ function paintAI(j){
 
   /* ② 约 200 字 AI 结论 */
   if(j.conclusion){
-    html += '<div class="ai-concl"><div class="ai-concl-h">' + t('detail.ai_concl') +
+    html += '<div class="ai-concl"><div class="ai-concl-h">' + t('detail.ai_interpret_concl') +
             '</div><p>' + aiEsc(j.conclusion) + '</p></div>';
   }
 
@@ -385,10 +385,10 @@ function paintAI(j){
   var an = j.anomalies || [];
   if(an.length){
     var nd = an.filter(function(a){ return a.level === 'danger'; }).length;
-    html += '<div class="ai-anom">' + tf('detail.ai_anom', {n: an.length}) +
-            '　<span class="ai-legend"><span class="ai-warn">' + t('detail.ai_warn') +
-            '</span>　<span class="ai-danger">' + t('detail.ai_danger') + '</span></span>' +
-            (nd ? '　<b>' + tf('detail.ai_danger_n', {n: nd}) + '</b>' : '') + '</div>';
+    html += '<div class="ai-anom">' + tf('detail.ai_interpret_anom', {n: an.length}) +
+            '　<span class="ai-legend"><span class="ai-warn">' + t('detail.ai_interpret_warn') +
+            '</span>　<span class="ai-danger">' + t('detail.ai_interpret_danger') + '</span></span>' +
+            (nd ? '　<b>' + tf('detail.ai_interpret_danger_n', {n: nd}) + '</b>' : '') + '</div>';
   }
 
   /* ④ 分组字段：有则显示、无则不显（空值服务端已剔除） */
@@ -413,13 +413,13 @@ function paintAI(j){
   body.querySelectorAll('.dv[data-col]').forEach(function(el){
     aiBindEdit(el, el.getAttribute('data-col'));
   });
-  hint.textContent = tf('detail.ai_hint2', {n: nfield});
-  meta.textContent = (j.extracted_at ? tf('detail.ai_updated', {time: j.extracted_at}) : '') +
-                     (j.edited ? ' · ' + t('detail.ai_edited') : '') +
+  hint.textContent = tf('detail.ai_interpret_hint2', {n: nfield});
+  meta.textContent = (j.extracted_at ? tf('detail.ai_interpret_updated', {time: j.extracted_at}) : '') +
+                     (j.edited ? ' · ' + t('detail.ai_interpret_edited') : '') +
                      (j.source_file ? ' · ' + aiEsc(j.source_file) : '');
 }
 function loadAI(){
-  fetch('/api/ai-structure/' + encodeURIComponent(CUR_NO))
+  fetch('/api/ai-interpret/' + encodeURIComponent(CUR_NO))
     .then(function(r){ return r.json(); })
     .then(paintAI)
     .catch(function(){ paintAI(null); });
@@ -444,8 +444,8 @@ function runAI(opts){
   if(aiRunning) return;
   var meta = document.getElementById('aiMeta');
   aiRunning = true;
-  aiSetBtn(t('detail.ai_regen_running'), true);
-  aiMsg(meta, t('detail.ai_regen_running'), false);
+  aiSetBtn(t('detail.ai_interpret_regen_running'), true);
+  aiMsg(meta, t('detail.ai_interpret_regen_running'), false);
   fetch('/api/ai/' + encodeURIComponent(CUR_NO) + '/run', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -457,39 +457,39 @@ function runAI(opts){
   .then(function(j){
     aiRunning = false;
     if(!(j && j.ok)){
-      aiSetBtn(t('detail.ai_regen'), false);
-      aiMsg(meta, (j && j.error) || t('detail.ai_fail'), true);
+      aiSetBtn(t('detail.ai_interpret_regen'), false);
+      aiMsg(meta, (j && j.error) || t('detail.ai_interpret_fail'), true);
       return;
     }
     if(j.status === 'skipped'){
-      aiSetBtn(t('detail.ai_regen'), false);
-      aiMsg(meta, j.reason || t('detail.ai_skipped'), false);
+      aiSetBtn(t('detail.ai_interpret_regen'), false);
+      aiMsg(meta, j.reason || t('detail.ai_interpret_skipped'), false);
       return;
     }
     if(j.status === 'incomplete'){
-      aiSetBtn(t('detail.ai_regen'), false);
+      aiSetBtn(t('detail.ai_interpret_regen'), false);
       /* ★ 关键点：本地没跑满 → 弹窗问，用户同意才带 allow_cloud 重发 */
-      if(confirm(tf('detail.ai_incomplete', {n: j.fields || 0}))){
+      if(confirm(tf('detail.ai_interpret_incomplete', {n: j.fields || 0}))){
         runAI({force: true, allow_cloud: true});
       }else{
-        aiMsg(meta, t('detail.ai_local_only'), false);
+        aiMsg(meta, t('detail.ai_interpret_local_only'), false);
         loadAI();
       }
       return;
     }
-    aiSetBtn(t('detail.ai_regen'), false);
+    aiSetBtn(t('detail.ai_interpret_regen'), false);
     aiMsg(meta, j.route === 'cloud'
-      ? t('detail.ai_cloud_done')
-      : tf('detail.ai_local_done', {n: j.fields || 0}), false);
+      ? t('detail.ai_interpret_cloud_done')
+      : tf('detail.ai_interpret_local_done', {n: j.fields || 0}), false);
     loadAI();
   })
   .catch(function(){
     aiRunning = false;
-    aiSetBtn(t('detail.ai_regen'), false);
-    aiMsg(meta, t('detail.ai_fail'), true);
+    aiSetBtn(t('detail.ai_interpret_regen'), false);
+    aiMsg(meta, t('detail.ai_interpret_fail'), true);
   });
 }
-aiSetBtn(t('detail.ai_regen'), false);
+aiSetBtn(t('detail.ai_interpret_regen'), false);
 
 CompareBox.onChange(refreshCmp);
 window.addEventListener('i18n:changed', paintAll);

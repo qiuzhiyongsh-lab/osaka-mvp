@@ -7,8 +7,21 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.30"
-BUILD_AT = "2026-09-20 12:55"
+VERSION = "1.9.31"
+BUILD_AT = "2026-09-20 14:18"
+# ============================================================================
+# v1.9.31（2026-09-20 14:18 · PRD-25 落地：①「AI 结构」→「AI 解读」全链路重命名 ② 修 editor 留痕 ③ 设置项手动选 AI 读取種目）
+#   【需求·勇哥】"AI 解读（原 AI 结构）将来要可编辑、可手动选择哪些種目走 AI 读取"；吸收豆包评审 v1.2.0。
+#   【① 重命名】对外命名统一「AI 解读」：路由 /api/ai-structure → /api/ai-interpret（get/edit/edits 三件）、
+#     detail.html 卡片、i18n 四语标题（AI 解读 / AI 解讀 / AI Interpretation / AI 解読）、style.css 注释同步；
+#     后端表 ai_structure 与模块 ai_structure_store.py 为内部实现名，按 PRD 保留不改。
+#   【② editor 留痕修复】原 /edit 用 getattr(request,"user",None) 取操作人（Flask 无此属性）→ editor 恒空，
+#     卡死「员工蓝字+留痕」。改为 _current_user()["username"]，登录态下 edit 落 ai_edit_log.editor=真实员工。
+#   【③ 设置项】config.ai_read_scope（顶层键，避开 ai 私密块写不回的坑）：空=全部種目都读；非空=只对勾选種目走 AI 读取（api_ai_run 拦截未勾选種目，
+#     返回 400 提示去设置页勾选）。collect.html 新增「AI 读取范围」卡片（売一戸建/売マンション/売土地 三勾选），
+#     调 POST /api/ai/settings 写回 config.yaml（白名单键，不碰凭据）。
+#   【验证】tools/_diag_ai_interpret.py 独立 test_client + 临时库副本：旧路由 404 / 新路由 200 / editor=真实员工 /
+#     详情页「AI 解读」生效 / /api/ai/settings 持久化 / read_kinds 拦截未勾选種目，零污染真实数据。
 # ============================================================================
 # v1.9.30（2026-09-20 12:55 · /files 图纸列表收缩成一页 + 关键词查找；/account 加设密入口）
 #   【需求·勇哥】"在 /account 页面里增加一个设置账号密码的按键；/files 收缩成一页，

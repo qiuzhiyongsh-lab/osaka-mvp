@@ -863,7 +863,7 @@ details.sec > .secbody{padding:10px 18px 14px}
 .pwd-toggle.on{background:#e6eefc;color:var(--accent)}
 
 /* ============================================================
-   AI 结构（v1.9.25）：雷达图 + 结论 + 分组字段 + 异常标注
+   AI 解读（v1.9.25）：雷达图 + 结论 + 分组字段 + 异常标注
    异常色标遵循勇哥要求：存疑=红字；特别存疑=红字加黄底
    ============================================================ */
 .ai-top{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}

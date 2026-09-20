@@ -39,7 +39,7 @@ from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
 from core import account_sync as acc_sync                # noqa: E402  (v1.9.28 账号双向同步)
-from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 AI 结构独立库)
+from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 AI 解读独立库)
 
 # 线上收数时**永不接受**的列（勇哥：PDF 不上传）
 NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
@@ -49,8 +49,8 @@ NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
 CFG = cfgmod.load()
 PATHS = cfgmod.paths(CFG)
 STORE = Store(PATHS["db"])
-# v1.9.25：AI 结构走**独立库文件** data/ai_pdf_store.db（勇哥要求与主数据分离）。
-# 它是 PDF 的 AI 识别解读层，与主库互不覆盖；缺文件也不影响主业务（缺即无 AI 结构）。
+# v1.9.25：AI 解读走**独立库文件** data/ai_pdf_store.db（勇哥要求与主数据分离）。
+# 它是 PDF 的 AI 识别解读层，与主库互不覆盖；缺文件也不影响主业务（缺即无 AI 解读）。
 # ⚠ PATHS["root"] 本身就是 data/ 目录（不是项目根），再拼 "data" 会变成 data/data/。
 #    所以这里以主库 PATHS["db"] 的父目录为准，保证与主库同处 data/ 下。
 AI_STORE = AIStructureStore(Path(PATHS["db"]).parent / "ai_pdf_store.db")
@@ -765,13 +765,31 @@ def api_ai_put(property_no: str):
     return jsonify({"ok": True, "property_no": property_no})
 
 
+def _normalize_kind(subtype: str) -> str:
+    """把 properties.property_subtype（如「中古マンション」「中古戸建」「売地」）归一为
+    REINS 大类（売マンション / 売一戸建 / 売土地），用于和 config.ai_read_scope 比对。
+
+    主库 properties.kind 列为空，種目实际存在 property_subtype；ai_read_scope 存的是大类，
+    所以过滤前必须归一。未命中任何大类返回空串（空串不在 ai_read_scope 里 → 被拦截）。
+    """
+    if not subtype:
+        return ""
+    s = (subtype or "").replace("\n", "").replace("／", "").replace(" ", "")
+    if "マンション" in s:
+        return "売マンション"
+    if "戸建" in s or "タウン" in s:
+        return "売一戸建"
+    if "売地" in s or "土地" in s:
+        return "売土地"
+    return ""
+
+
 @app.post("/api/ai/<property_no>/run")
 def api_ai_run(property_no: str):
     """对该房源 PDF 现跑一次提取。**本地优先**（v1.9.26 / PRD 25 · D1）。
 
     勇哥口径：能用本地（读文本 / OCR）解决的就绝不调云端；只有本地跑不出来，
     并且用户**明确点同意**，才把 PDF 发给第三方模型。所以这里分三种结局：
-
       - 本地成功        → 直接落库返回 route=local，**零云端调用**
       - 本地不完整      → 返回 status=incomplete，由前端弹窗问「要不要花钱走云端」
                           （未拿到 allow_cloud=true 前绝不发请求）
@@ -783,6 +801,19 @@ def api_ai_run(property_no: str):
     _refresh_cfg()
     if STORE.get_property(property_no) is None:
         return jsonify({"ok": False, "error": f"物件 {property_no} 不在本地库"}), 404
+
+    # v1.9.31 / PRD-25：AI 读取范围过滤（放在 PDF 检查之前，无 PDF 也能拦截）。
+    # 空列表=全部種目都允许；非空则只放行勾选的種目（勇哥：手动选择哪些数据走 AI 读取）。
+    # 注意：主库 properties 的種目存在 property_subtype（如「中古マンション」），kind 列为空；
+    #       ai_read_scope 存 REINS 大类（売マンション/売一戸建/売土地），过滤时用 _normalize_kind 归一后比对。
+    rk = CFG.get("ai_read_scope") or []
+    if rk:
+        prop = STORE.get_property(property_no)
+        subtype = dict(prop).get("property_subtype", "") if prop else ""
+        nk = _normalize_kind(subtype)
+        if nk not in rk:
+            return jsonify({"ok": False, "error":
+                            f"種目「{subtype or '未知'}」未启用 AI 读取，请在设置页勾选该種目"}), 400
 
     pdf = PATHS["attachments"] / f"{property_no}.pdf"
     if not pdf.exists():
@@ -871,24 +902,24 @@ def api_ai_run(property_no: str):
 
 
 # ============================================================
-# AI 结构（v1.9.25）：PDF 的 AI 识别结果，存**独立库** data/ai_pdf_store.db
+# AI 解读（v1.9.25）：PDF 的 AI 识别结果，存**独立库** data/ai_pdf_store.db
 # 与上面的 /api/ai/*（PDF 单次动态提取）是两条不同的数据流：
 #   /api/ai/*            = 现场调模型跑一次，结果存主库 ai_extractions
-#   /api/ai-structure/*  = 《大阪房源PDF数据总表》批量识别的成品，存独立库
-# 详情页「AI 结构」卡片消费后者。
+#   /api/ai-interpret/*  = 《大阪房源PDF数据总表》批量识别的成品，存独立库
+# 详情页「AI 解读」卡片消费后者。
 # ============================================================
-@app.get("/api/ai-structure/<property_no>")
+@app.get("/api/ai-interpret/<property_no>")
 def api_ai_structure_get(property_no: str):
-    """返回某房源的 AI 结构：雷达图 + 约200字结论 + 分组字段（含异常等级）。"""
+    """返回某房源的 AI 解读：雷达图 + 约200字结论 + 分组字段（含异常等级）。"""
     rec = AI_STORE.get(property_no)
     if rec is None:
         return jsonify({"ok": True, "status": "none"})
     return jsonify({"ok": True, "status": "ok", **rec})
 
 
-@app.post("/api/ai-structure/<property_no>/edit")
+@app.post("/api/ai-interpret/<property_no>/edit")
 def api_ai_structure_edit(property_no: str):
-    """编辑 AI 结构里的单个字段（勇哥要求：所有数据将来都可编辑）。
+    """编辑 AI 解读里的单个字段（勇哥要求：所有数据将来都可编辑）。
 
     body: {"col": "専有面積（㎡）", "value": "63.06"}
     改完该字段异常等级归 ok、整条标 edited=1，并在独立库留审计日志（可追溯原值）。
@@ -901,20 +932,40 @@ def api_ai_structure_edit(property_no: str):
     value = "" if value is None else str(value)
     actor = ""
     try:
-        actor = (getattr(request, "user", None) or {}).get("username", "") or ""
+        # 修正：原代码用 getattr(request,"user",None) 取操作人，Flask 无此属性
+        # → editor 永远为空，卡死「员工蓝字+留痕」。改用 _current_user()（PRD-25）。
+        cu = _current_user()
+        actor = (cu or {}).get("username", "") or ""
     except Exception:
         pass
     res = AI_STORE.edit_field(property_no, col, value, editor=actor)
     if not res.get("ok"):
         return jsonify(res), 404
-    log(f"[AI结构] {property_no} 字段 {col} 被改为「{value}」（{actor or '本机'}）")
+    log(f"[AI解读] {property_no} 字段 {col} 被改为「{value}」（{actor or '本机'}）")
     return jsonify(res)
 
 
-@app.get("/api/ai-structure/<property_no>/edits")
+@app.get("/api/ai-interpret/<property_no>/edits")
 def api_ai_structure_edits(property_no: str):
-    """该房源 AI 结构的编辑历史（谁在什么时候把什么改成了什么）。"""
+    """该房源 AI 解读的编辑历史（谁在什么时候把什么改成了什么）。"""
     return jsonify({"ok": True, "items": AI_STORE.edit_log(property_no)})
+
+
+@app.post("/api/ai/settings")
+def api_ai_settings():
+    """保存 AI 读取范围设置（read_kinds → 顶层 ai_read_scope）：空列表=全部種目；非空=只对这些種目做 AI 读取。
+
+    注意：绝不能写回 cfg["ai"]["read_kinds"] —— ai 块（含真 api_key）在 config.local.yaml，
+    cfgmod.save 会把整个 ai 块当私密键剔除（core/config.py VULN-01），read_kinds 永远写不回。
+    故改存顶层 ai_read_scope：不在 local.yaml、也不匹配 SECRET_* 模式，可正常持久化且不泄密。
+    """
+    cfg = _refresh_cfg()
+    body = request.get_json(force=True, silent=True) or {}
+    if "read_kinds" in body:
+        cfg["ai_read_scope"] = [str(x) for x in (body.get("read_kinds") or [])]
+    cfgmod.save(cfg)
+    log(f"[AI设置] ai_read_scope 已保存：{cfg.get('ai_read_scope')}")
+    return jsonify({"status": "ok", "ai_read_scope": cfg.get("ai_read_scope")})
 
 
 @app.get("/compare")
