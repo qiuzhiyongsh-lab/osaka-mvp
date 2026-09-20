@@ -359,6 +359,12 @@ def _refresh_cfg():
     PATHS = cfgmod.paths(CFG)
     SCHED.cfg = CFG
     PUB_LOOP.cfg = CFG
+    # v1.9.43 🔴 真 bug 修复：AI_SCHED 也要跟着换 cfg！
+    #   漏了它的后果（勇哥 2026-09-21 真机踩到）：设置页保存「单轮上限/并发」后，
+    #   AI_SCHED.status() 仍按**启动时**的旧 cfg 报数 → 前端回显把表单刷回旧值
+    #   （落盘明明成功、页面却显示旧值 → 用户以为"没保存下来"，再设一次就写错）。
+    if AI_SCHED is not None:
+        AI_SCHED.cfg = CFG
     return CFG
 
 

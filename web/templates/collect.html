@@ -427,12 +427,24 @@ function saveAISched(){
   };
   postJSON('/api/ai/settings', {schedule_ai: sa}).then(function(j){
     var m = document.getElementById('aiSchedMsg');
-    if(m) m.textContent = (j && j.status === 'ok') ? '已保存并应用 ✅' : ('失败：' + ((j && j.error) || ''));
-    /* v1.9.40：保存成功后**重新拉一次完整状态**再回显。
-       直接用 j.schedule_ai 不行 —— 它只有配置键值（enabled/window/max_per_run/workers/
-       force_rerun），没有 describe / next_run_at / thread_alive，会把「当前规则」
-       那行文字刷成空白。 */
-    if(j && j.schedule_ai){ loadAISchedStatus(); }
+    var back = (j && j.schedule_ai) || null;
+    /* v1.9.43：不能只看 status:ok —— 必须**核验服务端真的存下了**。
+       旧后端（未重启的 8765）根本不认 schedule_ai，却照样回 status:ok，
+       于是"已保存 ✅"是假的；回读值又对不上，用户以为设置没生效。
+       这里比对 启用/单轮上限/并发 三个值，对不上就直说要重启。 */
+    if(j && j.status === 'ok' && back){
+      var same = (!!back.enabled === !!sa.enabled)
+              && (parseInt(back.max_per_run, 10) === sa.max_per_run)
+              && (parseInt(back.workers, 10) === sa.workers);
+      if(m) m.textContent = same
+        ? '已保存并应用 ✅'
+        : ('⚠ 未生效：服务端仍是 单轮' + back.max_per_run + ' / 并发' + back.workers
+           + '（请双击 start_mvp.bat 重启本地服务后重试）');
+      loadAISchedStatus();     // 拉完整状态（describe/next_run_at）再回显
+    } else {
+      if(m) m.textContent = '⚠ 未生效：本地服务可能未重启（当前后端不认「AI 读取时间」设置），'
+                          + '请双击 start_mvp.bat 重启后重试';
+    }
   }).catch(function(e){
     var m = document.getElementById('aiSchedMsg'); if(m) m.textContent = '保存出错：' + e;
   });
