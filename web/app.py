@@ -391,8 +391,23 @@ def api_ingest():
     except Exception as e:                                    # noqa: BLE001
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
     total = STORE.conn.execute("SELECT COUNT(*) c FROM properties").fetchone()["c"]
-    log(f"☁ 收到线上推送 {n} 条（库内共 {total} 条）")
-    return jsonify({"ok": True, "upserted": n, "total": total})
+    log(f"☁ 收到线上推送 {n} 条房源主数据（库内共 {total} 条）")
+    # v1.9.38：AI 结构自动上线 —— 本地 publisher 把 ai_structure 增量推来，整行覆盖写入线上库
+    #   （线上是只读展示端，收本地最终权威结果直接覆盖最稳；不走本地「保护人工改值」合并）
+    ai_n = 0
+    ai_rows = body.get("ai_structure")
+    if isinstance(ai_rows, list):
+        try:
+            for r in ai_rows:
+                if not isinstance(r, dict) or not r.get("property_no"):
+                    continue
+                AI_STORE.upsert_raw(r)
+                ai_n += 1
+        except Exception as e:                                # noqa: BLE001
+            return jsonify({"ok": False, "error": f"AI写入失败 {type(e).__name__}: {e}"}), 500
+        if ai_n:
+            log(f"☁ 收到线上 AI 结构推送 {ai_n} 条")
+    return jsonify({"ok": True, "upserted": n, "total": total, "ai_upserted": ai_n})
 
 
 @app.errorhandler(HTTPException)

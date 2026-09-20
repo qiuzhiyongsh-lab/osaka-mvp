@@ -29,6 +29,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 本地列 → 列映射（v1.6 同源透传）。
 # 旧版曾把本地列重命名为旧线上列名（building_name→title、address→address_raw…），
@@ -75,6 +76,10 @@ NEVER_UPLOAD = {"pdf_path", "pdf_url", "absent_runs"}
 
 BATCH = 200
 
+# v1.9.38：本地 AI 结构库路径（与 AIStructureStore 默认路径一致），publisher 增量读取推送。
+#   core/ 的父目录即项目根（osaka-mvp / 发布包 app_local 均成立），其下 data/ai_pdf_store.db。
+AI_DB_DEFAULT = Path(__file__).resolve().parents[1] / "data" / "ai_pdf_store.db"
+
 
 # --------------------------------------------------------------------------
 # 状态记录（增量上传的水位线）
@@ -100,6 +105,15 @@ def _ensure_state(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE publish_state ADD COLUMN last_error_at TEXT")
     except Exception:
         pass
+    # v1.9.38：AI 结构自动上线的水位线 + 错误标志（独立于房源主数据）
+    try:
+        con.execute("ALTER TABLE publish_state ADD COLUMN last_ai_at TEXT")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE publish_state ADD COLUMN last_ai_error TEXT")
+    except Exception:
+        pass
     con.commit()
 
 
@@ -108,18 +122,22 @@ def get_state(con: sqlite3.Connection) -> dict:
     row = con.execute("SELECT * FROM publish_state WHERE id=1").fetchone()
     if row is None:
         return {"last_at": None, "last_count": 0, "last_mode": None,
-                "last_endpoint": None, "last_error": None, "last_error_at": None}
+                "last_endpoint": None, "last_error": None, "last_error_at": None,
+                "last_ai_at": None, "last_ai_error": None}
     try:
         keys = row.keys()
         return {k: row[k] for k in keys}
     except Exception:                                        # noqa: BLE001
         return {"last_at": row[1], "last_count": row[2], "last_mode": row[3],
                 "last_endpoint": row[4], "last_error": row[5],
-                "last_error_at": row[6] if len(row) > 6 else None}
+                "last_error_at": row[6] if len(row) > 6 else None,
+                "last_ai_at": row[7] if len(row) > 7 else None,
+                "last_ai_error": row[8] if len(row) > 8 else None}
 
 
 def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
-              last_mode=None, last_endpoint=None, last_error=None) -> None:
+              last_mode=None, last_endpoint=None, last_error=None,
+              last_ai_at=None, last_ai_error=None) -> None:
     _ensure_state(con)
     cur = get_state(con)
     # last_error=None 即「清空」（所有调用方：成功/无行传 None 清、失败传字符串设）；
@@ -129,17 +147,20 @@ def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
     _error_at = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                  ) if last_error else None
     con.execute(
-        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at)"
-        " VALUES (1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at,last_ai_at,last_ai_error)"
+        " VALUES (1,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
         " last_at=excluded.last_at, last_count=excluded.last_count,"
         " last_mode=excluded.last_mode, last_endpoint=excluded.last_endpoint,"
-        " last_error=excluded.last_error, last_error_at=excluded.last_error_at",
+        " last_error=excluded.last_error, last_error_at=excluded.last_error_at,"
+        " last_ai_at=excluded.last_ai_at, last_ai_error=excluded.last_ai_error",
         (last_at if last_at is not None else cur["last_at"],
          last_count if last_count is not None else cur["last_count"],
          last_mode if last_mode is not None else cur["last_mode"],
          last_endpoint if last_endpoint is not None else cur["last_endpoint"],
          last_error,
-         _error_at),
+         _error_at,
+         last_ai_at if last_ai_at is not None else cur["last_ai_at"],
+         last_ai_error if last_ai_error is not None else cur["last_ai_error"]),
     )
     con.commit()
 
@@ -278,6 +299,90 @@ def post_rows(cfg: dict, rows: list[dict], log=None) -> dict:
 
 
 # --------------------------------------------------------------------------
+# v1.9.38：AI 结构自动上线 —— 本地增量读取 + POST 到 /api/ingest
+# --------------------------------------------------------------------------
+def build_ai_rows(ai_db_path, last_ai_at=None, log=None) -> tuple[list[dict], str | None]:
+    """从本地 AI 结构库取增量（updated_at > 水位线）行。返回 (rows, 本次水位线)。
+
+    updated_at 存 `YYYY-MM-DD HH:MM:SS` 文本，字典序==时间序，直接字符串比较即增量正确。
+    """
+    say = log or (lambda *_a, **_k: None)
+    cols = ["property_no", "structure_json", "radar_json", "conclusion",
+            "anomaly_json", "overall", "edited", "source_file", "source_row",
+            "extracted_at", "created_at", "updated_at"]
+    try:
+        con = sqlite3.connect(str(ai_db_path), timeout=20)
+        con.row_factory = sqlite3.Row
+        if last_ai_at:
+            raw = con.execute(
+                "SELECT * FROM ai_structure WHERE updated_at > ? ORDER BY updated_at",
+                (last_ai_at,)).fetchall()
+        else:
+            raw = con.execute("SELECT * FROM ai_structure ORDER BY updated_at").fetchall()
+        con.close()
+    except Exception as e:                                       # noqa: BLE001
+        say("⚠ 读本地 AI 结构库失败（跳过本次 AI 推送）：%s" % e)
+        return [], last_ai_at
+    rows = [{c: r[c] for c in cols} for r in raw]
+    wm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    say("· 待上传 AI 结构 %d 行（增量基线 %s）" % (len(rows), last_ai_at or "全量首推"))
+    return rows, wm
+
+
+def post_ai(cfg: dict, ai_rows: list[dict], log=None) -> dict:
+    """把 AI 结构行 POST 到线上 /api/ingest（ai_structure 键）。"""
+    say = log or (lambda *_a, **_k: None)
+    pub = (cfg.get("publish") or {})
+    endpoint = str(pub.get("endpoint") or "").strip()
+    token = str(pub.get("token") or pub.get("ingest_token") or "").strip()
+    if not endpoint:
+        return {"ok": False, "errors": ["没有配置线上地址（publish.endpoint）"]}
+    url = endpoint.rstrip("/") + "/api/ingest"
+    sent, upserted, errors = 0, 0, []
+    total = len(ai_rows)
+    for i in range(0, total, BATCH):
+        chunk = ai_rows[i:i + BATCH]
+        try:
+            res = _post(url, token, {"ai_structure": chunk, "source": "osaka-mvp"}, timeout=120)
+        except urllib.error.HTTPError as e:
+            errors.append("HTTP %s: %s" % (e.code, e.read()[:200]))
+            break
+        except Exception as e:                                   # noqa: BLE001
+            errors.append(type(e).__name__ + ": " + str(e))
+            break
+        if not res.get("ok"):
+            errors.append(str(res.get("error") or res)[:200])
+            break
+        sent += len(chunk)
+        upserted += int(res.get("ai_upserted") or 0)
+        say("  ↑ 已推送 AI %d/%d（线上确认 %s）" % (sent, total, res.get("ai_upserted")))
+    return {"ok": not errors and sent == total, "sent": sent,
+            "upserted": upserted, "total": total, "errors": errors, "url": url}
+
+
+def _push_ai(cfg: dict, con: sqlite3.Connection, log=None) -> dict:
+    """v1.9.38：把本地 AI 结构增量推到线上 /api/ingest（ai_structure 键）。
+
+    增量水位线 last_ai_at：上次成功推的基线；None=全量首推。失败只记 last_ai_error，
+    不影响房源主数据推送结果。返回 {ok,sent,upserted,total,errors}。
+    """
+    say = log or (lambda *_a, **_k: None)
+    state = get_state(con)
+    ai_rows, ai_wm = build_ai_rows(AI_DB_DEFAULT, state.get("last_ai_at"), log=say)
+    if not ai_rows:
+        say("· 没有需要上传的 AI 结构（自 %s 无变化）" % (state.get("last_ai_at") or "无基线"))
+        return {"ok": True, "sent": 0, "total": 0, "skipped": True}
+    ares = post_ai(cfg, ai_rows, log=say)
+    if ares.get("ok"):
+        set_state(con, last_ai_at=ai_wm, last_ai_error=None)
+        say("✓ AI 结构已推送 %d 条" % ares["sent"])
+    else:
+        set_state(con, last_ai_error="; ".join(ares.get("errors") or [])[:500])
+        say("✗ AI 结构推送失败：" + ("; ".join(ares.get("errors") or [])))
+    return ares
+
+
+# --------------------------------------------------------------------------
 # 腿 2：写一份 json 兜底（线上重新发布时启动导入）
 # --------------------------------------------------------------------------
 def write_site_data(cfg: dict, rows: list[dict], log=None) -> str:
@@ -302,34 +407,40 @@ def write_site_data(cfg: dict, rows: list[dict], log=None) -> str:
 # --------------------------------------------------------------------------
 def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
             log=None) -> dict:
-    """执行一次上传。mode='incr' 增量（自动模式用）/ 'full' 全量重传（手动模式用）。"""
+    """执行一次上传。mode='incr' 增量（自动模式用）/ 'full' 全量重传（手动模式用）。
+
+    v1.9.38：房源主数据 + AI 结构**两条腿都推**（AI 结构自动上线，不再依赖手动 sync+deploy）。
+    """
     say = log or (lambda *_a, **_k: None)
     t0 = datetime.now()
     say("▶ 开始上传到线上（%s）…" % ("增量" if mode == "incr" else "全量重传"))
     rows, watermark = build_rows(con, cfg, mode, log=say)
     if not rows:
-        say("· 没有需要上传的数据（增量模式下很正常：这轮没有新变化）")
+        say("· 没有需要上传的房源主数据（增量模式下很正常：这轮没有新变化）")
         set_state(con, last_error=None, last_mode=mode)
-        return {"ok": True, "sent": 0, "total": 0, "skipped": True}
-
-    res = post_rows(cfg, rows, log=say)
-    try:
-        write_site_data(cfg, rows, log=say)
-    except Exception as e:                                     # noqa: BLE001
-        say("⚠ 兜底数据包生成失败（不影响在线推送）：" + str(e))
-
-    if res.get("ok"):
-        set_state(con, last_at=watermark, last_count=res["sent"],
-                  last_mode=mode,
-                  last_endpoint=str((cfg.get("publish") or {}).get("endpoint") or ""),
-                  last_error=None)
-        say("✓ 上传完成：%d 行 / 用时 %.1fs" % (res["sent"], (datetime.now() - t0).total_seconds()))
+        res = {"ok": True, "sent": 0, "total": 0, "skipped": True}
     else:
-        # 兜底：任何来源若用单数 "error" 键，也要能读到，绝不吞成「未知原因」
-        _errs = res.get("errors") or (res.get("error") and [str(res.get("error"))]) or []
-        set_state(con, last_error="; ".join(_errs)[:500], last_mode=mode)
-        say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
+        res = post_rows(cfg, rows, log=say)
+        try:
+            write_site_data(cfg, rows, log=say)
+        except Exception as e:                                 # noqa: BLE001
+            say("⚠ 兜底数据包生成失败（不影响在线推送）：" + str(e))
+        if res.get("ok"):
+            set_state(con, last_at=watermark, last_count=res["sent"],
+                      last_mode=mode,
+                      last_endpoint=str((cfg.get("publish") or {}).get("endpoint") or ""),
+                      last_error=None)
+            say("✓ 上传完成：%d 行 / 用时 %.1fs" % (res["sent"], (datetime.now() - t0).total_seconds()))
+        else:
+            # 兜底：任何来源若用单数 "error" 键，也要能读到，绝不吞成「未知原因」
+            _errs = res.get("errors") or (res.get("error") and [str(res.get("error"))]) or []
+            set_state(con, last_error="; ".join(_errs)[:500], last_mode=mode)
+            say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
+
+    # v1.9.38：AI 结构自动上线（独立于房源主数据分支，增量推、失败不阻断主数据）
+    ai_res = _push_ai(cfg, con, log=say)
     res["elapsed_s"] = round((datetime.now() - t0).total_seconds(), 1)
+    res["ai"] = ai_res
     return res
 
 

@@ -309,6 +309,26 @@ class AIStructureStore:
             )
         return merged_out
 
+    def upsert_raw(self, row: dict):
+        """线上 /api/ingest 用：把本地推来的 AI 结构**整行覆盖**写库（v1.9.38）。
+
+        与本地 upsert 的区别：本地 upsert 走 merge_structure 保护「人工改过的字段」，
+        因为本地会反复重跑、且勇哥可能在页面手工改值。线上是**只读展示端**，
+        收到的就是本地最终权威结果，直接整行覆盖最稳（不丢字段、不被旧值带偏）。
+        12 列与 ai_structure 表一一对应；source_row 可能为 None/int 均兼容。
+        """
+        cols = ["property_no", "structure_json", "radar_json", "conclusion",
+                "anomaly_json", "overall", "edited", "source_file", "source_row",
+                "extracted_at", "created_at", "updated_at"]
+        vals = [row.get(c) for c in cols]
+        with self._conn() as con:
+            con.execute(
+                "INSERT INTO ai_structure (" + ",".join(cols) + ") VALUES ("
+                + ",".join("?" * len(cols)) + ")"
+                " ON CONFLICT(property_no) DO UPDATE SET "
+                + ",".join(f"{c}=excluded.{c}" for c in cols if c != "property_no"),
+                vals)
+
     def get(self, property_no: str) -> dict | None:
         with self._conn() as con:
             r = con.execute("SELECT * FROM ai_structure WHERE property_no=?",
