@@ -290,6 +290,13 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .qpdf{font-size:11px;font-weight:700;color:#fff;background:var(--ok);
   border-radius:5px;padding:1px 6px;white-space:nowrap}
+/* v1.9.41（勇哥需求）：查询页价格行「详情」按钮 —— 直达房源详情页（/p/编号）。
+   与 PDF 绿标签同尺寸同圆角，改用链接蓝，一眼区分「打开 PDF」与「进详情页」；
+   放在价格右侧（PDF 标签之后），不抢价格视线。 */
+.qbtn-detail{font-size:11px;font-weight:700;color:#fff;background:#3477d6;
+  border-radius:5px;padding:1px 7px;white-space:nowrap;text-decoration:none;
+  transition:background .12s;margin-left:2px}
+.qbtn-detail:hover{background:#2660b5;color:#fff;text-decoration:none}
 /* 降价徽标 + 降价比例：绿底胶囊（v1.2.4 起 = 本系统监测到的降价，未来能力）
  *   平台历史降价（.qdrop-platform/.qrate-platform）= 来自 REINS「変更前価格」，
  *   发生在本系统下载之前；当前全部降价均属此类 → 蓝/中性胶囊 + 「平台」小标签。 */

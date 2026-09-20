@@ -1097,6 +1097,11 @@ function renderFullItem(r, i){
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
     +       '<span class="price">' + wan(r.price) + '</span>'
     +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    /* v1.9.41（勇哥需求）：价格右侧加「详情」按钮，直达详情页（/p/编号）。
+       stopPropagation 防止误触卡片的"展开行内详情"。 */
+    +       '<a class="qbtn-detail" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+    +          ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
+    +          esc(t('detail.srcpage')) + '</a>'
     +     '</div>'
     +   '</div>'
     // 第 2 行：核心指标（面积 / 間取り / 駅 / 区）—— 加粗、优先看
@@ -1209,6 +1214,10 @@ function renderCompactItem(r, i){
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
     +       '<span class="price">' + wan(r.price) + '</span>'
     +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    /* v1.9.41：简洁模式价格右侧同样加「详情」按钮（与详细模式一致） */
+    +       '<a class="qbtn-detail" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+    +          ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
+    +          esc(t('detail.srcpage')) + '</a>'
     +     '</span>'
     +     (sqm || tsubo ? '<span class="qc-unit">'
     +       (sqm ? '㎡' + sqm : '') + (sqm && tsubo ? ' ｜ ' : '') + (tsubo ? '坪' + tsubo : '') + '</span>' : '')
