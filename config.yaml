@@ -34,7 +34,7 @@ schedule_ai:
   window:
     start: '23:00'
     end: 06:00
-  max_per_run: 300
+  max_per_run: 1000
   workers: 2
   run_on_start: false
   force_rerun: false
