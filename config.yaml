@@ -25,6 +25,7 @@ local_extract:
   ocr_timeout_sec: 60
   ocr_max_pages: 1
   tesseract_path: ''
+  ocr_enrich_important: true   # v1.9.34：详情页手动抽取时，优先列（勇哥点名）缺失即强制 OCR 补全
   fallback_model: true
   fallback_max_per_run: 50
 schedule_ai:

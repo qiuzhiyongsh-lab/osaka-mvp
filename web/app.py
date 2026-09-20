@@ -842,7 +842,8 @@ def api_ai_run(property_no: str):
         # allow_cloud=False 是硬要求（D1）：本地没跑满也**绝不**在路由里私自烧钱，
         # 必须先返回 incomplete 让前端问过用户。传 AI_STORE 让 pdf_hash 跳过生效。
         res = ai_pipeline.run_one(property_no, PATHS, cfg, AI_STORE,
-                                  force=force, allow_cloud=False)
+                                  force=force, allow_cloud=False,
+                                  main_store=STORE)
     except Exception as e:                                  # noqa: BLE001
         log(f"[AI] {property_no} 本地抽取异常：{e}")
         return jsonify({"ok": False, "error": f"本地抽取失败：{e}"}), 500

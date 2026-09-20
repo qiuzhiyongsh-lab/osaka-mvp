@@ -37,6 +37,15 @@ SOURCE_TAG = "PDF本地提取"          # 写进 structure.field.source，便于
 #   OCR 被短路。key_gate=True（仅手动路径）时对这些核心列强制把关。
 KEY_COLS = ("価格（税込・万円）", "専有面積（㎡）", "間取り", "所在地")
 
+# v1.9.34（PRD-25 扩字段）：「用户优先列」—— 详情页手动抽取时，只要这些列里有任意
+#   一个没抽到，就强制跑 OCR 补全（D1：仍先本地、绝不走云端）。覆盖勇哥点名要的：
+#   管理体制/駐車場/現況/設備・条件/建物引渡/共用施設/注意事項/所在地/最寄駅1/
+#   構造（原文）/バルコニー/会社住所。
+IMPORTANT_COLS = (
+    "管理体制", "駐車場", "現況", "設備・条件", "建物引渡", "共用施設",
+    "注意事項", "所在地", "最寄駅1", "構造（原文）", "バルコニー", "会社住所",
+)
+
 
 # ---------------------------------------------------------------- 工具
 def pdf_hash(pdf_path: str | Path) -> str:
@@ -48,11 +57,53 @@ def pdf_hash(pdf_path: str | Path) -> str:
     return h.hexdigest()[:16]
 
 
-def _merge_raw(rec_a: dict, rec_b: dict) -> dict:
-    """合并两份原始抽取结果（**先到者胜**，不去破坏已取到的值）。"""
-    out = dict(rec_b or {})
-    for k, v in (rec_a or {}).items():
-        out.setdefault(k, v)
+def _val_score(col: str, v, ctx: dict | None) -> int:
+    """给候选值打分（用于跨路径择优合并）：
+        3 = 直接过质量闸门   2 = 模糊认定能救   1 = 命中特殊 busy   0 = 会被闸门驳回。
+    """
+    if v is None or v == "":
+        return 0
+    ok, _, _ = Q.check(col, v, ctx)
+    if ok:
+        return 3
+    if L1mod.is_special(col, str(v)):
+        return 1
+    fn = L1mod.FUZZY.get(col)
+    if fn:
+        try:
+            if fn(str(v)) not in (None, ""):
+                return 2
+        except Exception:                              # noqa: BLE001
+            pass
+    return 0
+
+
+def _merge_raw(rec_a: dict, rec_b: dict, ctx: dict | None = None) -> dict:
+    """跨路径择优合并（替代原「先到者胜」）。
+
+    同一列若两路都取到，保留「更可能过质量闸门」的值：分高者胜；同分取更长
+    （更完整）；都为 0 取较长（残片也尽量留信息）。
+    L1 正则擅长 会社住所/E-MAIL/注意事項/管理体制，OCR 擅长 現況/バルコニー/構造，
+    不再因某一路的残片覆盖另一路的好值（原 bug：L2 残片把 L1 的
+    「管理会社に全部委託管理方式」覆盖成「勤」）。
+    """
+    ctx = ctx or {}
+    out: dict[str, Any] = {}
+    for c in (set(rec_a or {}) | set(rec_b or {})):
+        a = (rec_a or {}).get(c)
+        b = (rec_b or {}).get(c)
+        if a is None:
+            out[c] = b
+        elif b is None:
+            out[c] = a
+        else:
+            sa, sb = _val_score(c, a, ctx), _val_score(c, b, ctx)
+            if sb > sa:
+                out[c] = b
+            elif sa > sb:
+                out[c] = a
+            else:
+                out[c] = a if len(str(a)) >= len(str(b)) else b
     return out
 
 
@@ -101,17 +152,33 @@ def grade(raw: dict, ctx: dict | None = None) -> tuple[dict, list[tuple[str, str
 # ---------------------------------------------------------------- 单物件跑一轮
 def run_one(property_no: str, paths: dict, cfg: dict, ai_store=None, *,
             ctx: dict | None = None, force: bool = False,
-            allow_cloud: bool | None = None) -> dict:
+            allow_cloud: bool | None = None, main_store=None) -> dict:
     """对一个物件跑三级降级。返回统一结果 dict（**不直接落库**，由调用方决定）。
 
     cfg: {"ocr_enabled","ocr_lang","ocr_dpi","ocr_timeout_sec","fallback_model",
-          "min_fields","tesseract_path","ai": {...}}
+          "min_fields","tesseract_path","ai": {...}, "ocr_enrich_important"}
     allow_cloud: None = 按 cfg.fallback_model；True/False 显式指定（详情页用）
+    main_store: 主库 Store（可选）—— 取其専有面積㎡ 等已知值喂给质量闸门，
+        让 坪 等勾稽字段能过闸；不传则这些字段按「缺上下文」驳回（旧行为）。
     """
     lc = cfg or {}
     ai_cfg = lc.get("ai") or {}
     min_fields = int(lc.get("min_fields", 3))
     t0 = time.time()
+
+    # v1.9.34：从主库取已知值喂给质量闸门，让 専有面積（坪）等勾稽字段能过闸
+    db_ctx: dict = {}
+    if main_store is not None:
+        try:
+            p = main_store.get_property(property_no)
+            if p:
+                p = dict(p)
+                db_ctx = {"area_sqm": p.get("exclusive_area"),
+                          "mgmt_fee": p.get("management_fee"),
+                          "tel": p.get("tel") or p.get("phone")}
+        except Exception:                              # noqa: BLE001
+            db_ctx = {}
+    ctx = {**db_ctx, **(ctx or {})}
 
     pdf = Path(paths["attachments"]) / f"{property_no}.pdf"
     if not pdf.exists():
@@ -137,15 +204,21 @@ def run_one(property_no: str, paths: dict, cfg: dict, ai_store=None, *,
                 "route": route, "fields": {}, "rejected": [], "pdf_hash": h,
                 "ms": int((time.time() - t0) * 1000)}
     if text:
-        # 两条路都跑：正则（擅长会社住所/E-MAIL/注意事項）+ 标签切分（擅长表格型）
-        raw = _merge_raw(L1mod.extract(text), L2mod.extract_lines(text))
+        # 两条路都跑：正则（擅长会社住所/E-MAIL/注意事項）+ 标签切分（擅长表格型），
+        # 按「更可能过质量闸门」择优合并（v1.9.34：修 L2 残片覆盖 L1 好值）
+        raw = _merge_raw(L1mod.extract(text), L2mod.extract_lines(text), ctx)
         if raw:
             route.append("L1:local-text")
 
     fields, rejected = grade(raw, ctx)
 
-    # ---- ③ L2 本地 OCR（仅当 L1 不够）----
-    if len(fields) < min_fields and lc.get("ocr_enabled", True):
+    # ---- ③ L2 本地 OCR（仅当 L1 不够，或用户点名的优先列有缺失）----
+    # v1.9.34：详情页手动抽取启用「优先列缺失即强制 OCR」；批量/调度不传
+    #   ocr_enrich_important=false，只按 min_fields 阈值，避免全量 OCR 拖垮夜间窗口。
+    enrich_important = bool(lc.get("ocr_enrich_important", True))
+    need_ocr = (len(fields) < min_fields) or (
+        enrich_important and any(c not in raw for c in IMPORTANT_COLS))
+    if need_ocr and lc.get("ocr_enabled", True):
         try:
             ocr_txt = L2mod.ocr_pdf(
                 pdf, lang=lc.get("ocr_lang", "jpn"),
@@ -155,10 +228,23 @@ def run_one(property_no: str, paths: dict, cfg: dict, ai_store=None, *,
                 max_pages=int(lc.get("ocr_max_pages", 1)))
             if ocr_txt.strip():
                 route.append("L2:local-ocr")
-                raw2 = _merge_raw(raw, L2mod.extract_lines(ocr_txt))
+                raw2 = _merge_raw(raw, L2mod.extract_lines(ocr_txt), ctx)
                 f2, r2 = grade(raw2, ctx)
-                if len(f2) >= len(fields):                 # 只接受不劣化的结果
-                    fields, rejected = f2, r2
+                # 逐列择优合并（不再 all-or-nothing）：OCR 赢的列保留，
+                # 原好值绝不因 OCR 漏抽而丢失
+                merged_fields = dict(fields)
+                for c, fv in f2.items():
+                    if c not in merged_fields or (
+                            merged_fields[c].get("level") != "ok"
+                            and fv.get("level") == "ok"):
+                        merged_fields[c] = fv
+                have = {c for c, _, _ in rejected}
+                merged_rej = list(rejected)
+                for c, v, r in r2:
+                    if c not in merged_fields and c not in have:
+                        merged_rej.append((c, v, r))
+                if len(merged_fields) >= len(fields):
+                    fields, rejected = merged_fields, merged_rej
         except Exception as e:                             # noqa: BLE001
             route.append(f"L2:failed({type(e).__name__})")
 

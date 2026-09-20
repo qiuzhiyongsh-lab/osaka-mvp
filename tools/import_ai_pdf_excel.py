@@ -236,6 +236,18 @@ def main(xlsx: Path = DEFAULT_XLSX):
     print("[2/6] 建字段字典 + 载入异常清单")
     store = AIStructureStore(DB_PATH)
     meta = load_field_meta(ws_meta)
+    # v1.9.34（PRD-25 扩字段）：「共用施設（会所）」不在原 Excel 字段说明 59 列里，
+    #   这里保证无论 Excel 是否含该列，独立库字段字典都带它（避免 re-import 被 replace_field_meta 洗掉）。
+    _EXTRA_META = [{
+        "col_name": "共用施設", "seq": 60, "group_key": "building",
+        "group_cn": "建筑与年代", "zh": "共用设施", "zh_tw": "共用設施",
+        "en": "Common Facilities", "ja": "共用施設",
+        "source": "PDF视觉补充", "note": "会所/集会所/健身房/泳池等",
+    }]
+    _have = {m["col_name"] for m in meta}
+    for m in _EXTRA_META:
+        if m["col_name"] not in _have:
+            meta.append(m)
     store.replace_field_meta(meta)
     ocr = load_ocr_issues(ws_ocr)
     diff = load_diff_issues(ws_diff)

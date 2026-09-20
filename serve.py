@@ -9,7 +9,7 @@
 
   ① 把服务日志和完整堆栈写进  data/logs/server.log
   ② 捕获主线程 + 后台线程的未处理异常并落盘（不再静默死掉）
-  ③ 端口被占用时给人话提示，而不是甩一堆 traceback
+  ③ 端口被占用时提示「已有实例在跑」并直接退出，绝不互杀抢端口
   ④ 服务异常退出后自动重启（最多 5 次，间隔 3 秒）
 
 用法
@@ -65,28 +65,6 @@ def _port_in_use(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.6)
         return s.connect_ex((host, port)) == 0
-
-
-def _free_port_via_powershell(port: int) -> bool:
-    """用 PowerShell 精确结束占用端口的进程（中文系统下比 netstat 可靠）。
-
-    返回是否有进程被清理。即便 PowerShell 不可用也安全（返回 False，靠 serve.py
-    启动失败后的提示兜底）。
-    """
-    try:
-        import subprocess
-        ps = (
-            "$pids=(Get-NetTCPConnection -LocalPort %d "
-            "-ErrorAction SilentlyContinue).OwningProcess;"
-            "if($pids){$pids|ForEach-Object{Stop-Process -Id $_ -Force "
-            "-ErrorAction SilentlyContinue};'killed'}else{'none'}"
-        ) % port
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
-            capture_output=True, text=True, timeout=20)
-        return "killed" in (r.stdout + r.stderr)
-    except Exception:
-        return False
 
 
 def install_excepthooks() -> None:
@@ -165,21 +143,27 @@ def main() -> int:
     install_excepthooks()
 
     if _port_in_use(host, port):
-        say(f"· 端口 {port} 被占用，尝试自动清理占用进程…")
-        _free_port_via_powershell(port)
-        time.sleep(1.5)
-        if _port_in_use(host, port):
-            print()
-            print("=" * 62)
-            print(f"  ⚠ 端口 {port} 仍被占用，且无法自动清理。")
-            print()
-            print(f"  先试试直接打开： http://{host}:{port}")
-            print("  如果打不开，说明占用端口的是别的程序，可以换个端口启动：")
-            print(f"      python serve.py --port {port + 1}")
-            print("=" * 62)
-            print()
-            return 2
-        say(f"· 已清理端口 {port}，继续启动。")
+        # v1.9.31：端口被占用 → 提示「已有实例在跑」并直接退出，绝不再 kill 互杀。
+        #   以前这段会 PowerShell 杀掉占用 8765 的进程再启动；一旦系统里存在多个
+        #   启动入口（运行面板 / 计划任务 / 手动），它们就会轮流把对方打死，
+        #   表现为「没操作却自己断、要按继续」。
+        #   现在改为：检测到已有实例就友好提示并退出，把端口留给存活的实例。
+        print()
+        print("=" * 62)
+        print(f"  ⚠ 端口 {port} 已被占用。")
+        print()
+        print("  这说明本机已经有一个本地服务实例在运行（多半就是上一次启动的）。")
+        print("  为避免两个实例抢端口互相打死，本次启动【不重复拉起、也不杀旧实例】。")
+        print()
+        print(f"  请直接使用现有实例： http://{host}:{port}")
+        print("  如果你确实想重启（例如改了代码），请先手动结束旧实例，再重新运行：")
+        print(f"      · 结束占用进程：")
+        print(f"          Stop-Process -Id (Get-NetTCPConnection \\")
+        print(f"                            -LocalPort {port}).OwningProcess -Force")
+        print(f"      · 重新启动：     python serve.py")
+        print("=" * 62)
+        print()
+        return 0
 
     attempts = 0
     while True:

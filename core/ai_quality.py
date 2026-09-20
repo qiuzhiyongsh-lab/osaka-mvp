@@ -181,7 +181,7 @@ def check(col: str, v: Any, ctx: dict | None = None) -> tuple[bool, str, Any]:
         if any(n in s for n in ("@", "http", "TEL", "FAX")):
             return False, "含联系方式噪声", None
         m = re.search(r"(?:〒?\s*\d{3}-?\d{4}|[^\s]{2,8}(?:都|道|府|県))[^\n]{0,36}", s)
-        if m and re.search(r"(市|区|町|村|丁目|番地|号|\d{1,2}-\d{1,2})", s) and len(s) <= 42:
+        if m and re.search(r"(市|区|町|村|丁目|番地|号|\d{1,2}-\d{1,2})", s) and len(s) <= 60:
             return True, "", m.group(0).strip()
         return False, "非日本地址格式", None
 
@@ -203,10 +203,13 @@ def check(col: str, v: Any, ctx: dict | None = None) -> tuple[bool, str, Any]:
     if col == "バルコニー":
         if any(k in s for k in YESNO_OK) and len(s) <= 6:
             return True, "", s
+        # v1.9.34：テラス/ルーフバルコニー/サンルーム 也是合法的阳台表述（REINS 常列）
+        if any(k in s for k in ("テラス", "ルーフバルコニー", "バルコニー", "サンルーム")):
+            return True, "", s
         m = re.search(r"([\d]{1,3}\.?\d{0,2})\s*m", s)
         if m and len(s) <= 26:
             return True, "", (m.group(1) + "㎡")
-        return False, "非面积或有無", None
+        return False, "非面积/有無/露台", None
     if col == "担当者連絡先":
         if "@" in s or "http" in s:
             return False, "含邮箱/网址", None
@@ -214,13 +217,29 @@ def check(col: str, v: Any, ctx: dict | None = None) -> tuple[bool, str, Any]:
             return False, "含长数字", None
         return (2 <= len(s) <= 24), "长度异常（担当者姓名应 2–24 字）", None
     if col == "設備・条件":
-        return (len(s) >= 4), "过短", None
+        return (len(s) >= 2), "过短", None
     if col == "物件コメント":
         return (len(s) >= 25 and any(k in s for k in ("。", "、"))
                 and not any(n in s for n in NOISE_IN_VALUE)), "非完整文案", None
     if col == "注意事項":
         return (any(k in s for k in ("優先", "現況", "図面", "差異", "相違"))
                 and len(s) >= 6), "非免责声明", None
+    if col == "所在地":
+        if len(s) > 60:
+            return False, "过长", None
+        if re.search(r"(大阪|京都|兵庫|神戸|市|区|町|村|丁目|番地|号)", s):
+            return True, "", s
+        return False, "非日本地址格式", None
+    if col == "最寄駅1":
+        if len(s) > 60:
+            return False, "过长", None
+        if any(k in s for k in ("駅", "線", "徒歩", "バス", "分")):
+            return True, "", s
+        return False, "非交通表述", None
+    if col == "共用施設":
+        if len(s) > 40:
+            return False, "过长", None
+        return True, "", s
     if col == "報酬形態":
         return (len(s) <= 14 and "。" not in s), "形态异常", None
     if col == "手数料":
