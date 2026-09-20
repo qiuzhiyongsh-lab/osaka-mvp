@@ -114,6 +114,38 @@
         </div>
       </div>
     </div>
+    {# v1.9.46 PRD：房产状态（公开状态组 + 现状组，双分组多选面板）。
+       公开状态组 Phase 1 即用工；现状组 Phase 1 灰显（ST_PHASE_NOW=false，库无 status_now 数据）。
+       支持手动填写新增（仅本浏览器 qstate 记忆，零后端改动）。#}
+    <div class="field" style="min-width:200px">
+      <span data-i18n="search.status">房产状态</span>
+      <div class="msp" id="stMsp">
+        <button type="button" class="msp-btn" id="stBtn" aria-expanded="false" onclick="statusToggle(event)">
+          <span class="msp-txt" id="stTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="stPanel" hidden style="width:300px">
+          <div class="msp-sec">
+            <div class="msp-sec-h"><b data-i18n="search.status_public">公开状态</b>
+              <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span></div>
+            <div class="msp-body" id="stPubBody"></div>
+            <div class="msp-add">
+              <input type="text" id="stAddInput" data-i18n-ph="search.status_add_ph" placeholder="输入状态名，回车添加" onkeydown="if(event.key==='Enter'){event.preventDefault();statusAddCustom();}">
+              <button type="button" class="ghost" onclick="statusAddCustom()" data-i18n="search.status_add">添加</button>
+            </div>
+          </div>
+          <div class="msp-sec msp-sec-disabled" id="stNowSec">
+            <div class="msp-sec-h"><b data-i18n="search.status_now">现状</b>
+              <span class="muted" data-i18n="search.status_now_tip">Phase 2 待启用</span></div>
+            <div class="msp-body" id="stNowBody"></div>
+          </div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="statusSelectAllPub()" data-i18n="cat.select_all">全选</button>
+            <button type="button" class="ghost" onclick="statusClear()" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="stSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <label class="field"><span data-i18n="search.has_pdf">只看带 PDF</span>
       <select id="has_pdf">
         <option value="" data-i18n="search.has_pdf.all">不限</option>
@@ -390,7 +422,7 @@ function mspToggle(ev){
    与 msp 的差别：只有一级（无父子联动），所以实现极简 ——
      点 chip → 切换该值 → 同步按钮文案/已选计数；查询仍由页面「查询」按钮发起。
    复用 .msp-* 的样式，保证两个控件长得一样（一致性）。 */
-var MS_PREFIX = { ward: 'ward', trade_type: 'tt' };
+var MS_PREFIX = { ward: 'ward', trade_type: 'tt', status: 'st' };
 var MS_SEL = { ward: {}, trade_type: {} };
 var MS_OPTS = {
   ward: [],                                   // 下面用模板里的 opts.wards 填充
@@ -479,7 +511,7 @@ function msToggle(k, ev){
 }
 /* 点面板外面收起（已选条件不受影响 —— 只是把面板收起来） */
 document.addEventListener('click', function(ev){
-  ['ward', 'trade_type'].forEach(function(k){
+  ['ward', 'trade_type', 'status'].forEach(function(k){
     var box = msEl(k, 'Msp'), p = msEl(k, 'Panel');
     if(!box || !p || p.hasAttribute('hidden')) return;
     if(box.contains(ev.target)) return;
@@ -488,9 +520,87 @@ document.addEventListener('click', function(ev){
     if(b) b.setAttribute('aria-expanded', 'false');
   });
 });
+/* v1.9.46 PRD：房产状态「双分组多选面板」（公开状态组 + 现状组）。
+   不复用 msRender（它只支持扁平单组），这里独立实现两套选中集合 + 手填新增。
+   公开状态组枚举来自真实库实测（public_status 去重：公開中/申込あり/一時停止/'-'/NULL）；
+   现状组 Phase 1 灰显（ST_PHASE_NOW=false，库无 status_now 数据）。
+   __none__ = 「未公开/无状态」（字段为 '-' 或 NULL）。 */
+var STATUS_PUB = ['公開中', '申込あり', '一時停止', { v: '__none__', i18n: 'search.status_none' }];
+var STATUS_NOW = ['空室', '居住中', '入居中', '賃貸中'];   // Phase 2 现状枚举占位（Phase 1 灰显）
+var ST_PHASE_NOW = false;                                  // Phase 2 开关：改为 true 即启用现状组
+var ST_SEL = {};                                           // 选中值集合（公开 + 现状 + 手填 混合）
+var ST_CUSTOM = [];                                        // 本浏览器手填新增的状态（仅 qstate 记忆）
+function statusLabel(o){
+  var v = (typeof o === 'string') ? o : o.v;
+  var key = (typeof o === 'object' && o.i18n) ? o.i18n : null;
+  return key ? t(key) : v;
+}
+function statusRender(){
+  // 公开组
+  var h = '';
+  STATUS_PUB.forEach(function(o){
+    var v = (typeof o === 'string') ? o : o.v;
+    h += '<label class="msp-chip"><input type="checkbox" data-st="' + esc(v) + '"'
+      +  (ST_SEL[v] ? ' checked' : '') + ' onchange="statusPick(this)">'
+      +  '<span>' + esc(statusLabel(o)) + '</span></label>';
+  });
+  (ST_CUSTOM || []).forEach(function(v){
+    h += '<label class="msp-chip msp-chip-custom"><input type="checkbox" data-st="' + esc(v) + '"'
+      +  (ST_SEL[v] ? ' checked' : '') + ' onchange="statusPick(this)">'
+      +  '<span>' + esc(v) + '</span></label>';
+  });
+  var pb = document.getElementById('stPubBody'); if(pb) pb.innerHTML = h;
+  // 现状组（Phase 1 灰显：checkbox disabled，不进选中集合）
+  var h2 = '';
+  STATUS_NOW.forEach(function(v){
+    h2 += '<label class="msp-chip"><input type="checkbox" data-st="' + esc(v) + '" disabled'
+      +  ' onchange="statusPick(this)"><span>' + esc(v) + '</span></label>';
+  });
+  var nb = document.getElementById('stNowBody'); if(nb) nb.innerHTML = h2;
+  var sec = document.getElementById('stNowSec');
+  if(sec) sec.classList.toggle('msp-sec-disabled', !ST_PHASE_NOW);
+  statusSync();
+}
+function statusValues(){ return Object.keys(ST_SEL || {}); }
+function statusPick(el){
+  var v = el.getAttribute('data-st');
+  if(el.checked) ST_SEL[v] = 1; else delete ST_SEL[v];
+  statusSync();
+}
+function statusSync(){
+  var vs = statusValues();
+  var txtEl = document.getElementById('stTxt'), sum = document.getElementById('stSum'), btn = document.getElementById('stBtn');
+  if(txtEl){
+    if(vs.length){ txtEl.textContent = vs.join('、'); txtEl.setAttribute('title', vs.join('、')); }
+    else { txtEl.textContent = t('search.all'); txtEl.removeAttribute('title'); }
+  }
+  if(sum) sum.textContent = vs.length ? tf('cat.n', { n: vs.length }) : '';
+  if(btn) btn.classList.toggle('on', vs.length > 0);
+}
+function statusClear(){ ST_SEL = {}; statusRender(); }
+function statusSelectAllPub(){
+  STATUS_PUB.forEach(function(o){ var v = (typeof o === 'string') ? o : o.v; ST_SEL[v] = 1; });
+  statusRender();
+}
+function statusAddCustom(){
+  var inp = document.getElementById('stAddInput'); if(!inp) return;
+  var v = (inp.value || '').trim(); if(!v) return;
+  var dup = STATUS_PUB.some(function(o){ return (typeof o === 'string') ? o === v : o.v === v; });
+  if(!dup && (ST_CUSTOM || []).indexOf(v) < 0){ ST_CUSTOM.push(v); }
+  ST_SEL[v] = 1; inp.value = ''; statusRender();
+}
+function statusToggle(ev){
+  if(ev) ev.stopPropagation();
+  var p = document.getElementById('stPanel'); if(!p) return;
+  var open = p.hasAttribute('hidden');
+  if(open) p.removeAttribute('hidden'); else p.setAttribute('hidden', '');
+  var b = document.getElementById('stBtn');
+  if(b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if(open) msPlace('status');
+}
 /* 区选项来自本机库实际出现的区（模板注入）；面板立即渲染，不需等查询 */
 MS_OPTS.ward = {{ (opts.wards if (opts.wards is defined and opts.wards) else [])|tojson }};
-function msInitAll(){ msRender('ward'); msRender('trade_type'); }
+function msInitAll(){ msRender('ward'); msRender('trade_type'); statusRender(); }
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', msInitAll);
 }else{
@@ -534,7 +644,8 @@ function saveQState(){
       wards:     msValues('ward'),
       tts:       msValues('trade_type'),
       limit:     document.getElementById('limit').value,
-      subs:      mspSelected()
+      subs:      mspSelected(),
+      status:    statusValues()                 // v1.9.46 PRD：房产状态（公开+现状+手填 混合）
     }));
   }catch(e){ /* 隐私模式等场景静默降级 */ }
   var hint = document.getElementById('qstate-hint');
@@ -557,6 +668,10 @@ function restoreQState(){
   MS_SEL['trade_type'] = {};
   (st.tts || (st.trade_type ? [st.trade_type] : [])).forEach(function(v){ MS_SEL['trade_type'][v] = 1; });
   msRender('ward'); msRender('trade_type');
+  // v1.9.46 PRD：房产状态回填
+  ST_SEL = {};
+  (st.status || []).forEach(function(v){ ST_SEL[v] = 1; });
+  statusRender();
   if(st.date) document.getElementById('date').value = st.date;
   // v1.7.4：回填「止」与「取引態様」（旧版漏了，刷新后区间后半段丢失）
   if(st.date_to != null){
@@ -598,6 +713,9 @@ function applyUrlParams(){
       touched = true;
     }
   });
+  // v1.9.46 PRD：房产状态 URL 多值（?public_status=公開中&public_status=申込あり）
+  var stvs = qs.getAll('public_status').filter(function(x){ return x; });
+  if(stvs.length){ ST_SEL = {}; stvs.forEach(function(v){ ST_SEL[v] = 1; }); touched = true; }
   if(touched) msInitAll();
   var d = qs.get('date');
   if(d === 'all'){
@@ -646,6 +764,7 @@ function resetForm(){
   });
   mspClear(true);                       // 物件種目：清空多选
   msClear('ward'); msClear('trade_type');   // v1.7.6：区 / 取引態様 也清空
+  statusClear();                        // v1.9.46 PRD：房产状态也清空
   document.getElementById('date').value = todayLocal();
   var _dto = document.getElementById('date_to'); if(_dto) _dto.value = '';   // v1.7.4：重置也要清「止」
   document.getElementById('date_caliber').value='any';
@@ -718,6 +837,7 @@ function buildFilterSummary(){
     parts.push(t('search.today_short') || '今天');
   }
   var tt = msValues('trade_type'); if(tt.length) parts.push(tt.join('、'));
+  var stx = statusValues(); if(stx.length) parts.push(t('search.status') + '：' + stx.join('、'));   // v1.9.46 PRD
   return parts.join(' · ');
 }
 /* ---------- v1.8.5 #235：筛选区**单键双向**收合 ----------
@@ -837,6 +957,8 @@ function buildParams(page){
   //（与物件種目 subtype 同一套约定：后端 getlist 收，多值之间 OR）
   msValues('ward').forEach(function(v){ p.append('ward', v); });
   msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
+  // v1.9.46 PRD：房产状态 → 选中集（公开+手填）作为 public_status 发后端；现状组 Phase 1 灰显不进选中集
+  statusValues().forEach(function(v){ p.append('public_status', v); });
   // v1.7.0：按取得日期倒序（最新在上）—— 用户在查询页要"最新放最上面"
   // v1.7.4：dto 现在是字符串（旧版是 element），判断要跟着改 —— 只填「止」时也要倒序
   // v1.8.6 修「排序方向点了完全没反应」的**前端一半责任**：

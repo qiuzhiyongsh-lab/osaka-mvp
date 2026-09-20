@@ -7,9 +7,16 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.45"
-BUILD_AT = "2026-09-21 01:22"
+VERSION = "1.9.46"
+BUILD_AT = "2026-09-21 02:40"
 # ============================================================================
+# v1.9.46（2026-09-21 02:40 · PRD「查询页新增房产状态搜索条件」：筛选区新增「房产状态」双分组多选面板（复用 .msp 样式）。
+#   【公开状态组·Phase 1 即用工】枚举来自真实库实测 public_status 去重 = 公開中/申込あり/一時停止/'-'/NULL；
+#     后端走 json_extract(detail_json,'$.public_status') 精确 = 匹配（免提列、免回填，风险最低），__none__ 特判「'-' 或 NULL = 未公开/无状态」；
+#     支持手动填写新增（仅本浏览器 qstate 记忆，零后端改动）。【现状组·Phase 2 待启用】status_now 键当前库 0 命中，面板灰显，预留过滤通道。
+#   【改动面】core/store.search 加 public_statuses/status_nows 两组 OR 过滤；web/app.py /api/query 收 getlist；
+#     search.html 加控件 HTML + statusRender/statusPick/statusValues/statusSync/statusClear/statusSelectAllPub/statusAddCustom/statusToggle；
+#     i18n 四语补 search.status* 7 键；style.css 加灰显/手填样式。qstate 记忆 + URL 参数（public_status 多值）同步打通。）
 # v1.9.45（2026-09-21 01:22 · 根治「线上种子按行数判断、行数相同不重灌」：改 `tools/sync_to_publish.py` 生成的线上入口 serve_public.py —— 判据从 `have != len(rows)` 改为**数据包内容印章** `data/site_data.stamp`（记录 site_data.json 的 generated_at），三者任一即重灌：① 空库 ② 行数变了 ③ 印章变了。这样某列批量回填（如 v1.9.42 的 has_floorplan）也能随发版刷到线上，不必再依赖手动「强制同步上传」。注：serve_public.py 是 sync 生成的，务必改生成模板而非手改入口。）
 # v1.9.44（2026-09-21 00:53 · 「上传到线上」卡片新增「强制同步上传（房源+AI 全量）」：房源走 mode=full 全量重传；AI 解读**忽略增量水位线 last_ai_at** 全量重推（publisher._push_ai(force=True) / publish(force_ai=True) / /api/publish 收 force_ai）。一键把线上补齐成与本地 100% 一致，不再受增量水位线限制。前端二次确认防误触。）
 # v1.9.43（2026-09-21 00:39 · 🔴修「设置页 AI 读取时间保存后回显旧值/像没保存」：根因 = `_refresh_cfg()` 只刷新 SCHED/PUB_LOOP，**漏了 AI_SCHED** → AI_SCHED.status() 恒按启动时 cfg 报数 → 保存成功后前端拉状态把表单刷回旧值（落盘其实成功，如 max_per_run 已 1000，页面却显示 300）。修：_refresh_cfg 同步 AI_SCHED.cfg；另加固前端 saveAISched —— 保存后核验服务端回读的 启用/单轮上限/并发 是否与提交一致，对不上明确提示「需重启本地服务」。）

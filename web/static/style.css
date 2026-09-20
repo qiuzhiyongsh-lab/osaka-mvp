@@ -700,6 +700,16 @@ details.sec > .secbody{padding:10px 18px 14px}
 /* 该组一级未勾选 → 其二级置灰、不可点 */
 .msp-g2.off .msp-chip{opacity:.42;cursor:not-allowed;background:#f4f6fa}
 .msp-g2.off .msp-chip:hover{border-color:var(--line)}
+/* v1.9.46 PRD：房产状态面板 —— 现状组 Phase 1 灰显 + 手填新增 */
+.msp-sec-disabled{opacity:.5}
+.msp-sec-disabled .msp-sec-h b{color:var(--sub)}
+.msp-sec-disabled .msp-chip{cursor:not-allowed;background:#f4f6fa}
+.msp-add{display:flex;align-items:center;gap:6px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--line-soft)}
+.msp-add input{flex:1;min-width:0;padding:5px 9px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff}
+.msp-add input:focus{outline:none;border-color:var(--brand-ink)}
+.msp-add button{padding:5px 12px;font-size:12.5px;border-radius:8px}
+.msp-chip-custom{background:#fff7e8;border-color:#f0d9a8}
+.msp-chip-custom:has(input:checked){background:#fff1d6;border-color:#e7c277}
 .msp input[type=checkbox]{width:14px;height:14px;min-width:14px;padding:0;margin:0;
   border:0;background:none;accent-color:var(--brand-ink);cursor:pointer;flex:0 0 auto}
 .msp input[type=checkbox]:disabled{cursor:not-allowed}

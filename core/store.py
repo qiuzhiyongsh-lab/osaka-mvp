@@ -870,6 +870,29 @@ class Store:
                 _tt_frags.append("json_extract(detail_json, '$.trade_type') LIKE ?")
                 args.append("%" + _tt + "%")
             where.append("(" + " OR ".join(_tt_frags) + ")")
+        # v1.9.46 PRD：房产状态搜索条件。
+        # 公开状态组（Phase 1 即用工）：public_status 是 detail_json 扁平键（与 trade_type 同理），
+        # 值非多行枚举，故用精确 = 匹配；__none__ 特判 = 字段为 '-'（REINS 占位符）或缺失（NULL）。
+        # 现状组（Phase 2 启用）：status_now 键当前库 0 命中（尚未抓取），预留过滤通道，灰显不影响。
+        # 证据：真实库 public_status 分布 = 公開中1578 / 申込あり175 / 一時停止13 / '-'2106 / NULL500（总4372）。
+        pss = [x for x in (f.get("public_statuses") or []) if x]
+        if pss:
+            frags = []
+            for v in pss:
+                if v == "__none__":
+                    frags.append("(json_extract(detail_json,'$.public_status') IS NULL OR json_extract(detail_json,'$.public_status')='-')")
+                else:
+                    frags.append("json_extract(detail_json,'$.public_status') = ?"); args.append(v)
+            where.append("(" + " OR ".join(frags) + ")")
+        sns = [x for x in (f.get("status_nows") or []) if x]
+        if sns:
+            frags = []
+            for v in sns:
+                if v == "__none__":
+                    frags.append("(json_extract(detail_json,'$.status_now') IS NULL OR json_extract(detail_json,'$.status_now')='')")
+                else:
+                    frags.append("json_extract(detail_json,'$.status_now') = ?"); args.append(v)
+            where.append("(" + " OR ".join(frags) + ")")
         if f.get("date"):
             # v1.5.4：日期口径 = **REINS 平台的新建/变更日**，不是我方下载日。
             # 【为什么必须换·用户原话】"我这里面的日期应该是实际在平台中新建或者是变更的日期，

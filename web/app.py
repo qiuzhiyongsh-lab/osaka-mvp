@@ -1734,6 +1734,10 @@ def api_query():
         # v1.7.6：支持多选（OR）—— 前端每个选中值重复传 trade_type 参数，后端收成列表。
         "trade_types": [t.strip() for t in request.args.getlist("trade_type") if t.strip()],
         "trade_type": (request.args.get("trade_type") or "").strip(),
+        # v1.9.46 PRD：房产状态（公开状态组 public_statuses + 现状组 status_nows，均多选 OR）。
+        # 前端每个选中值重复传一个 public_status / status_now 参数，后端 getlist 收成列表。
+        "public_statuses": [s.strip() for s in request.args.getlist("public_status") if s.strip()],
+        "status_nows": [s.strip() for s in request.args.getlist("status_now") if s.strip()],
         "date": request.args.get("date", ""),
         # v1.7.0：日期时间段（起~止）
         "date_from": request.args.get("date_from", ""),
