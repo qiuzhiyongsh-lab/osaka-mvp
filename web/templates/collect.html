@@ -273,6 +273,58 @@
   <script>window.__aiReadKinds = {{ (cfg.get('ai_read_scope') or []) | tojson }};</script>
 </div>
 
+<!-- ============ AI 读取时间（v1.9.39 / PRD-25 R6：自动生成调度 + 手动正式生成） ============ -->
+<div class="card step" id="aiTimeCard">
+  <div class="step-head">
+    <span class="step-no">AI</span>
+    <h2>AI 读取时间
+      <span class="hint">把「PDF→结构化 AI 解读」的自动时间 + 手动启动按钮集中在这里</span></h2>
+    <span class="dot-ind {{ 'on' if ai_sched.enabled else 'off' }}"></span>
+    <span class="muted" id="aiSchedState">{% if ai_sched.enabled %}运行中{% else %}已停止{% endif %}</span>
+  </div>
+
+  <!-- A. 自动生成设置（仿第 5 步 更新方式） -->
+  <div class="sub" style="margin:10px 0 4px;font-weight:600">① 自动生成（每天定时跑）</div>
+  <div class="row" style="margin-bottom:10px">
+    <label class="chk"><input type="checkbox" id="aiAutoEnabled" {{ 'checked' if ai_sched.enabled }}> 启用自动生成</label>
+    <label class="field"><span>运行时段 起</span>
+      <input id="aiWStart" type="time" value="{{ (ai_sched.get('window') or {}).get('start','23:00') }}"></label>
+    <label class="field"><span>运行时段 止</span>
+      <input id="aiWEnd" type="time" value="{{ (ai_sched.get('window') or {}).get('end','06:00') }}"></label>
+    <label class="field"><span>单轮上限（份）</span>
+      <input id="aiMaxPerRun" type="number" min="1" value="{{ ai_sched.get('max_per_run',300) or 300 }}"></label>
+    <label class="field"><span>并发数</span>
+      <input id="aiWorkers" type="number" min="1" value="{{ ai_sched.get('workers',2) or 2 }}"></label>
+    <label class="chk"><input type="checkbox" id="aiForceRerun" {{ 'checked' if ai_sched.get('force_rerun') }}> 强制重跑（忽略已生成）</label>
+  </div>
+  <p class="muted" style="margin:0 0 10px">每晚在你设的时段内，自动把范围内「有 PDF 但还没 AI 解读」的房源补跑（与数据抓取错峰，不碰 REINS 平台）。</p>
+  <div class="row">
+    <button id="aiSchedSaveBtn" onclick="saveAISched()">保存并应用</button>
+    <span class="muted" id="aiSchedMsg"></span>
+  </div>
+  <p class="muted" style="margin:10px 0 0">
+    当前规则：<b id="aiSchedDescribe">{{ ai_sched.get('describe','') }}</b>
+    <span id="aiSchedNext"></span>
+  </p>
+
+  <!-- B. 正式生成（仿第 4 步 下载条件：日期 + 按钮） -->
+  <div class="sub" style="margin:16px 0 4px;font-weight:600">② 正式生成（手动，立即跑）</div>
+  <div class="row" style="margin-bottom:10px">
+    <label class="field"><span>PDF 下载日期</span>
+      <input id="aiGenDate" type="date" value="{{ today }}"></label>
+    <label class="chk"><input type="checkbox" id="aiGenOnlyToday" checked
+      onclick="document.getElementById('aiGenDate').disabled=this.checked"> 仅当天下载</label>
+    <label class="chk"><input type="checkbox" id="aiGenForce"> 强制重跑（忽略已生成）</label>
+  </div>
+  <p class="muted" style="margin:0 0 10px">按「PDF 落盘日期」圈定待生成房源（默认只处理今天的下载）。只补缺失；勾「强制重跑」才整范围重跑。</p>
+  <div class="row">
+    <button onclick="aiGenerate()">正式生成</button>
+    <span class="muted" id="aiGenMsg"></span>
+  </div>
+  <pre id="aiGenProgress" style="display:block;max-height:200px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:10px"></pre>
+  <script>window.__aiSched = {{ (ai_sched or {}) | tojson }};</script>
+</div>
+
 <!-- ============ v1.5.6：上传到线上 ============ -->
 <div class="card step" id="publishCard">
   <h2><span data-i18n="pub.h">上传到线上</span>
@@ -348,6 +400,85 @@ function saveAIRead(){
   });
 }
 loadAIRead();
+/* ---------- v1.9.39 / PRD-25 R6：AI 读取时间（自动生成调度 + 手动正式生成） ---------- */
+function renderAISched(){
+  var s = window.__aiSched || {};
+  var st = document.getElementById('aiSchedState');
+  if(st) st.textContent = s.enabled ? '运行中' : '已停止';
+  var dot = document.querySelector('#aiTimeCard .dot-ind');
+  if(dot) dot.className = 'dot-ind ' + (s.enabled ? 'on' : 'off');
+  var d = document.getElementById('aiSchedDescribe');
+  if(d) d.textContent = s.describe || '';
+  var en = document.getElementById('aiAutoEnabled'); if(en) en.checked = !!s.enabled;
+  var fs = document.getElementById('aiWStart'); if(fs) fs.value = (s.window && s.window.start) || '23:00';
+  var fe = document.getElementById('aiWEnd'); if(fe) fe.value = (s.window && s.window.end) || '06:00';
+  var mp = document.getElementById('aiMaxPerRun'); if(mp) mp.value = s.max_per_run || 300;
+  var wk = document.getElementById('aiWorkers'); if(wk) wk.value = s.workers || 2;
+  var fr = document.getElementById('aiForceRerun'); if(fr) fr.checked = !!s.force_rerun;
+}
+function saveAISched(){
+  var sa = {
+    enabled: document.getElementById('aiAutoEnabled').checked,
+    window: { start: document.getElementById('aiWStart').value,
+              end: document.getElementById('aiWEnd').value },
+    max_per_run: parseInt(document.getElementById('aiMaxPerRun').value, 10) || 300,
+    workers: parseInt(document.getElementById('aiWorkers').value, 10) || 2,
+    force_rerun: document.getElementById('aiForceRerun').checked
+  };
+  postJSON('/api/ai/settings', {schedule_ai: sa}).then(function(j){
+    var m = document.getElementById('aiSchedMsg');
+    if(m) m.textContent = (j && j.status === 'ok') ? '已保存并应用 ✅' : ('失败：' + ((j && j.error) || ''));
+    if(j && j.schedule_ai){ window.__aiSched = j.schedule_ai; renderAISched(); }
+  }).catch(function(e){
+    var m = document.getElementById('aiSchedMsg'); if(m) m.textContent = '保存出错：' + e;
+  });
+}
+async function loadAISchedStatus(){
+  try{
+    var r = await fetch('/api/ai/schedule/status'); var j = await r.json();
+    if(j && j.ok){ window.__aiSched = j; renderAISched();
+      var nx = document.getElementById('aiSchedNext');
+      if(nx){ nx.textContent = '';
+        if(j.next_run_at) nx.textContent += '｜ 下一轮：' + j.next_run_at;
+        if(j.in_window === false) nx.textContent += '｜ 当前不在运行时段';
+      }
+    }
+  }catch(e){ /* 忽略：设置页其他功能不受影响 */ }
+}
+var _aiGenTimer = null;
+function aiGenerate(){
+  var onlyToday = document.getElementById('aiGenOnlyToday').checked;
+  var force = document.getElementById('aiGenForce').checked;
+  var date = document.getElementById('aiGenDate').value || null;
+  postJSON('/api/ai/generate', {date: date, only_today: onlyToday, force: force}).then(function(j){
+    var m = document.getElementById('aiGenMsg');
+    if(m) m.textContent = (j && j.ok) ? ('已启动，共 ' + (j.count || 0) + ' 份') : ('失败：' + ((j && j.error) || ''));
+    if(j && j.ok){ startAIGenPoll(); }
+  }).catch(function(e){ var m = document.getElementById('aiGenMsg'); if(m) m.textContent = '出错：' + e; });
+}
+function startAIGenPoll(){
+  if(_aiGenTimer) clearInterval(_aiGenTimer);
+  _aiGenTimer = setInterval(function(){
+    fetch('/api/ai/generate/status').then(function(r){ return r.json(); }).then(function(j){
+      var job = (j && j.job) || {};
+      var box = document.getElementById('aiGenProgress');
+      if(box){
+        box.textContent =
+          '总 ' + (job.total || 0) + ' ｜ 已完成 ' + (job.done || 0) +
+          ' ｜ 本地 ' + (job.local || 0) + ' ｜ 云端 ' + (job.cloud || 0) +
+          ' ｜ 跳过 ' + (job.skip || 0) + ' ｜ 失败 ' + (job.fail || 0) +
+          (job.running ? ('\n当前：' + (job.current || '')) : '') +
+          (job.finished_at ? ('\n完成于 ' + job.finished_at) : '');
+      }
+      if(job.error){ var m = document.getElementById('aiGenMsg'); if(m) m.textContent += ' ⚠ ' + job.error; }
+      if(!job.running){
+        clearInterval(_aiGenTimer); _aiGenTimer = null;
+        if(job.finished_at){ var m2 = document.getElementById('aiGenMsg'); if(m2) m2.textContent += ' ✅ 完成'; }
+      }
+    }).catch(function(){});
+  }, 1500);
+}
+loadAISchedStatus();
 /* ---------- v1.5.6 上传到线上 ---------- */
 async function loadPublishStatus(){
   try{

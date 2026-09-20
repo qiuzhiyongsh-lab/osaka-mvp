@@ -85,6 +85,11 @@ except Exception as _e:                                     # noqa: BLE001
 acc_mod.init(PATHS["db"])   # PRD-19：账户/审计表建表（幂等，复用主库）
 LOGS: deque[str] = deque(maxlen=400)
 TEST_RESULT: dict = {}            # 测试类操作的结构化结果，供页面轮询展示
+AI_GEN_JOB: dict = {             # 手动「正式生成」进度（设置页轮询展示）
+    "running": False, "trigger": "", "total": 0, "done": 0,
+    "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
+    "current": "", "started_at": "", "finished_at": "", "error": "",
+}
 
 # 日志同时落盘：data/logs/server.log。服务"莫名其妙没了"时靠它查原因。
 LOG_DIR = Path(PATHS["root"]) / "logs"
@@ -972,19 +977,177 @@ def api_ai_structure_edits(property_no: str):
 
 @app.post("/api/ai/settings")
 def api_ai_settings():
-    """保存 AI 读取范围设置（read_kinds → 顶层 ai_read_scope）：空列表=全部種目；非空=只对这些種目做 AI 读取。
+    """保存 AI 设置：① AI 读取范围（read_kinds → 顶层 ai_read_scope）
+    ② 自动生成调度（schedule_ai：启用/时段/并发/强制重跑/历史补跑）。
 
     注意：绝不能写回 cfg["ai"]["read_kinds"] —— ai 块（含真 api_key）在 config.local.yaml，
     cfgmod.save 会把整个 ai 块当私密键剔除（core/config.py VULN-01），read_kinds 永远写不回。
-    故改存顶层 ai_read_scope：不在 local.yaml、也不匹配 SECRET_* 模式，可正常持久化且不泄密。
+    故改存顶层 ai_read_scope / schedule_ai：不在 local.yaml、也不匹配 SECRET_* 模式，
+    可正常持久化且不泄密。
     """
     cfg = _refresh_cfg()
     body = request.get_json(force=True, silent=True) or {}
     if "read_kinds" in body:
         cfg["ai_read_scope"] = [str(x) for x in (body.get("read_kinds") or [])]
+    if "schedule_ai" in body:
+        sa = dict(cfg.get("schedule_ai") or {})
+        incoming = body.get("schedule_ai") or {}
+        # 只收白名单键，避免前端误写 timezone/backfill 等比对键被覆盖
+        for k in ("enabled", "window", "max_per_run", "workers",
+                  "force_rerun", "backfill_all", "backfill_batch"):
+            if k in incoming:
+                v = incoming[k]
+                if k in ("max_per_run", "workers", "backfill_batch"):
+                    try:
+                        v = int(v)
+                    except (TypeError, ValueError):
+                        v = sa.get(k)
+                elif k in ("enabled", "force_rerun", "backfill_all"):
+                    v = bool(v)
+                sa[k] = v
+        cfg["schedule_ai"] = sa
     cfgmod.save(cfg)
-    log(f"[AI设置] ai_read_scope 已保存：{cfg.get('ai_read_scope')}")
-    return jsonify({"status": "ok", "ai_read_scope": cfg.get("ai_read_scope")})
+    # 按 enabled 启停 AIScheduler（不碰私密 ai 块；PRD-25 R6）
+    if "schedule_ai" in body and AI_SCHED is not None:
+        if (cfg.get("schedule_ai") or {}).get("enabled"):
+            AI_SCHED.rearm()
+            AI_SCHED.start()
+        else:
+            AI_SCHED.stop()
+    log(f"[AI设置] ai_read_scope={cfg.get('ai_read_scope')} "
+        f"schedule_ai.enabled={(cfg.get('schedule_ai') or {}).get('enabled')}")
+    return jsonify({"status": "ok",
+                    "ai_read_scope": cfg.get("ai_read_scope"),
+                    "schedule_ai": cfg.get("schedule_ai")})
+
+
+def _ai_generate_candidates(date: str | None, only_today: bool, force: bool) -> list[str]:
+    """按「PDF 下载时间 + 種目范围 + 跳过已生成」圈定待生成番号（手动「正式生成」用）。
+
+    - 日期口径（q-0）：以 PDF 落盘 mtime 作为「下载时间」；only_today=只取今天，
+      date=只取指定日期，二者皆否=不限日期（处理全部匹配 PDF）。
+    - 種目范围：复用 AI 读取范围的 ai_read_scope（空=全部種目）。
+    - 跳过已生成（q-1）：未勾强制重跑时，AI_STORE 已有记录的房源直接跳过。
+    - 防爆炸：超过单轮上限只取前 N，其余交给自动通道/再次点击。
+    """
+    att = PATHS["attachments"]
+    rk = CFG.get("ai_read_scope") or []
+    target = None
+    if only_today:
+        target = datetime.now().date()
+    elif date:
+        try:
+            target = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            target = None
+    cands: list[str] = []
+    for p in att.glob("*.pdf"):
+        try:
+            mtime = datetime.fromtimestamp(p.stat().st_mtime)
+        except Exception:                                       # noqa: BLE001
+            continue
+        if target and mtime.date() != target:
+            continue
+        no = p.stem
+        if rk:
+            prop = STORE.get_property(no)
+            subtype = dict(prop).get("property_subtype", "") if prop else ""
+            if _normalize_kind(subtype) not in rk:
+                continue
+        if not force and AI_STORE.get(no) is not None:
+            continue
+        cands.append(no)
+    cap = int((CFG.get("schedule_ai") or {}).get("max_per_run", 300))
+    return cands[:cap]
+
+
+def _ai_generate_worker(candidates: list[str], force: bool) -> None:
+    """后台线程：逐份跑 AI 抽取，实时更新 AI_GEN_JOB 进度。"""
+    import importlib
+    ai_pipeline = importlib.import_module("core.ai_pipeline")
+    le = CFG.get("local_extract") or {}
+    cfg = dict(le)
+    cfg["ai"] = CFG.get("ai") or {}
+    cfg["prefer_local"] = True
+    cfg["fallback_model"] = bool(cfg.get("fallback_model")) and bool(cfg.get("prefer_local", True))
+    cloud_budget = int(le.get("fallback_max_per_run", 50))
+    done = 0
+    for no in candidates:
+        AI_GEN_JOB["current"] = no
+        try:
+            allow_cloud = AI_GEN_JOB["cloud"] < cloud_budget
+            r = ai_pipeline.run_one(no, PATHS, cfg, AI_STORE,
+                                    force=force, allow_cloud=allow_cloud,
+                                    main_store=STORE)
+            if r.get("ok") and not r.get("skipped"):
+                ai_pipeline.save_fields(AI_STORE, no, r)
+            if r.get("ok"):
+                if r.get("skipped"):
+                    AI_GEN_JOB["skip"] += 1
+                elif r.get("cloud_used"):
+                    AI_GEN_JOB["cloud"] += 1
+                else:
+                    AI_GEN_JOB["local"] += 1
+            else:
+                AI_GEN_JOB["fail"] += 1
+                log(f"[AI生成] {no} 失败：{r.get('error')}")
+        except Exception as e:                                  # noqa: BLE001
+            AI_GEN_JOB["fail"] += 1
+            log(f"[AI生成] {no} 异常：{type(e).__name__}: {e}")
+        done += 1
+        AI_GEN_JOB["done"] = done
+    AI_GEN_JOB["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    AI_GEN_JOB["running"] = False
+    log(f"[AI生成] 完成：{AI_GEN_JOB['done']}/{AI_GEN_JOB['total']} "
+        f"本地{AI_GEN_JOB['local']} 云端{AI_GEN_JOB['cloud']} "
+        f"跳过{AI_GEN_JOB['skip']} 失败{AI_GEN_JOB['fail']}")
+
+
+@app.get("/api/ai/schedule/status")
+def api_ai_schedule_status():
+    """返回 AI 自动生成调度状态（供设置页自动生成卡片回显）。"""
+    if AI_SCHED is None:
+        return jsonify({"ok": False, "error": "AI 定时未初始化"}), 500
+    return jsonify({"ok": True, **AI_SCHED.status()})
+
+
+@app.post("/api/ai/generate")
+def api_ai_generate():
+    """手动「正式生成」：按设置页圈定的范围批量跑 AI 抽取，后台执行 + 进度轮询。
+
+    body: {"date": "YYYY-MM-DD"|null, "only_today": bool, "force": bool}
+    默认只补缺失（有 PDF 但无 AI 解读的房源），勾 force 才整范围重跑。
+    """
+    _refresh_cfg()
+    if AI_GEN_JOB["running"]:
+        return jsonify({"ok": False, "error": "已有正式生成在跑，请稍后",
+                        "job": AI_GEN_JOB}), 409
+    body = request.get_json(force=True, silent=True) or {}
+    date = body.get("date") or None
+    only_today = bool(body.get("only_today"))
+    force = bool(body.get("force"))
+    cands = _ai_generate_candidates(date, only_today, force)
+    if not cands:
+        return jsonify({"ok": True,
+                        "message": "没有需要生成的房源（范围内无匹配 PDF，或均已生成）",
+                        "count": 0, "job": AI_GEN_JOB})
+    AI_GEN_JOB.update({
+        "running": True, "trigger": "manual", "total": len(cands), "done": 0,
+        "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
+        "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "finished_at": "", "error": "",
+    })
+    threading.Thread(target=_ai_generate_worker, args=(cands, force),
+                     daemon=True, name="ai-generate").start()
+    log(f"[AI生成] 启动：范围={len(cands)} 份（only_today={only_today} "
+        f"date={date} force={force}）")
+    return jsonify({"ok": True, "count": len(cands), "job": AI_GEN_JOB})
+
+
+@app.get("/api/ai/generate/status")
+def api_ai_generate_status():
+    """轮询手动「正式生成」进度。"""
+    return jsonify({"ok": True, "job": AI_GEN_JOB})
 
 
 @app.get("/compare")
@@ -1227,6 +1390,8 @@ def collect():
     _refresh_cfg()
     return render_template("collect.html",
                            cfg=CFG, sched=SCHED.status(),
+                           ai_sched=(AI_SCHED.status() if AI_SCHED else {}),
+                           ai_read_scope=(CFG.get("ai_read_scope") or []),
                            sess=_session_info(),
                            creds=creds_mod.status(PATHS["root"]),
                            test=dict(TEST_RESULT),

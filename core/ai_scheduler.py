@@ -115,6 +115,11 @@ class AIScheduler:
             "last_result": self.last_result,
             "last_error": self.last_error,
             "last_run_date": self._last_run_date,
+            "max_per_run": int(sa.get("max_per_run", 300)),
+            "workers": int(sa.get("workers", 2)),
+            "force_rerun": bool(sa.get("force_rerun")),
+            "backfill_all": bool(sa.get("backfill_all")),
+            "backfill_batch": int(sa.get("backfill_batch", 300)),
         }
 
     # ---------------- 启停 ----------------
@@ -243,91 +248,118 @@ class AIScheduler:
     # ---------------- 跑一轮 ----------------
     def run_now(self, trigger: str = "manual", limit: int | None = None,
                 force: bool | None = None) -> dict:
-        """立即跑一轮。返回统计 dict。已在跑则返回 busy。"""
+        """立即跑一轮（自动通道用）。返回统计 dict。已在跑则返回 busy。"""
         if self._busy.is_set():
             return {"status": "busy", "message": "已有 AI 抽取在跑，请稍后"}
         if self.store is None:
             return {"status": "error", "message": "AI 独立库未初始化"}
         self._busy.set()
-        t0 = time.time()
         try:
-            # 绝对导入：作为 core 包成员（Web 服务）与直接跑脚本（CLI）都能用，
-            # 用 `from . import` 在 `python core/ai_scheduler.py` 下会报 no known parent package。
-            import importlib
-            ai_pipeline = importlib.import_module("core.ai_pipeline")
-            sa, le = self._sa(), self._le()
-            if not le.get("enabled", True):
-                return {"status": "off", "message": "local_extract.enabled=false"}
-
             queue, qnote = self._queue()
             if limit:
                 queue = queue[:int(limit)]
-            force = bool(sa.get("force_rerun")) if force is None else force
-
-            cfg = dict(le)
-            cfg["ai"] = self.cfg.get("ai") or {}
-            # D1 硬规则：prefer_local=false 时才允许无条件走云端（默认 True）
-            cfg["fallback_model"] = bool(cfg.get("fallback_model")) and bool(cfg.get("prefer_local", True))
-
-            run_id = self.store.start_run(trigger, len(queue))
-            self.log(f"[AI定时] 本轮开始：{qnote}")
-
-            stats = {"total": len(queue), "local": 0, "cloud": 0, "skip": 0,
-                     "fail": 0, "pending": 0}
-            cloud_budget = int(le.get("fallback_max_per_run", 50))
-            pending_nos: list[str] = []
-            workers = max(1, int(sa.get("workers", 2)))
-
-            def _one(no: str) -> tuple[str, dict]:
-                try:
-                    ctx = self.ctx_fn(no) or {}
-                    allow_cloud = stats["cloud"] < cloud_budget
-                    r = ai_pipeline.run_one(no, self.paths, cfg, self.store,
-                                            ctx=ctx, force=force,
-                                            allow_cloud=allow_cloud)
-                    if r.get("ok") and not r.get("skipped"):
-                        ai_pipeline.save_fields(self.store, no, r)
-                    return no, r
-                except FileNotFoundError:
-                    return no, {"ok": False, "error": "PDF 不存在"}
-                except Exception as e:                          # noqa: BLE001
-                    return no, {"ok": False, "error": f"{type(e).__name__}: {e}"}
-
-            with ThreadPoolExecutor(max_workers=workers) as ex:
-                for no, r in ex.map(_one, queue):
-                    if r.get("ok"):
-                        if r.get("skipped"):
-                            stats["skip"] += 1
-                        elif r.get("cloud_used"):
-                            stats["cloud"] += 1
-                        else:
-                            stats["local"] += 1
-                    else:
-                        stats["fail"] += 1
-                        pending_nos.append(no)
-                        self.log(f"[AI定时] {no} 失败：{r.get('error')}")
-
-            # 超出单轮上限的顺延到下一轮（不是裁掉）
-            cap = int(sa.get("max_per_run", 300)) if not limit else int(limit)
-            stats["pending"] = len(pending_nos) + max(0, stats["total"] - cap)
-            stats["done"] = stats["local"] + stats["cloud"]
-            stats["ms"] = int((time.time() - t0) * 1000)
-            self.store.finish_run(run_id, stats, json.dumps(pending_nos[:500]))
-            self._last_run_date = datetime.now().strftime("%Y-%m-%d")
-            self.last_result = stats
-            hit = (f"{stats['local']}/{max(1, stats['done'])}"
-                   if stats["done"] else "—")
-            self.log(f"[AI定时] 本轮完成：处理{stats['total']} 成功{stats['done']}"
-                     f" 跳过{stats['skip']} 失败{stats['fail']}"
-                     f"｜本地命中率 {hit}｜云端调用 {stats['cloud']} 次"
-                     f"｜未完成 {stats['pending']}｜耗时 {stats['ms']}ms")
-            return stats
+            return self._run_batch(queue, trigger, force, qnote)
         except Exception as e:                                 # noqa: BLE001
             self.last_error = f"{type(e).__name__}: {e}"
-            self.log(f"[AI定时] 本轮异常：{self.last_error}")
+            self.log(f"[AI定时] run_now 异常：{self.last_error}")
             return {"status": "error", "message": self.last_error}
         finally:
             self._busy.clear()
+
+    def generate(self, candidates: list[str], trigger: str = "manual-generate",
+                 force: bool | None = None) -> dict:
+        """手动「正式生成」：对给定番号列表跑 AI 抽取。返回统计 dict。
+
+        candidates 由调用方（设置页接口）按「PDF 下载时间 + 種目范围 +
+        跳过已生成」圈定后传入；与 run_now 共用 _run_batch 的管道与并发逻辑。
+        """
+        if self._busy.is_set():
+            return {"status": "busy", "message": "已有 AI 抽取在跑，请稍后"}
+        if self.store is None:
+            return {"status": "error", "message": "AI 独立库未初始化"}
+        self._busy.set()
+        try:
+            queue = [str(x) for x in (candidates or [])]
+            return self._run_batch(queue, trigger, force, f"手动生成 {len(queue)} 份")
+        except Exception as e:                                 # noqa: BLE001
+            self.last_error = f"{type(e).__name__}: {e}"
+            self.log(f"[AI定时] generate 异常：{self.last_error}")
+            return {"status": "error", "message": self.last_error}
+        finally:
+            self._busy.clear()
+
+    def _run_batch(self, queue: list[str], trigger: str,
+                   force: bool | None, qnote: str) -> dict:
+        """对 queue 跑一轮 AI 抽取（run_now / generate 共用）。"""
+        t0 = time.time()
+        # 绝对导入：作为 core 包成员（Web 服务）与直接跑脚本（CLI）都能用，
+        # 用 `from . import` 在 `python core/ai_scheduler.py` 下会报 no known parent package。
+        import importlib
+        ai_pipeline = importlib.import_module("core.ai_pipeline")
+        sa, le = self._sa(), self._le()
+        if not le.get("enabled", True):
+            return {"status": "off", "message": "local_extract.enabled=false"}
+
+        force = bool(sa.get("force_rerun")) if force is None else force
+
+        cfg = dict(le)
+        cfg["ai"] = self.cfg.get("ai") or {}
+        # D1 硬规则：prefer_local=false 时才允许无条件走云端（默认 True）
+        cfg["fallback_model"] = bool(cfg.get("fallback_model")) and bool(cfg.get("prefer_local", True))
+
+        run_id = self.store.start_run(trigger, len(queue))
+        self.log(f"[AI定时] 本轮开始：{qnote}")
+
+        stats = {"total": len(queue), "local": 0, "cloud": 0, "skip": 0,
+                 "fail": 0, "pending": 0}
+        cloud_budget = int(le.get("fallback_max_per_run", 50))
+        pending_nos: list[str] = []
+        workers = max(1, int(sa.get("workers", 2)))
+
+        def _one(no: str) -> tuple[str, dict]:
+            try:
+                ctx = self.ctx_fn(no) or {}
+                allow_cloud = stats["cloud"] < cloud_budget
+                r = ai_pipeline.run_one(no, self.paths, cfg, self.store,
+                                        ctx=ctx, force=force,
+                                        allow_cloud=allow_cloud)
+                if r.get("ok") and not r.get("skipped"):
+                    ai_pipeline.save_fields(self.store, no, r)
+                return no, r
+            except FileNotFoundError:
+                return no, {"ok": False, "error": "PDF 不存在"}
+            except Exception as e:                          # noqa: BLE001
+                return no, {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for no, r in ex.map(_one, queue):
+                if r.get("ok"):
+                    if r.get("skipped"):
+                        stats["skip"] += 1
+                    elif r.get("cloud_used"):
+                        stats["cloud"] += 1
+                    else:
+                        stats["local"] += 1
+                else:
+                    stats["fail"] += 1
+                    pending_nos.append(no)
+                    self.log(f"[AI定时] {no} 失败：{r.get('error')}")
+
+        # 超出单轮上限的顺延到下一轮（不是裁掉）
+        cap = int(sa.get("max_per_run", 300))
+        stats["pending"] = len(pending_nos) + max(0, stats["total"] - cap)
+        stats["done"] = stats["local"] + stats["cloud"]
+        stats["ms"] = int((time.time() - t0) * 1000)
+        self.store.finish_run(run_id, stats, json.dumps(pending_nos[:500]))
+        self._last_run_date = datetime.now().strftime("%Y-%m-%d")
+        self.last_result = stats
+        hit = (f"{stats['local']}/{max(1, stats['done'])}"
+               if stats["done"] else "—")
+        self.log(f"[AI定时] 本轮完成：处理{stats['total']} 成功{stats['done']}"
+                 f" 跳过{stats['skip']} 失败{stats['fail']}"
+                 f"｜本地命中率 {hit}｜云端调用 {stats['cloud']} 次"
+                 f"｜未完成 {stats['pending']}｜耗时 {stats['ms']}ms")
+        return stats
 
 
 if __name__ == "__main__":                                     # CLI：今晚就能手动试跑
