@@ -379,7 +379,7 @@ def api_ingest():
     body = request.get_json(force=True, silent=True) or {}
     rows = body.get("rows")
     if not isinstance(rows, list):
-        return jsonify({"ok": False, "error": "rows 必须是数组"}), 400
+        rows = []          # v1.9.38：允许「纯 AI 推送」（只带 ai_structure、不带 rows）
     clean = []
     for r in rows:
         if not isinstance(r, dict) or not r.get("property_no"):
