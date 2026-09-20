@@ -247,4 +247,55 @@ def check(col: str, v: Any, ctx: dict | None = None) -> tuple[bool, str, Any]:
     if col == "契約形態":
         return (len(s) <= 20), "过长", None
 
+    # ---------- v1.9.36 加列闸门（宁缺勿滥：必须含枚举关键词，排除免责长句）----------
+    # 实测教训：初版用 `len>=2` 兜底 → 把「駐輪場=等の空き状況は本書作成時点…」
+    # （免责声明）和「セキュリティ=サービス料：月額242円…」（服务费）误放进库。
+    _NOISE_DECL = ("本書", "保証", "状況", "説明", "サービス", "月額", "料金", "費用")
+    if col == "ペット（飼育可）":
+        if len(s) > 24:
+            return False, "过长", None
+        return any(k in s for k in ("可", "不可", "相談", "飼育", "ペット")), "非宠物表述", None
+    if col == "権利形態":
+        if len(s) > 16 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("所有権", "借地", "地上権", "定期", "普通", "権利")), "非权利形态", None
+    if col == "前面道路":
+        if len(s) > 36 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("道路", "幅員", "公道", "私道", "ｍ", "m", "接道")), "非道路表述", None
+    if col == "セキュリティ":
+        if len(s) > 24 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("オートロック", "防犯", "セキュリティ", "有", "無", "なし", "あり")), "非安防表述", None
+    if col == "駐輪場・バイク置場":
+        if len(s) > 36 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("有", "無", "なし", "空", "月額", "円", "設置", "可能", "不要")), "非駐輪場表述", None
+    if col == "エレベーター":
+        if len(s) > 12 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("有", "無", "なし", "基", "台", "以上", "エレベーター")), "非电梯表述", None
+    if col in ("建蔽率", "容積率"):
+        if any(n in s for n in _NOISE_DECL):
+            return False, "免责噪声", None
+        m = re.search(r"(\d{1,4})\s*%", s)
+        if not m:
+            return False, "非百分比", None
+        n = int(m.group(1))
+        if not (1 <= n <= 1000):
+            return False, "比率不合理", None
+        return True, "", s
+    if col == "地目":
+        if len(s) > 10 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("宅地", "田", "畑", "雑種地", "山林", "公園", "道", "池", "地目")), "非地目表述", None
+    if col == "バルコニー方向":
+        if len(s) > 12 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("南", "北", "東", "西", "向", "方位")), "非方位表述", None
+    if col == "リフォーム履歴":
+        if len(s) > 28 or any(n in s for n in _NOISE_DECL):
+            return False, "过长/免责噪声", None
+        return any(k in s for k in ("有", "済", "無", "なし", "年", "改装", "リフォーム")), "非改装表述", None
+
     return False, "无校验规则", None

@@ -238,12 +238,46 @@ def main(xlsx: Path = DEFAULT_XLSX):
     meta = load_field_meta(ws_meta)
     # v1.9.34（PRD-25 扩字段）：「共用施設（会所）」不在原 Excel 字段说明 59 列里，
     #   这里保证无论 Excel 是否含该列，独立库字段字典都带它（避免 re-import 被 replace_field_meta 洗掉）。
-    _EXTRA_META = [{
-        "col_name": "共用施設", "seq": 60, "group_key": "building",
-        "group_cn": "建筑与年代", "zh": "共用设施", "zh_tw": "共用設施",
-        "en": "Common Facilities", "ja": "共用施設",
-        "source": "PDF视觉补充", "note": "会所/集会所/健身房/泳池等",
-    }]
+    _EXTRA_META = [
+        {"col_name": "共用施設", "seq": 60, "group_key": "building",
+         "group_cn": "建筑与年代", "zh": "共用设施", "zh_tw": "共用設施",
+         "en": "Common Facilities", "ja": "共用施設",
+         "source": "PDF视觉补充", "note": "会所/集会所/健身房/泳池等"},
+        # v1.9.36 加列（与 _diag_seed_new_cols.py 保持一致，保证 Excel re-import 不丢）
+        {"col_name": "ペット（飼育可）", "seq": 61, "group_key": "status", "group_cn": "现状与交付",
+         "zh": "能否饲养宠物", "zh_tw": "可否飼養寵物", "en": "Pet Allowed", "ja": "ペット（飼育可）",
+         "source": "PDF视觉补充", "note": "可/不可/相談"},
+        {"col_name": "権利形態", "seq": 62, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "权利形态", "zh_tw": "權利形態", "en": "Title Type", "ja": "権利形態",
+         "source": "PDF视觉补充", "note": "所有権/借地権"},
+        {"col_name": "前面道路", "seq": 63, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "临路情况", "zh_tw": "臨路情況", "en": "Road Frontage", "ja": "前面道路",
+         "source": "PDF视觉补充", "note": "幅員/公道/私道"},
+        {"col_name": "セキュリティ", "seq": 64, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "安防", "zh_tw": "安防", "en": "Security", "ja": "セキュリティ",
+         "source": "PDF视觉补充", "note": "オートロック/防犯"},
+        {"col_name": "駐輪場・バイク置場", "seq": 65, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "自行车/摩托车位", "zh_tw": "自行車/機車位", "en": "Bike/Moto Parking", "ja": "駐輪場・バイク置場",
+         "source": "PDF视觉补充", "note": "有/無/月額"},
+        {"col_name": "エレベーター", "seq": 66, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "电梯", "zh_tw": "電梯", "en": "Elevator", "ja": "エレベーター",
+         "source": "PDF视觉补充", "note": "有/無/基"},
+        {"col_name": "建蔽率", "seq": 67, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "建筑覆盖率", "zh_tw": "建蔽率", "en": "Building Coverage", "ja": "建蔽率",
+         "source": "PDF视觉补充", "note": "%"},
+        {"col_name": "容積率", "seq": 68, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "容积率", "zh_tw": "容積率", "en": "Floor Area Ratio", "ja": "容積率",
+         "source": "PDF视觉补充", "note": "%"},
+        {"col_name": "地目", "seq": 69, "group_key": "building", "group_cn": "建筑与年代",
+         "zh": "地目", "zh_tw": "地目", "en": "Land Category", "ja": "地目",
+         "source": "PDF视觉补充", "note": "宅地/田/畑"},
+        {"col_name": "バルコニー方向", "seq": 70, "group_key": "layout", "group_cn": "户型与面积",
+         "zh": "阳台朝向", "zh_tw": "陽台朝向", "en": "Balcony Direction", "ja": "バルコニー方向",
+         "source": "PDF视觉补充", "note": "南/北/東/西向"},
+        {"col_name": "リフォーム履歴", "seq": 71, "group_key": "comment", "group_cn": "描述与备注",
+         "zh": "翻新履历", "zh_tw": "翻新履歷", "en": "Renovation History", "ja": "リフォーム履歴",
+         "source": "PDF视觉补充", "note": "有/無/年"},
+    ]
     _have = {m["col_name"] for m in meta}
     for m in _EXTRA_META:
         if m["col_name"] not in _have:

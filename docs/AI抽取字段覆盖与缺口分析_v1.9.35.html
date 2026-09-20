@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 抽取字段覆盖与缺口分析 · v1.9.35 发版前体检</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:24px;color:#1f2933;line-height:1.6;}
+  h1{font-size:22px;border-bottom:3px solid #2b6cb0;padding-bottom:8px;}
+  h2{font-size:18px;margin-top:28px;color:#2b6cb0;}
+  h3{font-size:15px;margin-top:18px;color:#334;}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;}
+  th,td{border:1px solid #d0d7de;padding:6px 9px;text-align:left;vertical-align:top;}
+  th{background:#eef3f8;}
+  .ok{background:#e6ffed;color:#1a7f37;font-weight:600;}
+  .miss{background:#ffeef0;color:#cf222e;font-weight:600;}
+  .warn{background:#fff8e6;color:#9a6700;font-weight:600;}
+  .p0{background:#d73a49;color:#fff;padding:1px 6px;border-radius:3px;font-size:12px;}
+  .p1{background:#fb8500;color:#fff;padding:1px 6px;border-radius:3px;font-size:12px;}
+  .p2{background:#8ea0b7;color:#fff;padding:1px 6px;border-radius:3px;font-size:12px;}
+  .note{background:#f6f8fa;border-left:4px solid #2b6cb0;padding:8px 12px;margin:10px 0;font-size:13px;}
+  .kv{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;}
+  .card{border:1px solid #d0d7de;border-radius:8px;padding:12px 16px;margin:12px 0;background:#fff;}
+  .summary{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;}
+  .chip{background:#2b6cb0;color:#fff;border-radius:20px;padding:6px 14px;font-size:13px;}
+</style>
+</head>
+<body>
+<h1>AI 抽取字段覆盖与缺口分析 — v1.9.35 发版前体检</h1>
+<p class="note">目的：① 把勇哥截图红框标注的字段逐条与现有 AI 表 60 列比对，找出「PDF 有但 AI 表没有」的缺口（<b>宠物必须单独列</b>）；② 实跑 3 个真实 PDF，量化能补多少；③ 发版前查后台情况，给出双后台防冲突机制。本次<b>不发布</b>，仅诊断。</p>
+
+<div class="summary">
+  <span class="chip">现有 AI 表：60 列</span>
+  <span class="chip">3 PDF 实跑：19 / 13 / 9 字段</span>
+  <span class="chip">建议新增列：13 项</span>
+  <span class="chip">P0 必加：ペット（宠物）</span>
+</div>
+
+<h2>一、截图红框字段 × 现有 60 列对照</h2>
+<p>以 REINS 物件詳細 PDF（グランフロント大阪オーナーズタワー 即 `300139241123`）红框标注字段为基准，对照 <code>ai_field_meta</code> 现有 60 列。</p>
+<table>
+<tr><th>截图标注字段</th><th>状态</th><th>对应列 / 缺口说明</th></tr>
+<tr><td>価格</td><td class="ok">已有</td><td>価格（税込・万円）/（円）/ 単価（円/㎡）/（円/坪）</td></tr>
+<tr><td>物件名 / 建物名称</td><td class="ok">已有</td><td>物件名（col4）</td></tr>
+<tr><td>所在地 + 区</td><td class="ok">已有</td><td>所在地（col5）+ 区（col6）</td></tr>
+<tr><td>最寄駅 / 交通</td><td class="ok">已有</td><td>最寄駅1（col12）</td></tr>
+<tr><td>間取り</td><td class="ok">已有</td><td>間取り（col13）</td></tr>
+<tr><td>専有面積（㎡/坪）</td><td class="ok">已有</td><td>専有面積（㎡）（col14）/（坪）（col15）</td></tr>
+<tr><td>バルコニー面積</td><td class="ok">已有</td><td>バルコニー（col18，已接受 テラス/ルーフバルコニー）</td></tr>
+<tr><td>所在階 / 地上階数</td><td class="ok">已有</td><td>所在階（col19）/ 地上階数（col20）</td></tr>
+<tr><td>築年月 / 構造</td><td class="ok">已有</td><td>築年月（原文）（col21）/ 構造（原文）（col23）</td></tr>
+<tr><td>総戸数</td><td class="ok">已有</td><td>総戸数（戸）（col25）</td></tr>
+<tr><td>用途地域</td><td class="ok">已有</td><td>用途地域（col26）</td></tr>
+<tr><td>管理費 / 積立金 / その他 / 合計</td><td class="ok">已有</td><td>col27-30</td></tr>
+<tr><td>管理形態 / 管理会社 / 管理体制</td><td class="warn">合并</td><td>现有「管理体制」(col32) 已承载「全部委託」等形態+会社名；勇哥截图分列 → 建议拆「管理形態」独立列</td></tr>
+<tr><td>現況 / 引渡 / 引渡時期</td><td class="ok">部分</td><td>現況(col33)/建物引渡(col36) 已有；<b>引渡時期（即時/相談/年月）缺列</b></td></tr>
+<tr><td>駐車場</td><td class="ok">已有</td><td>駐車場（col37）</td></tr>
+<tr><td>設備・条件</td><td class="ok">已有</td><td>設備・条件（col38，已接受「仕様」）</td></tr>
+<tr><td>セキュリティ（オートロック等）</td><td class="miss">缺列</td><td>无独立列（设备・条件可能含部分）</td></tr>
+<tr><td><b>ペット（許容飼育動物）</b></td><td class="miss">缺列</td><td><b>勇哥点名必加</b>；实证 300139241123 原文含「ペット/飼育」</td></tr>
+<tr><td>借地権 / 権利（所有権/借地）</td><td class="miss">缺列</td><td>无「権利」「借地権」列</td></tr>
+<tr><td>前面道路（幅員/接道）</td><td class="miss">缺列</td><td>无「前面道路」列</td></tr>
+<tr><td>登記（済/未登記）</td><td class="miss">缺列</td><td>无「登記」列</td></tr>
+<tr><td>取引形態 / 仲介会社 / TEL / FAX / E-MAIL / 住所</td><td class="ok">已有</td><td>col39,43-48</td></tr>
+<tr><td>物件コメント / 注意事項</td><td class="ok">已有</td><td>col58,59</td></tr>
+<tr><td>地図</td><td class="ok">已有</td><td>地図有無（col56）</td></tr>
+<tr><td>建蔽率 / 容積率</td><td class="miss">缺列</td><td>投资关键规划指标，多数塔楼 PDF 不含此栏（需扩 RULES）</td></tr>
+<tr><td>地目</td><td class="miss">缺列</td><td>无「地目」列</td></tr>
+<tr><td>駐輪場 / バイク置場</td><td class="miss">缺列</td><td>駐車場已有，駐輪/バイク未单列</td></tr>
+<tr><td>ガス / 給排水 / エレベーター</td><td class="miss">缺列</td><td>设备・条件可能含部分，未单列</td></tr>
+<tr><td>敷地権 / バルコニー方向（方位）</td><td class="miss">缺列</td><td>无「敷地権」「バルコニー方向」列</td></tr>
+<tr><td>リフォーム / リノベ履歴</td><td class="miss">缺列</td><td>无「リフォーム」列</td></tr>
+</table>
+
+<h2>二、3 个真实 PDF 实跑对照（「象这样的」显示）</h2>
+
+<div class="card">
+<h3>① 300139241123 · グランフロント大阪オーナーズタワー（= 截图那套）</h3>
+<p class="kv">字段数 <b>19</b> ｜ 优先列命中 <b>11/12</b>（仅 建物引渡 因「時期相談」被「現況 居住中」行拆散而缺失，宁缺勿滥）｜ rejected 2</p>
+<table>
+<tr><th>列</th><th>值</th></tr>
+<tr><td>所在地</td><td>大阪府大阪市北区大深町3-40</td></tr>
+<tr><td>構造（原文）</td><td>鉄筋コンクリート造地下1階付地上48階建42階部分</td></tr>
+<tr><td>最寄駅1</td><td>ＪＲ大阪環状線｢大阪｣駅徒歩7分</td></tr>
+<tr><td>会社住所</td><td>〒530-0001 大阪府大阪市北区梅田3-2-123 イノゲート大阪18</td></tr>
+<tr><td>総戸数</td><td>525</td></tr>
+<tr><td>管理費・積立金等合計</td><td>80050 円/月</td></tr>
+<tr><td>管理体制</td><td>管理会社に全部委託管理方式</td></tr>
+<tr><td>現況</td><td>居住中時期相談</td></tr>
+<tr><td>バルコニー</td><td>テラス</td></tr>
+<tr><td>共用施設</td><td>(一部有償) SNS</td></tr>
+<tr><td>設備・条件</td><td>仕様</td></tr>
+<tr><td>駐車場</td><td>空無</td></tr>
+<tr><td>注意事項</td><td>現況優先となることをご了承願います｡</td></tr>
+<tr><td>積立金 / その他</td><td>31500 / 1300 円/月</td></tr>
+<tr><td>E-MAIL / FAX / 担当者</td><td>e-umeda@stepon.co.jp / 06-6344-1847 / 角垣康太</td></tr>
+</table>
+<p class="note">缺口扫描：原文<b>含 ペット/飼育、借地期間、所有権、ガス/エレベーター、駐輪場</b> → 这些 PDF 里真的有，但 AI 表没列，<b>能补</b>。</p>
+</div>
+
+<div class="card">
+<h3>② 300140713692 · グラングリーン大阪 ＴＨＥ ＮＯＲＴＨ ＲＥＪＩＤＥＮＣＥ</h3>
+<p class="kv">字段数 <b>13</b> ｜ 优先列命中 <b>6/12</b> ｜ rejected 7 ｜ <span class="warn">质量偏差，误抓明显</span></p>
+<table>
+<tr><th>列</th><th>值</th><th>评估</th></tr>
+<tr><td>管理体制</td><td>全部委託</td><td class="ok">ok</td></tr>
+<tr><td>現況</td><td>空家</td><td class="ok">ok</td></tr>
+<tr><td>構造（原文）</td><td>RC造一部鉄骨造</td><td class="ok">ok</td></tr>
+<tr><td>総戸数</td><td>484</td><td class="ok">ok</td></tr>
+<tr><td>建物引渡</td><td>即時 ( )</td><td class="ok">ok</td></tr>
+<tr><td>会社住所</td><td>540-0026</td><td class="warn">只抓到邮编，地址漏</td></tr>
+<tr><td>共用施設</td><td>即時</td><td class="miss">误抓（应是空家/引渡语义）</td></tr>
+<tr><td>担当者連絡先</td><td>特記事項</td><td class="miss">误抓（标签当值）</td></tr>
+<tr><td>報酬形態 / 手数料</td><td>2.75％（税別）</td><td class="ok">ok</td></tr>
+</table>
+<p class="note">缺口扫描：含 セキュリティ、管理形態、引渡時期、所有権、敷地権。说明这套 PDF 信息也丰富，但<b>当前规则漏抓严重</b>。</p>
+</div>
+
+<div class="card">
+<h3>③ 300139229454 · グランドメゾン新梅田タワー ＴＨＥ ＣＬＵＢ ＲＥＳＩＤＥＮＣＥ</h3>
+<p class="kv">字段数 <b>9</b> ｜ 优先列命中 <b>5/12</b> ｜ rejected 4 ｜ <span class="warn">质量最差</span></p>
+<table>
+<tr><th>列</th><th>值</th><th>评估</th></tr>
+<tr><td>管理体制</td><td>全部委託 (24時間有人管理)</td><td class="ok">ok</td></tr>
+<tr><td>現況</td><td>空室</td><td class="ok">ok</td></tr>
+<tr><td>最寄駅1</td><td>JR各線「大阪] 駅徒歩約 14分</td><td class="ok">ok</td></tr>
+<tr><td>総戸数</td><td>871</td><td class="ok">ok</td></tr>
+<tr><td>建物引渡</td><td>相談</td><td class="ok">ok</td></tr>
+<tr><td>共用施設</td><td>半1 /4 NN</td><td class="miss">噪声（OCR 残片）</td></tr>
+<tr><td>FAX</td><td>06-6786-8255</td><td class="ok">ok</td></tr>
+<tr><td>積立金 / 報酬形態</td><td>7150 / 3%(税込)</td><td class="ok">ok</td></tr>
+</table>
+<p class="note">缺口扫描：这套 PDF 文字层几乎不含 ペット/借地/セキュリティ/権利/道路 等 → 可能是图形型 PDF，<b>需 OCR 兜底但当前 OCR 质量不足</b>。</p>
+</div>
+
+<h2>三、质量门问题（先修再加列，否则新列也抽不准）</h2>
+<table>
+<tr><th>PDF</th><th>误抓 / 漏抓</th><th>根因</th></tr>
+<tr><td>300140713692</td><td>担当者連絡先=特記事項；共用施設=即時；会社住所只邮编</td><td>L1 标签当值 + 地址正则未覆盖该标注格式</td></tr>
+<tr><td>300139229454</td><td>共用施設=半1 /4 NN（残片）；会社住所/所在地/構造漏抓</td><td>图形型 PDF，OCR 残片未被闸门拦住；L1 规则覆盖不足</td></tr>
+</table>
+<p class="note"><b>结论</b>：即便现在加「ペット」等列，若质量门不修，新列也会抽到噪声（如把「不可」当「可」）。建议 <b>v1.9.36 先修质量门（残片闸 + DB 对比 + 10% 容差，已有待办）+ v1.9.37 再加宠物等列</b>，或合并为一次发版。</p>
+
+<h2>四、后台冲突体检 + 防冲突机制</h2>
+<h3>4.1 查实事实</h3>
+<table>
+<tr><th>检查项</th><th>结果</th></tr>
+<tr><td>osaka-house-publish 是否 git 仓库</td><td class="warn">否（无 .git）→ 发布工程无版本控制，无法 diff 对方改动</td></tr>
+<tr><td>发布工程 vs 本地 osaka-mvp 差异</td><td class="ok">仅 3 处无害差异：<code>__init__.py</code> / <code>serve_public.py</code> / 发布版 <code>config.yaml</code> / 空 <code>web/__init__.py</code></td></tr>
+<tr><td>是否有「第二后台」直接改过发布目录</td><td class="ok">无（发布目录=本地工程纯镜像）</td></tr>
+<tr><td>线上当前站</td><td>osaka-house-v2.app.workbuddy.host（上次 deploy 健康检查 <code>/api/ping → {"ok":true}</code>）</td></tr>
+<tr><td>同名应用风险</td><td class="warn">记忆记载存在<b>同名第二 app <code>wbapp_L8M4tyzslRfAA0IWoy29Iz</code></b>（与当前 <code>wbapp_C65E82hYRMCjxjcwW2Ph1E</code> 同名「大阪房产查询系统」）→ deploy 若选错 appId 会发到对方</td></tr>
+</table>
+
+<h3>4.2 防冲突机制（建议落地）</h3>
+<table>
+<tr><th>#</th><th>机制</th><th>作用</th></tr>
+<tr><td>1</td><td><b>deploy 显式锁定 appId</b> <code>wbapp_C65E82hYRMCjxjcwW2Ph1E</code></td><td>不靠工具自动定位，杜绝发错同名 app（最硬保障）</td></tr>
+<tr><td>2</td><td>发布前 <code>diff</code> osaka-house-publish vs osaka-mvp（已建立，仅 3 无害差异为「干净」基线）</td><td>确认发布内容=我最新代码，没人偷偷改过发布目录</td></tr>
+<tr><td>3</td><td>发布后查 <code>/api/ping</code> + 首页/footer 版本号（带 cache-buster <code>?ts=</code>）</td><td>确认线上版本=刚发的版本（若版本没变=发错 app 的征兆）</td></tr>
+<tr><td>4</td><td><b>把 osaka-house-publish 纳入 git</b>（init + 每次发布前后 commit）</td><td>两个后台若都往同一目录/同一线上 app 发，能从 git diff 看出「对方改了什么」，避免盲目覆盖</td></tr>
+<tr><td>5</td><td><b>单一权威源</b> = 本地 osaka-mvp（git 受控）；sync_to_publish 是覆盖式 copy_tree</td><td>以本地为准，是谁改的都从本地 replay，不合并未知改动</td></tr>
+</table>
+<p class="note"><b>关键澄清（需勇哥确认）</b>：「那个后台」具体指哪个？三种可能：
+(a) 同名第二线上 app <code>wbapp_L8M4tyzslRfAA0IWoy29Iz</code>；
+(b) 勇哥/豆包在另一工作目录做的另一套代码；
+(c) 「大阪房产软件」上架环节（豆包出码 → 我中转验证 → 上架）。
+确认后我把机制 4 的 git 化 + 机制 1 的 appId 锁定写进发布 SOP，彻底消除冲突。</p>
+
+<h2>五、下一步建议（待勇哥拍板）</h2>
+<table>
+<tr><th>优先级</th><th>动作</th></tr>
+<tr><td><span class="p0">P0</span></td><td>新增「ペット（飼育可/許容飼育動物）」列 + 抽取规则（勇哥点名必加；实证 300139241123 含）</td></tr>
+<tr><td><span class="p1">P1</span></td><td>新增：借地権/権利、前面道路、セキュリティ、引渡時期、登記、駐輪場/バイク置場、ガス/給排水/エレベーター</td></tr>
+<tr><td><span class="p2">P2</span></td><td>新增：建蔽率/容積率、地目、敷地権/バルコニー方向、リフォーム履歴（需扩 RULES，多数塔楼 PDF 无此栏）</td></tr>
+<tr><td><span class="p1">前置</span></td><td>先修质量门（v1.9.36：残片闸 + DB 对比 + 10% 容差），否则新列抽不准</td></tr>
+<tr><td>—</td><td>本地 8765 双击重启才能看到新效果（线上只读站不受影响）</td></tr>
+</table>
+<p class="note">以上为诊断报告，<b>本次未改动代码、未新增列、未发布</b>。勇哥确认加列清单 + 澄清「那个后台」后，我按 8 门禁标准落地下一版（含 checkpoint → sync → deploy 显式锁定 appId）。</p>
+</body>
+</html>
