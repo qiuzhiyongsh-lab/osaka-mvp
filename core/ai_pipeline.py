@@ -32,6 +32,11 @@ from . import pdf_local_extract as L1mod
 
 SOURCE_TAG = "PDF本地提取"          # 写进 structure.field.source，便于区分 DB 源列
 
+# v1.9.33（P0-1）：核心列——详情页手动抽取时「缺任一即强制走 OCR」。
+#   实测 300140580336（图形型 PDF）L1 只出 3 个残片字段、却因 min_fields=3 被判定"本地成功"→
+#   OCR 被短路。key_gate=True（仅手动路径）时对这些核心列强制把关。
+KEY_COLS = ("価格（税込・万円）", "専有面積（㎡）", "間取り", "所在地")
+
 
 # ---------------------------------------------------------------- 工具
 def pdf_hash(pdf_path: str | Path) -> str:

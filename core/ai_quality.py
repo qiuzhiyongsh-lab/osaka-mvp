@@ -98,6 +98,17 @@ def check(col: str, v: Any, ctx: dict | None = None) -> tuple[bool, str, Any]:
     if len(s) > 120:
         return False, "值过长", None
 
+    # ---------- v1.9.33（P0-3）残片拦截加强 ----------
+    # 实测 300140580336：图形型 PDF 的 OCR 残片能骗过闸门——
+    #   ① 担当者連絡先 取到 '確認）'（来自句「…（掲載時要担当者確認）」被截断）
+    #   ② 設備・条件 取到 '_-__、、、'（纯符号）
+    _OPEN = ("（", "(", "「", "『", "【", "〔")
+    _CLOSE = ("）", ")", "」", "』", "】", "〕")
+    if any(c in s for c in _CLOSE) and not any(c in s for c in _OPEN):
+        return False, "疑似括号残片（有右括号无左括号）", None
+    if not re.search(r"[0-9A-Za-z\u3040-\u30ff\u4e00-\u9fff]", s):
+        return False, "无实义字符（纯符号）", None
+
     # ---------- 取到「标签本身」（担当者=取引業態 / 報酬形態=担当者）----------
     # 这类值长度、字符都合法，只有与标签字典比对才能识别出来。
     if s in _label_set():

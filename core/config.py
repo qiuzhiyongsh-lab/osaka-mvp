@@ -27,7 +27,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     # v1.9.26 · PRD 25：两节**带默认值** → 老机器升级后不用手改 config.yaml 也能跑
     "local_extract": {
-        "enabled": True, "prefer_local": True, "min_fields": 3,
+        "enabled": True, "prefer_local": True, "min_fields": 8,
         "ocr_enabled": True, "ocr_dpi": 300, "ocr_lang": "jpn",
         "ocr_timeout_sec": 60, "ocr_max_pages": 1, "tesseract_path": "",
         "fallback_model": True, "fallback_max_per_run": 50,

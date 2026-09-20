@@ -835,6 +835,9 @@ def api_ai_run(property_no: str):
     cfg = dict(le)
     cfg["ai"] = CFG.get("ai") or {}
     cfg["prefer_local"] = True
+    # v1.9.33（P0-1）：详情页手动抽取启用「关键字段缺失即强制 OCR」；
+    #   调度/批量路径不传此开关，只按 min_fields 阈值，避免全量 OCR 拖垮夜间窗口。
+    cfg["key_gate"] = True
     try:
         # allow_cloud=False 是硬要求（D1）：本地没跑满也**绝不**在路由里私自烧钱，
         # 必须先返回 incomplete 让前端问过用户。传 AI_STORE 让 pdf_hash 跳过生效。

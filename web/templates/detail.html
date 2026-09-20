@@ -449,6 +449,9 @@ function runAI(opts){
   /* GAP-1（v1.9.32）：等待秒数实时提示——每秒刷新「稍等… Ns」，
      进入真正读取 / 结果展示后由 aiStopWait() 清除。 */
   var aiWaitSec = 0;
+  /* GAP-1（v1.9.33）：先**立即**显示「稍等… 0s」——本地抽取实测常 <1s，
+     若等第一次 1s tick，秒出场景一次都不会显示（勇哥真机踩到）。 */
+  aiMsg(meta, tf('detail.ai_interpret_wait', {n: aiWaitSec}), false);
   var aiWaitTimer = setInterval(function(){
     aiWaitSec++;
     aiMsg(meta, tf('detail.ai_interpret_wait', {n: aiWaitSec}), false);
