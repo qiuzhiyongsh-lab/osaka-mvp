@@ -455,6 +455,13 @@ class Store:
         if "property_no" not in rec:
             raise ValueError("upsert_property 需要 property_no")
         existing = self.get_property(rec["property_no"])
+        # v1.9.42（勇哥反馈）：有落盘 PDF ⇒ has_floorplan 恒为 1（PDF 就是図面 PDF）。
+        #   v1.8.3 起 PDF 下载已移除「列表図标」门禁（crawler L1681）→ 会出现
+        #   「有 PDF 但列表没有図标 → has_floorplan=0」→ 查询页「図」图标灰掉。
+        #   这里在落库处兜底，且**防回归**：库里已有该房源 PDF 时绝不把它打回 0。
+        if (rec.get("pdf_path") or (existing and dict(existing).get("pdf_path"))) \
+                and not rec.get("has_floorplan"):
+            rec["has_floorplan"] = 1
         # v1.5.4：只要 rec 里带了平台日期原文，就同步算出 ISO 列（便于按平台日期筛选）。
         # 原文不是平台日期（伪造下载日 / 下拉框文案）→ 对应 ISO 列写 NULL，绝不拿脏值凑数。
         if "registration_date" in rec:
@@ -511,6 +518,9 @@ class Store:
                 skipped += 1
                 continue
             rec = {k: v for k, v in raw.items() if k in PROPERTY_COLUMNS}
+            # v1.9.42：与 upsert_property 同一不变式（有 PDF ⇒ 図面=1）。
+            if rec.get("pdf_path") and not rec.get("has_floorplan"):
+                rec["has_floorplan"] = 1
             if "registration_date" in rec:
                 rec["reg_date_iso"] = _to_iso_day(rec["registration_date"])
             if "change_date" in rec:
