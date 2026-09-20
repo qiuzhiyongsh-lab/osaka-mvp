@@ -126,6 +126,22 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
         SCHED.start()
         say(f"· 自动更新已启用：{SCHED.describe()}")
 
+    # v1.9.28：启动后立刻做一次**账号双向同步**（推最新种子上云 + 把员工在线上自设的密码回流）。
+    #   为什么放启动时：这是"线上和本地一定一致"的最强保证 —— 即便上次改账号时网络断了，
+    #   或线上容器被重建回落成旧种子，重启本地服务就自动对齐一次。
+    #   放后台线程：不拖慢启动，也不影响"服务已启动"的提示；失败只记日志。
+    def _boot_account_sync() -> None:
+        try:
+            time.sleep(3)
+            from core import account_sync as accsync
+            res = accsync.sync_now(CFG, log=say)
+            say("· 账号同步（启动）：%s" % ("已对齐" if res.get("ok") else "未完成（见上）"))
+        except Exception as e:                                # noqa: BLE001
+            say(f"· 账号同步（启动）跳过：{type(e).__name__}: {e}")
+
+    threading.Thread(target=_boot_account_sync, daemon=True,
+                     name="account-sync-boot").start()
+
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。
     app.jinja_env.auto_reload = True

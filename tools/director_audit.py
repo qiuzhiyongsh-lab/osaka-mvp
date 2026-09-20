@@ -82,10 +82,38 @@ def check_version():
 
 
 # ─────────────────────────── RD：配置健全性 ───────────────────────────
+# v1.9.22-tools（2026-09-19）修「长期假黄」：
+#   config.yaml 是**发布安全版**（core/config._sanitize 已把 token / ingest_token /
+#   access_code 等私密键剔除后才入库），而真值在 config.local.yaml（gitignored）。
+#   旧实现直接读 config.yaml → 「线上地址（空）」「线上收数令牌缺失」两项**必然误判为黄**
+#   （长期假黄，连日误导晨会日报的决策）。现改为「主配置 + config.local.yaml」深度合并。
+def _deep_merge(base: dict, over: dict) -> dict:
+    """用 over 覆盖 base（仅覆盖非空值，避免本地空串清掉主配置的有值项）。"""
+    out = dict(base or {})
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        elif v not in (None, "", [], {}):
+            out[k] = v
+    return out
+
+
+def load_cfg() -> dict:
+    """读主 config.yaml 并叠加 config.local.yaml 的真值（缺失/损坏时静默退化为主配置）。"""
+    import yaml
+    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8")) or {}
+    lp = ROOT / "config.local.yaml"
+    if lp.exists():
+        try:
+            cfg = _deep_merge(cfg, yaml.safe_load(lp.read_text(encoding="utf-8")) or {})
+        except Exception:                                         # noqa: BLE001
+            pass
+    return cfg
+
+
 def check_config():
     try:
-        import yaml
-        cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+        cfg = load_cfg()
     except Exception as e:                                        # noqa: BLE001
         rec("RD", "配置可解析", RED, str(e))
         return

@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS login_fail (
   count    INTEGER NOT NULL DEFAULT 0,
   last_at  TEXT
 );
+-- v1.9.28：账号双向同步水位线（本地 ⇄ 线上）。只记状态，不记任何凭据。
+CREATE TABLE IF NOT EXISTS account_sync (
+  id             INTEGER PRIMARY KEY CHECK (id=1),
+  last_push_at   TEXT,     -- 最近一次「本地 → 线上」种子推送成功的时刻
+  last_push_md5  TEXT,     -- 推送内容的指纹（相同则跳过，避免每 10 分钟白推一次）
+  last_push_stat TEXT,     -- 线上回执统计（inserted/updated/pwd_reset/pwd_kept）
+  last_pull_at   TEXT,     -- 最近一次「线上 → 本地」状态拉取的时刻
+  last_pull_stat TEXT,     -- 回流统计（adopted/skipped/conflict）
+  last_error     TEXT
+);
 """
 
 _tls = threading.local()
@@ -84,7 +94,22 @@ def init(db_path: str) -> None:
     _DB_PATH = str(db_path)
     conn = _conn()
     conn.executescript(_SCHEMA)
+    _ensure_current_code(conn)
     conn.commit()
+
+
+def _ensure_current_code(conn) -> None:
+    """v1.9.29 迁移：给 accounts 加 current_code 列（仅管理员可见的待改密明文码）。
+
+    仅当列不存在时才加（SQLite 没有 ADD COLUMN IF NOT EXISTS 语法，必须先 PRAGMA 探测）。
+    本地持久库与线上临时库启动都会跑到这里，保证两条路的 UPDATE 都不会因缺列报错。
+    """
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "current_code" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN current_code TEXT")
+    except Exception:                                        # noqa: BLE001
+        pass
 
 
 def _conn() -> sqlite3.Connection:
@@ -133,6 +158,30 @@ def get_account(username: str):
     return _conn().execute("SELECT * FROM accounts WHERE username=?", (username,)).fetchone()
 
 
+def get_current_code(username: str):
+    """仅管理员侧调用：取账户**当前待改密明文码**（若存在且仍未激活）。
+
+    返回 (ok, code_or_reason)：
+      · ok=True   → code_or_reason 是明文随机码（员工尚未首次登录设密，可复制重发）。
+      · ok=False  → code_or_reason 是原因：
+          'no_such_user' / 'disabled'（已禁用）/ 'already_set'（员工已自设密码，无一次性码）/
+          'no_code'（旧数据：升级前创建的待改密账号未记录明文，需重置一次才补录）。
+    安全：此函数绝不触及线上接口，current_code 也不进种子/state（export_seed/export_state
+    均只选指定列），明文码永不离开本地管理员会话。
+    """
+    row = get_account(username)
+    if row is None:
+        return False, "no_such_user"
+    if row["disabled"]:
+        return False, "disabled"
+    if row["cleared"]:
+        return False, "already_set"
+    code = (row["current_code"] or "").strip()
+    if not code:
+        return False, "no_code"
+    return True, code
+
+
 def list_accounts():
     return _conn().execute(
         "SELECT id,username,display_name,role,cleared,disabled,created_by,created_at,updated_at "
@@ -163,9 +212,9 @@ def create_account(username: str, password: str, role: str = ROLE_STAFF,
         cleared = 0
     now = _now()
     _conn().execute(
-        "INSERT INTO accounts(username,pwd_hash,role,display_name,cleared,disabled,created_by,created_at,updated_at) "
-        "VALUES(?,?,?,?,?,0,?,?,?)",
-        (username, hash_password(pw), role, display_name, cleared, created_by, now, now),
+        "INSERT INTO accounts(username,pwd_hash,role,display_name,cleared,disabled,current_code,"
+        "created_by,created_at,updated_at) VALUES(?,?,?,?,?,0,?,?,?,?)",
+        (username, hash_password(pw), role, display_name, cleared, code, created_by, now, now),
     )
     _conn().commit()
     audit("account.create", created_by, username, f"role={role} random_code={int(random_code)}")
@@ -229,7 +278,8 @@ def change_password(username: str, old_pw: str, new_pw: str, actor: str | None =
     if not _strong(new_pw):
         return False, "weak_password"
     _conn().execute(
-        "UPDATE accounts SET pwd_hash=?, cleared=1, failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
+        "UPDATE accounts SET pwd_hash=?, cleared=1, current_code=NULL, "
+        "failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
         (hash_password(new_pw), _now(), username),
     )
     _conn().commit()
@@ -252,8 +302,8 @@ def set_initial_password(username: str, new_pw: str, actor: str | None = None):
     if not _strong(new_pw):
         return False, "weak_password"
     _conn().execute(
-        "UPDATE accounts SET pwd_hash=?, cleared=1, failed_count=0, locked_until=NULL, updated_at=? "
-        "WHERE username=?",
+        "UPDATE accounts SET pwd_hash=?, cleared=1, current_code=NULL, "
+        "failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
         (hash_password(new_pw), _now(), username),
     )
     _conn().commit()
@@ -268,8 +318,9 @@ def reset_random_code(username: str, by_admin: str):
         return False, "no_such_user"
     code = _gen_code()
     _conn().execute(
-        "UPDATE accounts SET pwd_hash=?, cleared=0, failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
-        (hash_password(code), _now(), username),
+        "UPDATE accounts SET pwd_hash=?, cleared=0, current_code=?, "
+        "failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
+        (hash_password(code), code, _now(), username),
     )
     _conn().commit()
     audit("account.reset_code", by_admin, username, "issued one-time code")
@@ -293,7 +344,8 @@ def set_disabled(username: str, disabled: bool, by_admin: str):
         return False, "no_such_user"
     if disabled:
         _conn().execute(
-            "UPDATE accounts SET disabled=1, pwd_hash='', failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
+            "UPDATE accounts SET disabled=1, pwd_hash='', current_code=NULL, "
+            "failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
             (_now(), username),
         )
     else:
@@ -361,7 +413,8 @@ def purge_audit_old(days: int = AUDIT_KEEP_DAYS) -> int:
 # 种子播种 / UPSERT（PRD-19 §17 · 线下建号 → 同步上云）
 # ---------------------------------------------------------------------------
 def upsert_seed(rows: list[dict], actor: str = "system(seed)",
-                force_reset: bool = False) -> dict:
+                force_reset: bool = False,
+                force_users: set | list | tuple | None = None) -> dict:
     """按 username 做 UPSERT 播种（PRD-19 §17.2，勇哥拍板口径）。
 
     rows: [{username, pwd_hash, role, display_name, cleared, disabled}, ...]
@@ -372,8 +425,15 @@ def upsert_seed(rows: list[dict], actor: str = "system(seed)",
         - pwd_hash **仅当该账户仍是「初始随机码」(cleared=0) 或 force_reset=True** 时覆盖
         - 已改过密码的账户 (cleared=1)：**绝不覆盖**哈希，避免把线上自立修改冲掉
     返回统计 {inserted, updated, pwd_kept, pwd_reset, skipped}。
+
+    v1.9.28 新增 force_users（**精确定向**强制覆盖，替代 / 补充 force_reset 的"全量强推"）：
+      管理员在 /staff 刚重置了某个账号的随机码 → 该账号线上可能已是 cleared=1（员工早先
+      自设过密码）→ 按上面的规则不会覆盖 → 新码在线上照样登不上。
+      所以「变更事件」推送时把**被改动的账号**列进 force_users，只强制覆盖它自己，
+      其余账号仍走保守规则（保护员工在线上自设的密码不被回退）。
     """
     stat = {"inserted": 0, "updated": 0, "pwd_kept": 0, "pwd_reset": 0, "skipped": 0}
+    force_set = {str(u).strip() for u in (force_users or []) if str(u or "").strip()}
     conn = _conn()
     now = _now()
     for r in rows:
@@ -402,8 +462,8 @@ def upsert_seed(rows: list[dict], actor: str = "system(seed)",
             "UPDATE accounts SET role=?, display_name=?, disabled=?, updated_at=? WHERE username=?",
             (role, disp, disabled, now, uname),
         )
-        # 密码：仅「仍是初始随机码(cleared=0)」或显式 force_reset 才覆盖
-        take_new = bool(force_reset or not row["cleared"])
+        # 密码：仅「仍是初始随机码(cleared=0)」、显式 force_reset、或被点名 force_users 才覆盖
+        take_new = bool(force_reset or (uname in force_set) or not row["cleared"])
         if take_new:
             conn.execute(
                 "UPDATE accounts SET pwd_hash=?, cleared=?, failed_count=0, locked_until=NULL, updated_at=? "
@@ -446,7 +506,8 @@ def export_seed(path: str) -> dict:
     return data
 
 
-def import_seed_file(path: str, actor: str = "system(seed)", force_reset: bool = False):
+def import_seed_file(path: str, actor: str = "system(seed)", force_reset: bool = False,
+                     force_users: set | list | tuple | None = None):
     """线上侧：启动时导入种子文件。返回 None 表示种子不存在/损坏（调用方据此降级）。"""
     p = pathlib.Path(path)
     if not p.exists():
@@ -457,10 +518,136 @@ def import_seed_file(path: str, actor: str = "system(seed)", force_reset: bool =
         return None
     if not isinstance(data, dict) or not data.get("accounts"):
         return None
-    return upsert_seed(data["accounts"], actor=actor, force_reset=force_reset)
+    return upsert_seed(data["accounts"], actor=actor, force_reset=force_reset,
+                       force_users=force_users)
 
 
 def has_any_account() -> bool:
     """线上防锁死兜底用（PRD-19 §17.3）：账户表里是否存在可用（未禁用）账户。"""
     r = _conn().execute("SELECT COUNT(*) c FROM accounts WHERE disabled=0").fetchone()
     return bool(r and r["c"] > 0)
+
+
+# ---------------------------------------------------------------------------
+# v1.9.28：双向同步（本地 ⇄ 线上）
+#   背景（勇哥 2026-09-20 实测反馈的两个真实缺口）：
+#     ① 本地 /staff 重置了码 → 线上还是旧哈希 → 员工手持新码报「密码错误」；
+#     ② 员工在线上自设了密码 → 本地 /staff 永远显示「待改密」。
+#   ① 的根因是"改了本地还得人工重新发布"，② 的根因是"同步只有单向，没有回流通道"。
+#   这里放同步**所需的纯数据操作**，网络收发在 core/account_sync.py（保持本模块零网络依赖）。
+# ---------------------------------------------------------------------------
+def export_state() -> list[dict]:
+    """导出全部账号的**完整**状态（含 pwd_hash 与 updated_at），供线上⇄本地对账。
+
+    ⚠ 含哈希，**只允许**机器对机器接口（带 X-Publish-Token）返回，绝不进任何页面。
+    注意与 export_seed() 的区别：种子是"给线上播种用的"（不带 updated_at），
+    这个是"用来对账的"（要 updated_at 才能判断谁更新）。
+    """
+    rows = _conn().execute(
+        "SELECT username,pwd_hash,role,display_name,cleared,disabled,updated_at "
+        "FROM accounts ORDER BY id"
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = {k: r[k] for k in r.keys()}
+        d["cleared"] = int(d.get("cleared") or 0)
+        d["disabled"] = int(d.get("disabled") or 0)
+        out.append(d)
+    return out
+
+
+def sync_state() -> dict:
+    """同步水位线（本地侧）。表不存在/无记录时返回全 None，绝不抛。"""
+    empty = {"last_push_at": None, "last_push_md5": None, "last_push_stat": None,
+             "last_pull_at": None, "last_pull_stat": None, "last_error": None}
+    try:
+        row = _conn().execute("SELECT * FROM account_sync WHERE id=1").fetchone()
+    except Exception:                                        # noqa: BLE001
+        return dict(empty)
+    if row is None:
+        return dict(empty)
+    return {k: row[k] for k in row.keys()}
+
+
+def set_sync_state(**kw) -> None:
+    """更新同步水位线。只接受已知键，未知键忽略（防手滑写入垃圾列）。"""
+    cur = sync_state()
+    for k, v in kw.items():
+        if k in cur:
+            cur[k] = v
+    _conn().execute(
+        "INSERT INTO account_sync(id,last_push_at,last_push_md5,last_push_stat,"
+        "last_pull_at,last_pull_stat,last_error) VALUES(1,?,?,?,?,?,?) "
+        "ON CONFLICT(id) DO UPDATE SET last_push_at=excluded.last_push_at,"
+        " last_push_md5=excluded.last_push_md5, last_push_stat=excluded.last_push_stat,"
+        " last_pull_at=excluded.last_pull_at, last_pull_stat=excluded.last_pull_stat,"
+        " last_error=excluded.last_error",
+        (cur["last_push_at"], cur["last_push_md5"], cur["last_push_stat"],
+         cur["last_pull_at"], cur["last_pull_stat"], cur["last_error"]),
+    )
+    _conn().commit()
+
+
+def adopt_remote(rows: list[dict], last_push_at: str | None,
+                 actor: str = "system(sync)") -> dict:
+    """把**线上**发生的变化回流到本地主库（PRD-19 缺口的补丁 · v1.9.28）。
+
+    只采纳**唯一一种**情形，绝不猜测、绝不批量覆盖：
+      · 线上 cleared=1（员工已自设密码）
+      · 本地 cleared=0（本地还以为「待改密」、未被认领）
+      · 两侧哈希不同（确实是新改的，不是同一份哈希的来回搬运）
+      · 本地该行在**上次成功推送之后没被动过**（local.updated_at < last_push_at）
+        —— 这条把「本地刚重置了新码、线上还是旧状态」的竞态挡在门外，
+           否则会把管理员刚发出去的新码冲掉（那正是坑②的反向版本）。
+    命中才写本地：pwd_hash + cleared=1（对齐线上）。
+    其余一律不碰：**本地是账号的权威来源**，线上只能"认领自己改的密码"。
+
+    返回 {"adopted": [用户名...], "skipped": n, "conflict": [用户名...]}。
+    """
+    conn = _conn()
+    now = _now()
+    rep = {"adopted": [], "skipped": 0, "conflict": []}
+    for r in rows or []:
+        uname = str(r.get("username") or "").strip()
+        if not uname:
+            continue
+        try:
+            online_cleared = int(r.get("cleared") or 0)
+        except Exception:                                    # noqa: BLE001
+            online_cleared = 0
+        online_hash = r.get("pwd_hash") or ""
+        local = get_account(uname)
+        if local is None:
+            # 线上有、本地没有 → 不新建（建号权只在本地 /staff，避免线上被塞账号）
+            rep["skipped"] += 1
+            continue
+        local_cleared = int(local["cleared"] or 0)
+        local_hash = local["pwd_hash"] or ""
+        if online_cleared != 1:
+            rep["skipped"] += 1
+            continue
+        if online_hash and online_hash == local_hash:
+            rep["skipped"] += 1
+            continue
+        if local_cleared == 1:
+            # 两边都"已正常"但哈希不同：谁新说不准（跨机器时钟不可信）→ 只报冲突，不动手
+            rep["conflict"].append(uname)
+            continue
+        if last_push_at and (local["updated_at"] or "") >= last_push_at:
+            # 本地在最近一次推送之后被动过 → 那是管理员刚重置的新码，不能被线上旧状态冲掉
+            rep["skipped"] += 1
+            continue
+        conn.execute(
+            "UPDATE accounts SET pwd_hash=?, cleared=1, current_code=NULL, "
+            "failed_count=0, locked_until=NULL, updated_at=? WHERE username=?",
+            (online_hash, now, uname),
+        )
+        rep["adopted"].append(uname)
+    if rep["adopted"]:
+        conn.commit()
+        audit("account.adopt_remote", actor, ",".join(rep["adopted"]),
+              f"线上自设密码回流 {len(rep['adopted'])} 个（cleared 0→1）")
+    if rep["conflict"]:
+        audit("account.adopt_conflict", actor, ",".join(rep["conflict"]),
+              "两侧均 cleared=1 但哈希不同，保持本地不动（需人工确认）")
+    return rep

@@ -3,7 +3,7 @@ app:
   mode: live
   output_root: ./data
 schedule:
-  enabled: false
+  enabled: true
   mode: random
   interval_hours: 2.0
   random_min_hours: 1.0
@@ -15,6 +15,30 @@ schedule:
   run_on_start: false
   random_min_minutes: 55.0
   random_max_minutes: 70.0
+local_extract:
+  enabled: true
+  prefer_local: true
+  min_fields: 3
+  ocr_enabled: true
+  ocr_dpi: 300
+  ocr_lang: jpn
+  ocr_timeout_sec: 60
+  ocr_max_pages: 1
+  tesseract_path: ''
+  fallback_model: true
+  fallback_max_per_run: 50
+schedule_ai:
+  enabled: true
+  timezone: local
+  window:
+    start: '23:00'
+    end: 06:00
+  max_per_run: 300
+  workers: 2
+  run_on_start: false
+  force_rerun: false
+  backfill_all: false
+  backfill_batch: 300
 site:
   name: reins
   base_url: https://system.reins.jp

@@ -25,6 +25,19 @@ _DEFAULTS: dict[str, Any] = {
         "timezone": "Asia/Tokyo",
         "window": {"start": "07:00", "end": "22:00"}, "run_on_start": False,
     },
+    # v1.9.26 · PRD 25：两节**带默认值** → 老机器升级后不用手改 config.yaml 也能跑
+    "local_extract": {
+        "enabled": True, "prefer_local": True, "min_fields": 3,
+        "ocr_enabled": True, "ocr_dpi": 300, "ocr_lang": "jpn",
+        "ocr_timeout_sec": 60, "ocr_max_pages": 1, "tesseract_path": "",
+        "fallback_model": True, "fallback_max_per_run": 50,
+    },
+    "schedule_ai": {
+        "enabled": True, "timezone": "local",
+        "window": {"start": "23:00", "end": "06:00"},
+        "max_per_run": 300, "workers": 2, "run_on_start": False,
+        "force_rerun": False, "backfill_all": False, "backfill_batch": 300,
+    },
 }
 
 

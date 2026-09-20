@@ -59,6 +59,16 @@
       <button class="ghost" data-i18n="account.test" onclick="testLogin()">测试登录</button>
       <button class="danger" data-i18n="account.clear" onclick="clearCred()">清空</button>
     </div>
+
+    {# v1.9.30（勇哥 2026-09-20 需求）：本页管的是 **REINS 抓数账号**；
+       员工登录本系统的账号在 /staff，以前两者之间没有任何入口，很容易搞混。
+       这里补一个明确的跳转按钮（保留 .btn 观感；<a> 在 style.css 里已和 button 同套样式）。 #}
+    <div class="row" style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)">
+      <a class="btn primary" href="{{ url_for('staff_page') }}"
+         data-i18n="account.setpw">设置账号密码</a>
+      <span class="muted" style="flex:1 1 260px"
+            data-i18n="account.setpw_note">去「员工管理」页：新建员工、重置随机码、复制现有密码、设为管理员 / 禁用（该页仅本机 8765 可见）。</span>
+    </div>
   </div>
 
   <p class="muted" style="margin-top:14px;max-width:680px">

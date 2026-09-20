@@ -24,6 +24,22 @@
       新建时系统生成 <strong>12 位一次性随机码</strong>，请把「用户名 + 随机码」<strong>线下</strong>发给员工；
       对方首次登录会<strong>被强制设置自己的密码</strong>，设置后账户才算激活。
     </p>
+    <div style="padding:10px 12px;margin-bottom:12px;background:#f7f9fd;border:1px solid #e3e9f5;border-radius:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div class="hint" id="syncText" style="margin:0">
+          <strong>账号同步（本地 ⇄ 线上）</strong>：
+          {% if sync and sync.last_push_at %}最后推送 {{ sync.last_push_at }}{% else %}尚未推送{% endif %}
+          · {% if sync and sync.last_pull_at %}最后回流 {{ sync.last_pull_at }}{% else %}尚未回流{% endif %}
+          {% if sync and sync.last_error %}<span style="color:#c0392b">· ⚠ {{ sync.last_error }}</span>{% endif %}
+        </div>
+        <button class="btn" id="btnSync" type="button">立即同步</button>
+      </div>
+      <div class="hint" style="margin:6px 0 0">
+        v1.9.28 起：在这里重置随机码 / 新建员工 / 改角色后<strong>会自动同步到线上</strong>，员工可立即登录
+        （不再需要重新发布）；员工在线上自设密码后，也会在下次同步时<strong>回流到这里</strong>，
+        状态由「待改密」自动变为「正常」。
+      </div>
+    </div>
     <div id="listTip" class="hint">加载中…</div>
     <table class="acctbl" id="accTable" style="display:none">
       <thead>
@@ -66,12 +82,13 @@
 <!-- 一次性随机码展示（只显示一次） -->
 <div class="modal-mask" id="codeMask" style="display:none">
   <div class="modal">
-    <h3>请立即复制并线下发送</h3>
+    <h3 id="codeTitle">请立即复制并线下发送</h3>
     <p class="hint" id="codeWho" style="margin:0 0 10px"></p>
     <div class="modal-row">一次性随机码
       <input id="codeVal" readonly style="font-family:monospace;font-size:16px;letter-spacing:1px">
     </div>
-    <p class="hint" style="margin:0 0 12px">⚠ 此码<strong>只显示这一次</strong>，关闭后无法再查看（只能重新生成）。</p>
+    <p class="hint" id="codeNote" style="margin:0 0 12px">⚠ 此码<strong>只显示这一次</strong>，关闭后无法再查看（只能重新生成）。</p>
+    <p class="hint" id="codeOnline" style="margin:0 0 10px"></p>
     <div class="err" id="codeErr"></div>
     <div class="modal-actions">
       <button type="button" class="btn" id="codeCopy">复制</button>
@@ -129,6 +146,7 @@
           '<button class="btn" data-act="dis" data-u="' + u + '" data-v="' + (a.disabled ? 0 : 1) + '">' +
             (a.disabled ? '启用' : '禁用') + '</button> ' +
           '<button class="btn" data-act="reset" data-u="' + u + '">重置随机码</button>' +
+          ((!a.disabled && !a.cleared) ? ' <button class="btn" data-act="copy" data-u="' + u + '">复制现有密码</button>' : '') +
         '</td></tr>';
     }).join('');
   }
@@ -140,11 +158,48 @@
       .catch(function (e) { tip.textContent = '加载失败：' + e.message; });
   }
 
-  function showCode(u, code) {
+  function showCode(u, code, sync, mode) {
     document.getElementById('codeWho').textContent = '员工：' + u;
     document.getElementById('codeVal').value = code || '';
     document.getElementById('codeErr').textContent = '';
+    var titleEl = document.getElementById('codeTitle');
+    var noteEl = document.getElementById('codeNote');
+    if (mode === 'existing') {
+      // v1.9.29：复制「现有」密码（不必重置，旧码不失效，可反复拿）
+      titleEl.textContent = '当前生效密码（可随时重发）';
+      noteEl.innerHTML = '此码当前生效中；员工首次登录设密后会自动失效。关闭后仍可随时点'
+        + '「复制现有密码」再拿，<strong>不会让旧码失效</strong>。';
+    } else {
+      // 新生成的一次性码（新建 / 重置）
+      titleEl.textContent = '请立即复制并线下发送';
+      noteEl.innerHTML = '⚠ 此码<strong>只显示这一次</strong>，关闭后无法再查看（只能重新生成）。';
+    }
+    // v1.9.28：把"这个码线上到底生不生效"直接写在弹窗里，不用猜、不用试
+    var on = document.getElementById('codeOnline');
+    if (sync) {
+      if (sync.ok) {
+        on.style.color = '#1e7e34';
+        on.textContent = sync.skipped
+          ? '✅ 线上已是同一份，员工可立即登录。'
+          : '✅ 已同步到线上：员工现在就能用这个码登录。';
+      } else {
+        on.style.color = '#c0392b';
+        on.textContent = '⚠ 线上同步失败：' + (sync.hint || '未知原因')
+          + ' —— 此刻员工登录会报「密码错误」，请点页面上的「立即同步」重试。';
+      }
+    } else { on.textContent = ''; }
     document.getElementById('codeMask').style.display = 'flex';
+  }
+
+  function paintSync(st) {
+    if (!st) return;
+    var el = document.getElementById('syncText');
+    if (!el) return;
+    var s = '<strong>账号同步（本地 ⇄ 线上）</strong>：'
+      + (st.last_push_at ? '最后推送 ' + esc(st.last_push_at) : '尚未推送')
+      + ' · ' + (st.last_pull_at ? '最后回流 ' + esc(st.last_pull_at) : '尚未回流');
+    if (st.last_error) s += ' <span style="color:#c0392b">· ⚠ ' + esc(st.last_error) + '</span>';
+    el.innerHTML = s;
   }
 
   body.addEventListener('click', function (e) {
@@ -159,9 +214,25 @@
     } else if (act === 'reset') {
       if (!confirm('重置后原随机码立即失效，将生成一个新码。确定？')) return;
       patch(u, { reset_code: true }).then(function (j) {
-        if (j && j.ok) { showCode(u, j.one_time_code); load(); }
+        if (j && j.ok) { showCode(u, j.one_time_code, j.online_sync); load(); }
         else alert((j && j.error) || '重置失败');
       }).catch(function (e2) { alert(e2.message); });
+    } else if (act === 'copy') {
+      // v1.9.29：复制现有密码（不必重置，旧码不失效）
+      jfetch('/api/accounts/' + encodeURIComponent(u) + '/code', { headers: { 'Accept': 'application/json' } })
+        .then(function (j) {
+          if (j && j.ok) { showCode(u, j.code, null, 'existing'); }
+          else {
+            var why = {
+              no_code: '该账号未记录明文码（升级前旧数据），请点「重置随机码」生成新码',
+              already_set: '该员工已自设密码，无一次性码可复制',
+              disabled: '该账号已禁用',
+              no_such_user: '账号不存在'
+            }[j.reason] || '无法获取当前密码';
+            alert('⚠ ' + why);
+          }
+        })
+        .catch(function (e2) { alert(e2.message); });
     }
   });
 
@@ -189,10 +260,34 @@
     }).then(function (j) {
       document.getElementById('newMask').style.display = 'none';
       f.reset();
-      if (payload.random_code) showCode(payload.username, j.one_time_code);
+      if (payload.random_code) showCode(payload.username, j.one_time_code, j.online_sync);
       load();
     }).catch(function (e2) { err.textContent = e2.message; });
   });
+
+  // v1.9.28：手动「立即同步」（推 + 拉）。自动同步失败时的兜底入口。
+  document.getElementById('btnSync').onclick = function () {
+    var b = this, old = b.textContent;
+    b.disabled = true; b.textContent = '同步中…';
+    jfetch('/api/accounts/sync-now', { method: 'POST' })
+      .then(function (j) {
+        var p = j.push || {};
+        var msg;
+        if (p.ok) {
+          msg = '✅ 已同步：' + (p.hint || '');
+          if (j.pull && j.pull.adopted && j.pull.adopted.length) {
+            msg += '\n回流（线上自设密码已同步回本地）：' + j.pull.adopted.join('、');
+          }
+        } else {
+          msg = '⚠ 同步失败：' + (p.hint || '未知原因');
+        }
+        alert(msg);
+        paintSync(j.status);
+        load();
+      })
+      .catch(function (e) { alert('同步失败：' + e.message); })
+      .then(function () { b.disabled = false; b.textContent = old; });
+  };
 
   document.getElementById('codeClose').onclick = function () {
     document.getElementById('codeMask').style.display = 'none';

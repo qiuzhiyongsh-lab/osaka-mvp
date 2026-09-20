@@ -592,7 +592,23 @@
     'account.sec_note':'⚠️ 账号密码只存于你本机（加密文件 data/credentials.json + 密钥 data/.cred_key），不联网、不上传、不共享。\n程序仅在你本账号自动登录时使用；若出现验证码或登录失败，请改用「手工登录」。\n「账号名称」只是本机标注，方便以后多账号时区分，不影响登录；\n「网站地址」是真正会被用到的登录网址，改它就能换登录入口。',
     'account.sel_h':'登录页选择器','account.sel_hint':'高级 · 自动登录失败时才需要看','account.sel_desc':'下面是当前自动登录用的页面元素选择器。REINS 登录页是 Vue 单页应用（输入框没有 name，id 每次加载都变），所以这里用稳定的 class 定位。',
     'account.sel_use':'用途','account.sel_sel':'选择器','account.sel_id':'会员ID 输入框','account.sel_pw':'密码 输入框','account.sel_agree':'遵守条款勾选框','account.sel_submit':'登录按钮',
-    'account.sel_note':'登录必须勾选「所属機構の規程及びガイドラインを遵守します」，否则登录按钮保持禁用。改动位置：config.yaml → selectors.login。'
+    'account.sel_note':'登录必须勾选「所属機構の規程及びガイドラインを遵守します」，否则登录按钮保持禁用。改动位置：config.yaml → selectors.login。',
+    /* v1.9.30（勇哥 2026-09-20）：/files 页 PDF 关键词搜索 + /account 页「设置账号密码」入口。
+       ⚠ 这些 key 会被 JS 的 t()/tf() 取用（rowHtml / paintHead），**必须**进 ZH ——
+         漏了就是裸 key 上屏，跑 tools/verify_i18n_keys.py 会红。 */
+    'files.open':'打开',
+    'files.pdf_hint':'共 {total} 个 ｜ 默认只显示最近 {limit} 个 ｜ 更早的用上面的关键词框找',
+    'files.q':'关键词搜索（不限条件）',
+    'files.q_ph':'例：中之島 / グランドメゾン / 3001407 / 3ＬＤＫ / 西区',
+    'files.q_btn':'搜索',
+    'files.q_clear':'清除',
+    'files.q_found':'命中 {n} 个 ｜ 当前显示前 {shown} 个',
+    'files.q_none':'没有匹配的 PDF。换个词试试：楼名 / 地址 / 物件番号 / 駅・沿線 / 間取り / 区。',
+    'files.q_tip':'关键词与「房源查询」同一口径：地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り / 区 / 種目 / 築年月；空格分隔多词＝都要命中。',
+    'files.th_house':'房源（基本信息）',
+    'files.house_unknown':'库中无此房源资料',
+    'account.setpw':'设置账号密码',
+    'account.setpw_note':'去「员工管理」页：新建员工、重置随机码、复制现有密码、设为管理员 / 禁用（该页仅本机 8765 可见）。'
   };
 
   /* ============ 新增 key 的繁/英/日翻译（仅本次新增的 key） ============ */
@@ -648,7 +664,16 @@
       'detail.chg_th_time':'時間','detail.chg_th_type':'類型','detail.chg_th_old':'原值','detail.chg_th_new':'新值',
       'spec.previewing':'預覽中…','spec.dling':'下載中…',
       'account.sel_note':'登錄必須勾選「所屬機構的規程及びガイドラインを遵守します」，否則登錄按鈕保持禁用。改動位置：config.yaml → selectors.login。',
-      'spec.unit_cnt':'筆','spec.unit_pdf':'份'
+      'spec.unit_cnt':'筆','spec.unit_pdf':'份',
+      'files.pdf_hint':'共 {total} 個 ｜ 預設只顯示最近 {limit} 個 ｜ 更早的用上面的關鍵詞框找',
+      'files.q':'關鍵詞搜尋（不限條件）','files.q_ph':'例：中之島 / グランドメゾン / 3001407 / 3ＬＤＫ / 西區',
+      'files.q_btn':'搜尋','files.q_clear':'清除',
+      'files.q_found':'命中 {n} 個 ｜ 目前顯示前 {shown} 個',
+      'files.q_none':'沒有符合的 PDF。換個詞試試：樓名 / 地址 / 物件番號 / 駅・沿線 / 間取り / 區。',
+      'files.q_tip':'關鍵詞與「房源查詢」同一口徑：地址 / 樓名 / 物件番號 / 駅・沿線 / 間取り / 區 / 種目 / 築年月；空格分隔多詞＝都要命中。',
+      'files.th_house':'房源（基本資訊）','files.house_unknown':'本機庫無此房源資料',
+      'account.setpw':'設定帳號密碼',
+      'account.setpw_note':'前往「員工管理」頁：新建員工、重設隨機碼、複製現有密碼、設為管理員 / 停用（該頁僅本機 8765 可見）。'
     },
     'en': {
       'ov.last2':'Last refresh',
@@ -697,7 +722,16 @@
       'detail.chg_th_time':'Time','detail.chg_th_type':'Type','detail.chg_th_old':'Old','detail.chg_th_new':'New',
       'spec.previewing':'Previewing…','spec.dling':'Downloading…',
       'account.sel_note':'Login requires checking "I comply with the institution\'s regulations and guidelines", otherwise the login button stays disabled. Change at: config.yaml → selectors.login.',
-      'spec.unit_cnt':'rows','spec.unit_pdf':'files'
+      'spec.unit_cnt':'rows','spec.unit_pdf':'files',
+      'files.pdf_hint':'{total} files ｜ showing only the latest {limit} ｜ find older ones with the keyword box above',
+      'files.q':'Keyword search (no conditions)','files.q_ph':'e.g. 中之島 / グランドメゾン / 3001407 / 3ＬＤＫ / 西区',
+      'files.q_btn':'Search','files.q_clear':'Clear',
+      'files.q_found':'{n} matched ｜ showing top {shown}',
+      'files.q_none':'No matching PDF. Try another word: building name / address / property no. / station / layout / ward.',
+      'files.q_tip':'Same rule as the Search page: address / building / property no. / line & station / layout / ward / type / built date. Space-separated words must all match.',
+      'files.th_house':'Home (basics)','files.house_unknown':'No record in local DB',
+      'account.setpw':'Set account password',
+      'account.setpw_note':'Go to Staff Management: create staff, reset the one-time code, copy the current code, set admin / disable (that page is local-only, port 8765).'
     },
     'ja': {
       'ov.last2':'最終更新',
@@ -746,7 +780,16 @@
       'detail.chg_th_time':'時間','detail.chg_th_type':'種類','detail.chg_th_old':'変更前','detail.chg_th_new':'変更後',
       'spec.previewing':'プレビュー中…','spec.dling':'ダウンロード中…',
       'account.sel_note':'ログインには「所属機構の規程及びガイドラインを遵守します」へのチェックが必要、未チェックだとボタンは無効。変更場所：config.yaml → selectors.login。',
-      'spec.unit_cnt':'件','spec.unit_pdf':'件'
+      'spec.unit_cnt':'件','spec.unit_pdf':'件',
+      'files.pdf_hint':'全 {total} 件 ｜ 直近 {limit} 件のみ表示 ｜ それ以前は上のキーワード欄で検索',
+      'files.q':'キーワード検索（条件なし）','files.q_ph':'例：中之島 / グランドメゾン / 3001407 / 3ＬＤＫ / 西区',
+      'files.q_btn':'検索','files.q_clear':'クリア',
+      'files.q_found':'{n} 件一致 ｜ 先頭 {shown} 件を表示',
+      'files.q_none':'一致するPDFがありません。別の語でお試しください：建物名 / 住所 / 物件番号 / 沿線・駅 / 間取り / 区。',
+      'files.q_tip':'キーワードは「物件検索」と同じ基準：住所 / 建物名 / 物件番号 / 沿線・駅 / 間取り / 区 / 種目 / 築年月。空白区切りの複数語はすべて一致が必要。',
+      'files.th_house':'物件（基本情報）','files.house_unknown':'本機DBに該当物件なし',
+      'account.setpw':'アカウントのパスワード設定',
+      'account.setpw_note':'「社員管理」ページへ：社員作成、ワンタイムコード再発行、現在のコードのコピー、管理者設定 / 無効化（同ページは本機 8765 のみ）。'
     }
   };
   ['zh-TW','en','ja'].forEach(function (l) {

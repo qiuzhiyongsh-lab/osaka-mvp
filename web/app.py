@@ -38,6 +38,7 @@ from core.publisher import PublishLoop                 # noqa: E402
 from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
+from core import account_sync as acc_sync                # noqa: E402  (v1.9.28 账号双向同步)
 from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 AI 结构独立库)
 
 # 线上收数时**永不接受**的列（勇哥：PDF 不上传）
@@ -258,6 +259,12 @@ def _access_guard():
     #   豁免安全性：没带对令牌时 api_ingest 自己就返回 401「令牌不对」，等于多一层锁；
     #   且本豁免**不放开页面**——页面仍照旧跳 /login。
     if path == "/api/ingest":
+        return None
+    # v1.9.28：账号同步同样是**机器对机器**通道（本地 → 线上推种子 / 线上 → 本地回流），
+    #   凭 X-Publish-Token 校验（见 api_accounts_seed_sync / api_accounts_state）。
+    #   豁免理由与 /api/ingest 完全一致：上传器没有、也不该有浏览器账户会话；
+    #   没带对令牌时接口自己就 401，等于多一层锁；且这里**不放开任何页面**。
+    if path in ("/api/accounts/seed-sync", "/api/accounts/state"):
         return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
@@ -927,9 +934,107 @@ def runs():
     return render_template("runs.html", runs=STORE.recent_runs(80))
 
 
+# ---- v1.9.30：PDF 图纸列表「收缩成一页」+ 按房源基本信息关键词查找 ----
+# 【勇哥 2026-09-20 需求】/files 页把 3229 个 PDF 全量平铺成一张超长表 —— 翻不动、
+#   也找不到想要的那一套。改法两件事：
+#     ① 默认**只列最近 PDF_FILES_LIMIT 个**（一屏内看完，页面不再被撑长）；
+#     ② 新增一个不限条件的关键词框，多的用它能翻遍**全部** PDF。
+#   搜索口径 = 「房源查询」页的关键词口径（地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り /
+#   区 / 種目 / 築年月 / 详情），空格分隔多词＝都要命中、词内字段 OR —— 与查询页一字不差，
+#   用户不必学两套规则（"关键词是房子查询里的基本包含的内容"）。
+PDF_FILES_LIMIT = 50
+
+# ⚠ 必须与 core/store.py::Store.search() 的关键词字段保持同源：
+#   多一个少一个，用户在两个页面搜同样的词就会得到不同结果，等于给他挖坑。
+PDF_SEARCH_COLS = ("address", "building_name", "property_no", "line_station",
+                   "layout", "ward", "kind", "property_subtype",
+                   "built_year_month", "detail_json")
+
+
+def _like_escape(s: str) -> str:
+    """转义 LIKE 通配符（用户输入 % / _ 时按字面匹配，别变成通配）。"""
+    return (s or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _wan(v) -> str:
+    """円 → 「9,800 万円」（与 web/static/app.js::wan() 同口径，两处显示才一致）。"""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return f"{round(n / 10000):,} 万円"
+
+
+def _pdf_meta(p: Path, sub: str = "attachments") -> dict:
+    """一个 PDF 的轻量元信息（只 stat，不读库 —— 3229 个也要秒回）。"""
+    st = p.stat()
+    return {
+        "name": p.name, "dir": sub, "no": p.stem,
+        "size": f"{st.st_size / 1024:.1f} KB",
+        "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%m-%d %H:%M"),
+        "_mtime": st.st_mtime,
+        "house": "", "in_db": False,
+    }
+
+
+def _attach_house_info(items: list) -> None:
+    """就地给 PDF 行附上「这套图纸是哪套房」的基本信息（楼名 / 地址 / 間取り / 価格）。
+
+    文件名 = 物件番号，所以直接按番号回查主库。两条注意：
+      · 只 SELECT 需要的 7 列（**不能** SELECT *）——detail_json 很大，
+        3229 行全取会把内存和响应时间都拖垮；
+      · 分批 400 个占位符，避开 SQLite 的变量数上限。
+    库内查不到的（历史遗留 PDF / 未入库）**留空**，页面显示「库中无此房源资料」，
+    绝不编造。
+    """
+    nos = [it["no"] for it in items if it.get("no")]
+    if not nos:
+        return
+    rows = {}
+    cols = "property_no,building_name,address,ward,layout,property_subtype,price"
+    for i in range(0, len(nos), 400):
+        chunk = nos[i:i + 400]
+        ph = ",".join("?" * len(chunk))
+        for r in STORE.conn.execute(
+            f"SELECT {cols} FROM properties WHERE property_no IN ({ph})", chunk
+        ).fetchall():
+            rows[r["property_no"]] = r
+    for it in items:
+        r = rows.get(it.get("no"))
+        it["in_db"] = bool(r)
+        if not r:
+            continue
+        seg = []
+        bname = (r["building_name"] or "").strip()
+        addr = (r["address"] or "").strip()
+        if bname:
+            seg.append(bname)
+        if addr:
+            seg.append(addr)
+        # 間取り 缺失时退回物件種目（土地没有間取り），价格有则带上
+        kindish = (r["layout"] or "").strip() or (r["property_subtype"] or "").strip()
+        tail = " ".join(x for x in (kindish.replace("\n", " "), _wan(r["price"])) if x)
+        if tail:
+            seg.append(tail)
+        it["house"] = " ｜ ".join(seg)
+
+
+def _pdf_all() -> list:
+    """data/attachments 下全部 PDF，按修改时间倒序（最新在前）。"""
+    d = PATHS["attachments"]
+    if not d.exists():
+        return []
+    out = [_pdf_meta(p) for p in d.glob("*.pdf") if p.is_file()]
+    out.sort(key=lambda x: x["_mtime"], reverse=True)
+    return out
+
+
 @app.get("/files")
 def files():
     _refresh_cfg()
+
     def listing(sub: str, exts: tuple[str, ...]):
         d = PATHS[sub]
         if not d.exists():
@@ -944,11 +1049,78 @@ def files():
                     "mtime": datetime.fromtimestamp(p.stat().st_mtime).strftime("%m-%d %H:%M"),
                 })
         return out
+
+    # v1.9.30：PDF 只渲染最近 N 个（先切片再回查房源 —— 否则 3229 行全查库等于白干）
+    pdfs_all = _pdf_all()
+    pdfs_show = pdfs_all[:PDF_FILES_LIMIT]
+    _attach_house_info(pdfs_show)
     return render_template("files.html",
                            exports=listing("exports", (".xlsx",)),
                            daily=listing("daily", (".html",)),
-                           pdfs=listing("attachments", (".pdf",)),
+                           pdfs=pdfs_show,
+                           pdf_total=len(pdfs_all),
+                           pdf_limit=PDF_FILES_LIMIT,
                            root=str(PATHS["root"]))
+
+
+@app.get("/api/files/search")
+def api_files_search():
+    """【本地文件页 · PDF 关键词检索】按「房源基本信息」在全量 PDF 里找图纸。
+
+    为什么需要它：/files 页现在默认只列最近 50 个（页面不再被 3229 行撑爆），
+    要找别的就得靠这个框。关键词口径与 /api/query **完全一致**：
+      · 空格分隔多词 = 词与词 AND（都要命中）
+      · 词内字段 OR（任一字段含该词即可）
+      · 字段 = 地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り / 区 / 種目 / 築年月 / 详情
+    另外附赠一条：**文件名直接命中**也算 —— 这样连库里没有的遗留 PDF（约 300 个）
+    也能靠番号翻出来，不留死角。
+
+    q 为空 → 退回「最近 N 个」，与页面首屏完全一致（「清除」按钮就靠这个复位）。
+    """
+    _refresh_cfg()
+    q = (request.args.get("q") or "").strip()
+    limit = max(1, min(500, int(request.args.get("limit", PDF_FILES_LIMIT) or PDF_FILES_LIMIT)))
+
+    pdfs_all = _pdf_all()
+    by_no = {it["no"]: it for it in pdfs_all}
+
+    if not q:
+        items = pdfs_all[:limit]
+        _attach_house_info(items)
+        for it in items:
+            it.pop("_mtime", None)
+        return jsonify({"ok": True, "q": "", "mode": "recent",
+                        "matched": len(pdfs_all), "shown": len(items), "items": items})
+
+    terms = q.split()
+
+    # ① 库内检索：拿到命中的物件番号
+    where, args = [], []
+    for t in terms:
+        ors = " OR ".join(f"COALESCE({c},'') LIKE ? ESCAPE '\\'" for c in PDF_SEARCH_COLS)
+        where.append("(" + ors + ")")
+        args += [f"%{_like_escape(t)}%"] * len(PDF_SEARCH_COLS)
+    sql = "SELECT property_no FROM properties WHERE " + " AND ".join(where)
+    hit_nos = [r[0] for r in STORE.conn.execute(sql, args).fetchall()]
+
+    # ② 文件名直接命中（含库外遗留 PDF）
+    hit_set = set(hit_nos)
+    lows = [t.lower() for t in terms]
+    for stem in by_no:
+        if stem in hit_set:
+            continue
+        if all(t in stem.lower() for t in lows):
+            hit_nos.append(stem)
+
+    items = [by_no[n] for n in hit_nos if n in by_no]
+    matched = len(items)
+    items.sort(key=lambda x: x["_mtime"], reverse=True)
+    items = items[:limit]
+    _attach_house_info(items)
+    for it in items:
+        it.pop("_mtime", None)
+    return jsonify({"ok": True, "q": q, "mode": "search",
+                    "matched": matched, "shown": len(items), "items": items})
 
 
 @app.get("/download/<dir>/<path:name>")
@@ -2086,7 +2258,7 @@ def staff_page():
         return redirect(url_for("login_page", next="/staff"))
     if me["role"] != acc_mod.ROLE_ADMIN:
         return "需要管理员权限", 403
-    return render_template("staff.html", me=me)
+    return render_template("staff.html", me=me, sync=acc_sync.status(CFG))
 
 
 # ============================================================
@@ -2098,6 +2270,75 @@ def _require_admin():
     if not me or me["role"] != acc_mod.ROLE_ADMIN:
         return None, jsonify({"ok": False, "error": "需要管理员权限"}, ), 403
     return me, None
+
+
+# ---- v1.9.27 导出 → v1.9.28 直接上云：账号变更后**自动**同步到线上 ----
+# 【背景·勇哥 2026-09-20 连续两次踩坑】/staff 重置只改本地主库，
+#   而线上账号的唯一来源是 accounts.seed.json。结果：重置完 → 忘了导出/发布 →
+#   线上仍是旧哈希 → 员工手持新码报「密码错误」。两次都栽在"忘了上云"这一步。
+# 【v1.9.27】把"导出"从**手工动作**变成**流程副作用**：任何一次账户写操作
+#   （新建 / 重置随机码 / 改角色 / 禁用 / 首次设密 / 改密）成功后自动导出最新种子到
+#   ① 本地 data/accounts.seed.json ② 发布工程 app_local/data/accounts.seed.json。
+# 【v1.9.28】再进一步：导出后**立刻 POST 到线上**（走已有的 X-Publish-Token 机器通道），
+#   于是"改完即刻生效"，不再需要重新发布。单向往返变成双向：
+#     本地 → 线上（本次，force_users 定向覆盖被改动的账号）
+#     线上 → 本地（core/account_sync.pull_and_adopt，员工自设的密码回流 /staff）
+#   仍然只写哈希、绝不落明文；失败只记日志/水位线，**绝不影响主操作**。
+#   放在 _require_admin 之后，使登录/改密/set-pwd 等路由（均定义在其后）都能前向引用到。
+def _auto_export_seed(changed=None) -> dict:
+    """账号变更后的自动同步（v1.9.27 导出 → v1.9.28 直接上云）。
+
+    changed：本次被改动的账号用户名。会被标为 force_users 定向强制覆盖线上哈希 ——
+      因为刚重置过随机码的账号，线上可能早已 cleared=1（员工先前自设过密码），
+      按保守合并规则不会被覆盖，那样新码在线上照样登不上。
+
+    返回线上推送结果 dict（供接口回执给前端显示"是否已生效于线上"）。
+    线上侧的每次写操作（员工自设密码）也会走这里 —— 但 PUBLIC 模式**不推**（自己推自己没意义），
+    只写本地种子，等本地拉取时回流。
+    """
+    online = None
+    try:
+        local_seed = Path(PATHS["root"]) / "accounts.seed.json"
+        data = acc_mod.export_seed(str(local_seed))
+        n = len(data.get("accounts", []))
+        note = ""
+        # 发布工程与 osaka-mvp 是兄弟目录：data/ -> osaka-mvp/ -> 工作根 -> osaka-house-publish
+        pub_dir = Path(PATHS["root"]).parent.parent / "osaka-house-publish" / "app_local" / "data"
+        if pub_dir.is_dir():
+            try:
+                acc_mod.export_seed(str(pub_dir / "accounts.seed.json"))
+                note = "；已镜像发布工程"
+            except Exception as _e2:
+                note = "；⚠ 镜像发布工程失败：" + str(_e2)
+        else:
+            note = "；未找到发布工程目录，仅写本地"
+        log(f"[PRD-19] 账号变更 → 已自动导出种子（{n} 个账号）：{local_seed}{note}")
+    except Exception as _e:
+        log(f"[PRD-19] ⚠ 自动导出种子失败（不影响主流程）：{_e}")
+
+    # v1.9.28：紧接着把种子推到线上（免去"每次改完都得重新发布"这一步）
+    if not PUBLIC:
+        try:
+            online = acc_sync.push_seed(CFG, log=log,
+                                        force_users=[changed] if changed else None,
+                                        timeout=8)
+            if online.get("ok") and not online.get("skipped"):
+                log(f"[PRD-19] 账号已同步上云（{changed or '全量'}）")
+        except Exception as _e3:                              # noqa: BLE001
+            online = {"ok": False, "errors": [f"{type(_e3).__name__}: {_e3}"]}
+            log(f"[PRD-19] ⚠ 上云同步异常（不影响本地操作）：{_e3}")
+    return online or {}
+
+
+def _sync_digest(online: dict | None) -> dict:
+    """把 push_seed 的结果压成前端够用的一小块（给 /staff 提示"是否已生效于线上"）。"""
+    if not online:
+        return {"ok": False, "hint": "线上未同步（线上模式或未配置 endpoint）"}
+    if online.get("ok") and online.get("skipped"):
+        return {"ok": True, "skipped": True, "hint": "线上已是同一份，无需重复推送"}
+    if online.get("ok"):
+        return {"ok": True, "stat": online.get("stat") or {}, "hint": "已同步上云，员工可立即登录"}
+    return {"ok": False, "hint": "；".join(online.get("errors") or ["上云失败"])[:300]}
 
 
 @app.route("/login", methods=["GET"])
@@ -2154,6 +2395,7 @@ def api_auth_change_pwd():
             code = 401
         return jsonify({"ok": False, "error": {"weak_password": "密码需 8–20 位且含字母与数字",
                                                 "old_password_wrong": "原密码错误"}.get(msg, msg)}), code
+    _auto_export_seed(me["username"])   # v1.9.28：改密成功后同步（含上云）
     return jsonify({"ok": True})
 
 
@@ -2174,7 +2416,9 @@ def api_auth_set_pwd():
     if not ok:
         return jsonify({"ok": False, "error": {"weak_password": "密码需 8–20 位且含字母与数字",
                                                 "disabled": "账户已禁用"}.get(msg, msg)}), 400
-    return jsonify({"ok": True})
+    # v1.9.28：首次设密（cleared 0→1）后同步；线上侧不推（PUBLIC），本地推+回流
+    online = _auto_export_seed(me["username"])
+    return jsonify({"ok": True, "online_sync": _sync_digest(online)})
 
 
 @app.route("/api/accounts", methods=["GET", "POST"])
@@ -2199,7 +2443,10 @@ def api_accounts():
     if not ok:
         return jsonify({"ok": False, "error": msg}), 400
     # random_code=True 时 msg 是明文随机码，前端一次性展示
-    return jsonify({"ok": True, "one_time_code": msg if random_code else None})
+    # v1.9.28：新建后同步（否则线上认不出这个新账号）—— 新账号必须 force，因线上根本不存在
+    online = _auto_export_seed(username)
+    return jsonify({"ok": True, "one_time_code": msg if random_code else None,
+                    "online_sync": _sync_digest(online)})
 
 
 @app.route("/api/accounts/<username>", methods=["PATCH", "DELETE"])
@@ -2211,7 +2458,8 @@ def api_account_detail(username):
         ok, msg = acc_mod.set_disabled(username, True, by_admin=me["username"])
         if not ok:
             return jsonify({"ok": False, "error": msg}), 400
-        return jsonify({"ok": True})
+        online = _auto_export_seed(username)
+        return jsonify({"ok": True, "online_sync": _sync_digest(online)})
     # PATCH：改角色 / 禁用 / 重置随机码
     data = request.get_json(silent=True) or {}
     if "role" in data:
@@ -2226,8 +2474,104 @@ def api_account_detail(username):
         ok, code = acc_mod.reset_random_code(username, by_admin=me["username"])
         if not ok:
             return jsonify({"ok": False, "error": code}), 400
-        return jsonify({"ok": True, "one_time_code": code})
-    return jsonify({"ok": True})
+        # ⚠ v1.9.28 最关键的一处：重置随机码 = 换哈希（cleared 归 0），
+        #   必须立刻同步上云（并**点名强制覆盖该账号**）—— 否则线上拿旧哈希，
+        #   员工手持新码报「密码错误」。以前这一步靠"重新发布"，是两次事故的共同根因。
+        online = _auto_export_seed(username)
+        return jsonify({"ok": True, "one_time_code": code,
+                        "online_sync": _sync_digest(online)})
+    online = _auto_export_seed(username)   # v1.9.28：改角色/禁用后同步
+    return jsonify({"ok": True, "online_sync": _sync_digest(online)})
+
+
+@app.route("/api/accounts/<username>/code", methods=["GET"])
+def api_account_code(username):
+    """【仅本地管理员】取账户当前待改密明文码（v1.9.29「复制现有密码」按钮用）。
+
+    不要求 X-Publish-Token（这是浏览器管理员会话，走普通 _require_admin 守卫），
+    也绝不返回任何哈希 / 不写审计敏感信息。明文码只存在于本地 accounts.current_code，
+    不会经此接口泄漏到线上（线上账户根本没这列的有效值）。
+    """
+    me, err = _require_admin()
+    if err:
+        return err
+    ok, code = acc_mod.get_current_code(username)
+    if not ok:
+        return jsonify({"ok": False, "reason": code}), 200
+    return jsonify({"ok": True, "username": username, "code": code})
+
+
+# ============================================================
+# v1.9.28 账号双向同步 · 机器对机器接口（本地 ⇄ 线上）
+#   与 /api/ingest 同源同锁：凭 `publish.ingest_token`（X-Publish-Token 头），
+#   无令牌一律 401；已在 _access_guard 里豁免（上传器没有浏览器会话）。
+#   只传**哈希**，明文密码永不经过这条通道。
+# ============================================================
+def _sync_token_ok() -> bool:
+    _refresh_cfg()
+    want = str(((CFG.get("publish") or {}).get("ingest_token") or "")).strip()
+    got = str(request.headers.get("X-Publish-Token") or "").strip()
+    return bool(want) and got == want
+
+
+@app.post("/api/accounts/seed-sync")
+def api_accounts_seed_sync():
+    """【本地 → 线上】收下本地推来的账号种子，按 UPSERT 规则落库（v1.9.28）。
+
+    为什么需要它：线上账号的唯一来源原是"重新发布"（容器重建 + 起停空窗）。
+    有了这个接口，管理员在本地 /staff 重置随机码后**几秒内**线上就认这个新码，
+    不必再等重新发布 —— 这正是两次「拿着新码报密码错误」事故的根因消除。
+
+    force_users：被点名的账号强制覆盖哈希/cleared（对应"管理员刚重置了它"这一事件）；
+      其余账号走保守规则：线上仍是随机码(cleared=0)才覆盖，已自设密码(cleared=1)的一律保留。
+    """
+    if not _sync_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    body = request.get_json(force=True, silent=True) or {}
+    rows = body.get("accounts")
+    if not isinstance(rows, list):
+        return jsonify({"ok": False, "error": "accounts 必须是数组"}), 400
+    force = {str(u).strip() for u in (body.get("force_users") or []) if str(u or "").strip()}
+    try:
+        stat = acc_mod.upsert_seed(rows, actor="system(sync:in)", force_users=force)
+    except Exception as e:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+    log(f"☁ 账号种子已同步：{stat}（强制覆盖 {len(force)}）")
+    return jsonify({"ok": True, "stat": stat, "exported_at": body.get("exported_at"),
+                    "force_users": sorted(force)})
+
+
+@app.get("/api/accounts/state")
+def api_accounts_state():
+    """【线上 → 本地】回传本机账户状态（**含哈希**），供本地回流对账（v1.9.28）。
+
+    用途：员工在线上自设密码后，本地 /staff 才能知道"这个账号已被认领"（不再显示「待改密」）。
+    ⚠ 含哈希 → 只允许这条带令牌的机器通道，且绝不进任何页面。
+    """
+    if not _sync_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    try:
+        rows = acc_mod.export_state()
+    except Exception as e:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify({"ok": True, "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "count": len(rows), "accounts": rows})
+
+
+@app.post("/api/accounts/sync-now")
+def api_accounts_sync_now():
+    """【本地按钮】立即「推 + 拉」一次（管理员）。用于网络抖动后手动补同步。"""
+    me, err = _require_admin()
+    if err:
+        return err
+    try:
+        res = acc_sync.sync_now(CFG, log=log)
+    except Exception as e:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify({"ok": bool(res.get("ok")),
+                    "push": _sync_digest(res.get("push")),
+                    "pull": res.get("pull") or {},
+                    "status": acc_sync.status(CFG)})
 
 
 if __name__ == "__main__":

@@ -13,7 +13,10 @@
         <input name="username" type="text" autocomplete="username" required>
       </label>
       <label>密码
-        <input name="password" type="password" autocomplete="current-password" required>
+        <span class="pwd-wrap">
+          <input name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="pwd-toggle" title="显示/隐藏明文" aria-label="显示密码" data-toggle-pwd>👁</button>
+        </span>
       </label>
       <div class="err" id="loginErr"></div>
       <button type="submit" class="btn primary block">登录</button>
@@ -44,10 +47,16 @@
     <p class="hint" style="margin:0 0 14px">您使用的是管理员发放的一次性随机码。为账户安全，请先设置一个属于您自己的密码，再继续使用系统。</p>
     <form id="setPwdForm">
       <div class="modal-row">新密码
-        <input name="new_password" type="password" autocomplete="new-password" required>
+        <span class="pwd-wrap">
+          <input name="new_password" type="password" autocomplete="new-password" required>
+          <button type="button" class="pwd-toggle" title="显示/隐藏明文" aria-label="显示密码" data-toggle-pwd>👁</button>
+        </span>
       </div>
       <div class="modal-row">确认新密码
-        <input name="confirm_password" type="password" autocomplete="new-password" required>
+        <span class="pwd-wrap">
+          <input name="confirm_password" type="password" autocomplete="new-password" required>
+          <button type="button" class="pwd-toggle" title="显示/隐藏明文" aria-label="显示密码" data-toggle-pwd>👁</button>
+        </span>
       </div>
       <div class="err" id="setPwdErr"></div>
       <p class="hint" style="margin:2px 0 10px">8–20 位，需同时包含字母与数字</p>
@@ -60,6 +69,31 @@
 
 <script>
 (function () {
+  // ---- v1.9.26 「显示/隐藏明文」眼睛按钮（纯前端，不改密码值、不落任何存储）----
+  function bindPwdToggles(root) {
+    var nodes = (root || document).querySelectorAll('[data-toggle-pwd]');
+    for (var i = 0; i < nodes.length; i++) {
+      (function (btn) {
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          var box = btn.parentNode;
+          var inp = box && box.querySelector('input');
+          if (!inp) return;
+          var show = (inp.type === 'password');
+          inp.type = show ? 'text' : 'password';
+          // 切到明文时按钮变实心提示"当前是明文"，再点回密文
+          btn.classList.toggle('on', show);
+          btn.setAttribute('title', show ? '隐藏明文' : '显示明文');
+          btn.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+          try { inp.focus(); } catch (err) {}
+        });
+      })(nodes[i]);
+    }
+  }
+  bindPwdToggles(document);
+
   var form = document.getElementById('loginForm');
   if (form) form.addEventListener('submit', function (e) {
     e.preventDefault();

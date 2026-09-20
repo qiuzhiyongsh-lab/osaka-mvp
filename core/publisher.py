@@ -454,4 +454,14 @@ class PublishLoop:
             except Exception as e:                                # noqa: BLE001
                 self.last_error = "%s: %s" % (type(e).__name__, e)
                 self._log("☁ 上传定时器异常：" + self.last_error)
+            # v1.9.28：同一个心跳顺手做一次**账号种子兜底推送**（非强制）。
+            #   平时管理员一改账号就即时推了，这里只为兜两种意外：
+            #   ① 那次即时推送恰好网络失败；② 线上容器被重建，库回落成发布包里的旧种子。
+            #   内容指纹与上次一致时 push_seed 内部**直接返回、零网络请求**，所以挂着不花钱。
+            #   不传 force_users：保护员工在线上自设的密码不被旧种子回退。
+            try:
+                from core import account_sync as _accsync         # noqa: PLC0415（避免循环导入）
+                _accsync.push_seed(self.cfg, log=self._log, timeout=8)
+            except Exception as e:                                # noqa: BLE001
+                self._log("☁ 账号种子兜底推送异常（不影响上传）：%s: %s" % (type(e).__name__, e))
         self._log("☁ 上传定时器线程已退出")

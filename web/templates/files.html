@@ -38,7 +38,56 @@
 
 {{ filetable('files.daily2', '按天页面（可离线看）', 'data/daily', daily, 'daily') }}
 {{ filetable('files.excel2', 'Excel 导出', 'data/exports', exports, 'exports') }}
-{{ filetable('files.pdf2', 'PDF 图纸', 'data/attachments', pdfs, 'attachments') }}
+
+{# ============================================================
+   v1.9.30（勇哥 2026-09-20 需求）：PDF 图纸卡片
+   —— 3229 个 PDF 原来全量平铺，页面被撑成一条"长龙"，翻不动也搜不到。
+   现在：① 默认**只列最近 pdf_limit 个**（一屏看完）；
+        ② 上面加一个**不限条件关键词框** —— 与「房源查询」同一个口径
+           （地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り / 区 / 種目 / 築年月），
+           空格分隔多词＝都要命中；多的、早的、找不到的，都靠它。
+   首屏由服务端直出（断网/无 JS 也能看），搜索走 /api/files/search 局部刷新。
+   ============================================================ #}
+<div class="card">
+  <h2>
+    <span data-i18n="files.pdf2">PDF 图纸</span>
+    <span class="hint" id="pdfHint"></span>
+  </h2>
+
+  <div class="row" style="margin-bottom:10px;align-items:flex-end">
+    <label class="field" style="flex:1 1 300px;max-width:560px">
+      <span data-i18n="files.q">关键词搜索（不限条件）</span>
+      <input id="pdfQ" autocomplete="off" data-i18n-ph="files.q_ph"
+             placeholder="例：中之島 / グランドメゾン / 3001407 / 3ＬＤＫ / 西区">
+    </label>
+    <button id="pdfGo" data-i18n="files.q_btn">搜索</button>
+    <button class="ghost" id="pdfClear" data-i18n="files.q_clear">清除</button>
+  </div>
+  <p class="muted" id="pdfNote" style="margin:0 0 10px"></p>
+
+  <table id="pdfTable">
+    <tr>
+      <th data-i18n="files.th_name">文件名</th>
+      <th data-i18n="files.th_house">房源（基本信息）</th>
+      <th data-i18n="files.th_size">大小</th>
+      <th data-i18n="files.th_time">时间</th>
+      <th></th>
+    </tr>
+    <tbody id="pdfBody">
+      {% for it in pdfs %}
+      <tr>
+        <td><code>{{ it.name }}</code></td>
+        <td class="pdfhouse">{% if it.in_db %}{{ it.house }}{% else %}<span class="muted" data-i18n="files.house_unknown">库中无此房源资料</span>{% endif %}</td>
+        <td>{{ it.size }}</td>
+        <td>{{ it.mtime }}</td>
+        <td><a class="btn ghost" href="{{ url_for('download', dir='attachments', name=it.name) }}"
+               target="_blank" data-i18n="files.open">打开</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="empty" id="pdfEmpty" style="display:none"></div>
+</div>
 
 <script>
 function paintRootNote(){
@@ -46,5 +95,99 @@ function paintRootNote(){
 }
 paintRootNote();
 window.addEventListener('i18n:changed', paintRootNote);
+
+/* ---------- v1.9.30：PDF 图纸 关键词搜索 ---------- */
+(function () {
+  var TOTAL = {{ pdf_total|tojson }};
+  var LIMIT = {{ pdf_limit|tojson }};
+  var body   = document.getElementById('pdfBody');
+  var table  = document.getElementById('pdfTable');
+  var hint   = document.getElementById('pdfHint');
+  var note   = document.getElementById('pdfNote');
+  var empty  = document.getElementById('pdfEmpty');
+  var input  = document.getElementById('pdfQ');
+  var btnGo  = document.getElementById('pdfGo');
+  var btnClr = document.getElementById('pdfClear');
+
+  // 当前视图状态（'recent' = 最近 N 个 / 'search' = 关键词命中）
+  var last = { mode: 'recent', matched: TOTAL, shown: TOTAL < LIMIT ? TOTAL : LIMIT, q: '' };
+  var lastItems = null;   // 切语言时用它重画（文案跟着语言走）
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function hrefOf(name) { return '/download/attachments/' + encodeURIComponent(name); }
+
+  function rowHtml(it) {
+    var house = it.in_db
+      ? esc(it.house)
+      : '<span class="muted">' + esc(window.t('files.house_unknown')) + '</span>';
+    return '<tr>' +
+      '<td><code>' + esc(it.name) + '</code></td>' +
+      '<td class="pdfhouse">' + house + '</td>' +
+      '<td>' + esc(it.size) + '</td>' +
+      '<td>' + esc(it.mtime) + '</td>' +
+      '<td><a class="btn ghost" target="_blank" href="' + hrefOf(it.name) + '">' +
+        esc(window.t('files.open')) + '</a></td>' +
+      '</tr>';
+  }
+
+  function paintHead() {
+    note.textContent = window.t('files.q_tip');
+    hint.textContent = (last.mode === 'search')
+      ? window.tf('files.q_found', { n: last.matched, shown: last.shown })
+      : window.tf('files.pdf_hint', { total: last.matched, limit: LIMIT });
+  }
+
+  function render(items) {
+    lastItems = items || [];
+    if (!lastItems.length) {
+      body.innerHTML = '';
+      table.style.display = 'none';
+      empty.style.display = '';
+      empty.textContent = window.t('files.q_none');
+      return;
+    }
+    table.style.display = '';
+    empty.style.display = 'none';
+    body.innerHTML = lastItems.map(rowHtml).join('');
+  }
+
+  function search(q) {
+    input.disabled = true; btnGo.disabled = true;
+    fetch('/api/files/search?limit=' + LIMIT + '&q=' + encodeURIComponent(q || ''),
+          { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok || !j.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+        return j;
+      }); })
+      .then(function (j) {
+        last = { mode: (j.mode === 'search' ? 'search' : 'recent'),
+                 matched: j.matched || 0, shown: j.shown || 0, q: j.q || '' };
+        render(j.items);
+        paintHead();
+      })
+      .catch(function (e) {
+        note.textContent = '⚠ ' + e.message;
+      })
+      .then(function () { input.disabled = false; btnGo.disabled = false; });
+  }
+
+  btnGo.onclick = function () { search(input.value.trim()); };
+  btnClr.onclick = function () { input.value = ''; search(''); input.focus(); };
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); search(input.value.trim()); }
+  });
+
+  // 切换语言：表头/标题由 i18n 自己重画；这里是 JS 直出的部分（提示语 + 行内文案）
+  window.addEventListener('i18n:changed', function () {
+    paintHead();
+    if (lastItems) render(lastItems);
+  });
+
+  paintHead();
+})();
 </script>
 {% endblock %}
