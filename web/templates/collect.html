@@ -318,7 +318,7 @@
   </div>
   <p class="muted" style="margin:0 0 10px">按「PDF 落盘日期」圈定待生成房源（默认只处理今天的下载）。只补缺失；勾「强制重跑」才整范围重跑。</p>
   <div class="row">
-    <button onclick="aiGenerate()">正式生成</button>
+    <button id="aiGenBtn" onclick="aiGenerate()">正式生成</button>
     <span class="muted" id="aiGenMsg"></span>
   </div>
   <pre id="aiGenProgress" style="display:block;max-height:200px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:10px"></pre>
@@ -428,7 +428,11 @@ function saveAISched(){
   postJSON('/api/ai/settings', {schedule_ai: sa}).then(function(j){
     var m = document.getElementById('aiSchedMsg');
     if(m) m.textContent = (j && j.status === 'ok') ? '已保存并应用 ✅' : ('失败：' + ((j && j.error) || ''));
-    if(j && j.schedule_ai){ window.__aiSched = j.schedule_ai; renderAISched(); }
+    /* v1.9.40：保存成功后**重新拉一次完整状态**再回显。
+       直接用 j.schedule_ai 不行 —— 它只有配置键值（enabled/window/max_per_run/workers/
+       force_rerun），没有 describe / next_run_at / thread_alive，会把「当前规则」
+       那行文字刷成空白。 */
+    if(j && j.schedule_ai){ loadAISchedStatus(); }
   }).catch(function(e){
     var m = document.getElementById('aiSchedMsg'); if(m) m.textContent = '保存出错：' + e;
   });
@@ -450,10 +454,15 @@ function aiGenerate(){
   var onlyToday = document.getElementById('aiGenOnlyToday').checked;
   var force = document.getElementById('aiGenForce').checked;
   var date = document.getElementById('aiGenDate').value || null;
+  var gb = document.getElementById('aiGenBtn');
   postJSON('/api/ai/generate', {date: date, only_today: onlyToday, force: force}).then(function(j){
     var m = document.getElementById('aiGenMsg');
     if(m) m.textContent = (j && j.ok) ? ('已启动，共 ' + (j.count || 0) + ' 份') : ('失败：' + ((j && j.error) || ''));
-    if(j && j.ok){ startAIGenPoll(); }
+    if(j && j.ok){
+      /* v1.9.40：跑起来就禁用按钮（后端也有 409 防重入），避免连点 */
+      if(gb){ gb.disabled = true; gb.classList.add('disabled'); }
+      startAIGenPoll();
+    }
   }).catch(function(e){ var m = document.getElementById('aiGenMsg'); if(m) m.textContent = '出错：' + e; });
 }
 function startAIGenPoll(){
@@ -473,12 +482,26 @@ function startAIGenPoll(){
       if(job.error){ var m = document.getElementById('aiGenMsg'); if(m) m.textContent += ' ⚠ ' + job.error; }
       if(!job.running){
         clearInterval(_aiGenTimer); _aiGenTimer = null;
+        /* v1.9.40：跑完把「正式生成」按钮恢复可点 */
+        var gb2 = document.getElementById('aiGenBtn');
+        if(gb2){ gb2.disabled = false; gb2.classList.remove('disabled'); }
         if(job.finished_at){ var m2 = document.getElementById('aiGenMsg'); if(m2) m2.textContent += ' ✅ 完成'; }
       }
     }).catch(function(){});
   }, 1500);
 }
 loadAISchedStatus();
+/* v1.9.40：刷新 / 重新进设置页时，若「正式生成」还在后台跑 → 恢复进度轮询。
+   AI_GEN_JOB 是服务端内存态，**刷新页面不会停掉任务**；不恢复的话进度区空白，
+   勇哥会以为上一次没启动成（实际还在跑）。 */
+fetch('/api/ai/generate/status').then(function(r){ return r.json(); }).then(function(j){
+  var job = (j && j.job) || {};
+  if(job.running){
+    var gb3 = document.getElementById('aiGenBtn');
+    if(gb3){ gb3.disabled = true; gb3.classList.add('disabled'); }
+    startAIGenPoll();
+  }
+}).catch(function(){});
 /* ---------- v1.5.6 上传到线上 ---------- */
 async function loadPublishStatus(){
   try{

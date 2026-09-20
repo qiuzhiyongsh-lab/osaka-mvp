@@ -224,6 +224,12 @@ PUBLIC_HIDDEN_APIS = (
     #   → 以前线上点按钮必然 500，前端只能退化成"剪贴板+开窗"（Edge 下被拦）。
     #   现在明确 403，前端按 OSAKA_PUBLIC 直接走"复制番号 + 打开 REINS 検索页"。
     "/api/reins",
+    # v1.9.40：AI 读取时间（设置页）的两个**写**接口 —— 线上展示版是只读站，
+    #   ① /api/ai/settings 会改线上配置并启停调度线程；
+    #   ② /api/ai/generate 会拉起后台抽取线程（线上根本没有 PDF 附件目录）。
+    #   两者都属"只有本机才有意义"的能力，线上明确 403（设置页 /collect 本来就 404 隐藏）。
+    #   注：/api/ai/schedule/status、/api/ai/generate/status 是 GET 只读查询，不在此列。
+    "/api/ai/settings", "/api/ai/generate",
 )
 
 
@@ -819,6 +825,11 @@ def api_ai_run(property_no: str):
            "force_cloud": bool 本地也能出结果但仍要云端}
     """
     _refresh_cfg()
+    # v1.9.40：线上只读站不做 AI 抽取（线上没有 PDF 附件，点了必然失败）。
+    #   详情页按钮已按 has_pdf 置灰（CUR_PDF=false 时禁用），这里是 API 层兜底。
+    if PUBLIC:
+        return jsonify({"ok": False,
+                        "error": "线上展示版只提供查询，不提供 AI 生成（请在本机使用）"}), 403
     if STORE.get_property(property_no) is None:
         return jsonify({"ok": False, "error": f"物件 {property_no} 不在本地库"}), 404
 
@@ -1008,7 +1019,9 @@ def api_ai_settings():
         cfg["schedule_ai"] = sa
     cfgmod.save(cfg)
     # 按 enabled 启停 AIScheduler（不碰私密 ai 块；PRD-25 R6）
-    if "schedule_ai" in body and AI_SCHED is not None:
+    # v1.9.40：线上只读站**绝不**拉起调度线程（PUBLIC 下 SCHED/PUB_LOOP 本就不启动）；
+    #   配置照存（便于与本地一致），但不启停线程。PUBLIC_HIDDEN_APIS 已先挡一道，这里是双保险。
+    if "schedule_ai" in body and AI_SCHED is not None and not PUBLIC:
         if (cfg.get("schedule_ai") or {}).get("enabled"):
             AI_SCHED.rearm()
             AI_SCHED.start()

@@ -89,7 +89,11 @@
   <h2><span data-i18n="detail.info_h">详细信息</span> <span class="hint" id="infoHint"></span>
     <span style="flex:1"></span>
     <span class="muted" id="aiMeta"></span>
-    <button class="btn" id="aiRunBtn" type="button" onclick="runAI({force:true})"></button>
+    {# v1.9.40：无落盘 PDF → 按钮**直接置灰**（线上站不传 PDF、本机未下载 PDF 的房源同理）。
+       以前线上点了必 404（app.py api_ai_run 找不到 PDF），白点还报错；现在禁用并写清原因。 #}
+    <button class="btn" id="aiRunBtn" type="button" onclick="runAI({force:true})"
+            {% if not row.pdf_path %}disabled class="btn disabled"
+            title="本房源没有落盘 PDF，无法做 AI 提取"{% endif %}></button>
   </h2>
   <div class="dinfo">
     {% for label, value, agency in pairs %}
@@ -465,8 +469,25 @@ loadAI();
 var aiRunning = false;
 function aiSetBtn(txt, dis){
   var b = document.getElementById('aiRunBtn');
-  if(b){ b.textContent = txt; b.disabled = !!dis; }
+  if(!b) return;
+  /* v1.9.40：无落盘 PDF → 恒置灰（不管理论上传什么 txt / dis）。
+     线上站（OSAKA_PUBLIC 不传 PDF）、本机还没下载 PDF 的房源都是这个状态，
+     点了必 404；这里兜底禁用并写清原因 —— 所有"恢复按钮"的分支都过这一道，
+     不会再有某个分支把禁用按钮重新点亮。 */
+  if(!CUR_PDF){
+    b.textContent = t('detail.ai_interpret_nopdf');
+    b.disabled = true;
+    b.title = t('detail.ai_interpret_nopdf');
+    b.classList.add('disabled');
+    return;
+  }
+  b.textContent = txt;
+  b.disabled = !!dis;
+  if(dis){ b.classList.add('disabled'); } else { b.classList.remove('disabled'); }
 }
+/* 初始态：有 PDF → 「重新生成」可点；无 PDF → 上面已置灰并写清原因。
+   （顺带修掉按钮初始无文字 —— 原来要等第一次点击 / 失败后才出现文案） */
+aiSetBtn(t('detail.ai_interpret_regen'), false);
 function aiMsg(el, msg, bad){
   if(!el) return;
   el.textContent = msg || '';
