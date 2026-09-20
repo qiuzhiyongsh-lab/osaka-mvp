@@ -85,8 +85,12 @@
 </div>
 
 <!-- ② 详细信息：密集多列网格（电脑一屏看完，手机两三列） -->
-<div class="card">
-  <h2><span data-i18n="detail.info_h">详细信息</span> <span class="hint" id="infoHint"></span></h2>
+<div class="card" id="infoCard">
+  <h2><span data-i18n="detail.info_h">详细信息</span> <span class="hint" id="infoHint"></span>
+    <span style="flex:1"></span>
+    <span class="muted" id="aiMeta"></span>
+    <button class="btn" id="aiRunBtn" type="button" onclick="runAI({force:true})"></button>
+  </h2>
   <div class="dinfo">
     {% for label, value, agency in pairs %}
     <!-- v1.9.0：物件番号位置 ③ —— 「详细信息」表里的 物件番号 行，值后面紧跟番号検索按钮。
@@ -94,6 +98,12 @@
     <div class="df"{% if agency %} data-agency="1"{% endif %}><span class="dk">{{ label }}</span><span class="dv">{{ value }}{% if row.property_no and value and value == row.property_no %} <a class="qbtn qbtn-reins" href="javascript:void(0)" data-bukken="{{ row.property_no }}" data-i18n="detail.reins_search">REINS 物件番号検索</a>{% endif %}</span></div>
     {% endfor %}
   </div>
+</div>
+
+<!-- ②.2 PDF 文件生成出来的内容（v1.9.37）：详细信息下方，蓝色字，与「详细信息」去重后平铺 5 列 -->
+<div class="card" id="pdfInfoCard" style="display:none">
+  <h2>PDF 文件生成出来的内容</h2>
+  <div class="pdf-info" id="pdfInfo"></div>
 </div>
 
 {# v1.8.6：PDF **直接在页面里完整展示**（勇哥要求）—— 替掉原来「重新生成」旁那个
@@ -121,13 +131,7 @@
   <h2><span data-i18n="detail.ai_interpret_h">AI 解读</span> <span class="hint" id="aiHint"></span></h2>
   <div id="aiBody"></div>
   <div class="empty" id="aiEmpty" data-i18n="detail.ai_interpret_none">本房源尚未纳入 PDF AI 识别。</div>
-  <div class="row" style="margin-top:10px">
-    <span class="muted" id="aiMeta"></span>
-    <span style="flex:1"></span>
-    {# v1.9.26 / PRD 25：手动生成。**默认本地抽取（0 元）**，只有本地跑不满且
-       用户点确认后才走云端 —— 不允许静默花钱（勇哥 D1）。 #}
-    <button class="btn" id="aiRunBtn" type="button" onclick="runAI({force:true})"></button>
-  </div>
+  {# v1.9.37：重新生成按钮 + 生成提示已迁至「详细信息」卡片标题行（aiRunBtn / aiMeta 同 id 仅一处） #}
 </div>
 
 <!-- ③ 变更历史 / 快照：默认收起，避免把页面撑长 -->
@@ -253,6 +257,15 @@ function aiEsc(s){
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+/* 去重归一化：去掉空白/逗号/货币符/括号并转小写，使「4,800万円」与「4800万円」视为相同 */
+function aiNorm(s){
+  return String(s == null ? '' : s)
+    .replace(/\s+/g, '')
+    .replace(/,/g, '')
+    .replace(/[￥$¥]/g, '')
+    .replace(/[（）()]/g, '')
+    .toLowerCase();
+}
 /* 按当前界面语言取多语言标签（AI 解读里的字段名自带 zh/zh_tw/en/ja 四份） */
 function aiL(o){
   if(!o) return '';
@@ -356,6 +369,7 @@ function paintAI(j){
   empty.style.display = has ? 'none' : '';
   if(!has){
     body.innerHTML = ''; hint.textContent = ''; meta.textContent = '';
+    var pc0 = document.getElementById('pdfInfoCard'); if(pc0) pc0.style.display = 'none';
     return;
   }
   var html = '';
@@ -414,6 +428,24 @@ function paintAI(j){
   body.querySelectorAll('.dv[data-col]').forEach(function(el){
     aiBindEdit(el, el.getAttribute('data-col'));
   });
+  /* ②.2 PDF 生成内容：与「详细信息」去重后平铺（蓝字 5 列） */
+  var infoVals = {};
+  document.querySelectorAll('#infoCard .dv').forEach(function(el){
+    var nv = aiNorm(el.textContent);
+    if(nv) infoVals[nv] = true;
+  });
+  var pdfHtml = '';
+  groups.forEach(function(g){
+    (g.fields||[]).forEach(function(f){
+      var nv = aiNorm(f.value);
+      if(!nv || infoVals[nv]) return; /* 空值 或 与「详细信息」相同 → 不显示 */
+      pdfHtml += '<div class="pdf-df"><span class="pdf-dk">' + aiEsc(aiL(f.label)) +
+                 '</span><span class="pdf-dv">' + aiEsc(f.value) + '</span></div>';
+    });
+  });
+  var pdfCard = document.getElementById('pdfInfoCard');
+  if(pdfHtml){ pdfCard.style.display = ''; document.getElementById('pdfInfo').innerHTML = pdfHtml; }
+  else { pdfCard.style.display = 'none'; }
   hint.textContent = tf('detail.ai_interpret_hint2', {n: nfield});
   meta.textContent = (j.extracted_at ? tf('detail.ai_interpret_updated', {time: j.extracted_at}) : '') +
                      (j.edited ? ' · ' + t('detail.ai_interpret_edited') : '') +

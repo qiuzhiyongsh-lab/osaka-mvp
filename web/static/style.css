@@ -489,6 +489,14 @@ body.has-cmpbar main{padding-bottom:132px}
 .dinfo{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
   gap:1px 16px;font-size:12.5px}
 .dinfo .df{border-bottom:1px dotted #eef1f7}
+/* ②.2 PDF 生成内容（v1.9.37）：与「详细信息」去重后平铺，蓝色字，固定 5 列，超 5 自动换行 */
+.pdf-info{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px 18px;margin-top:4px}
+.pdf-df{display:flex;gap:7px;padding:1px 0;border-bottom:1px dotted #eef1f7;min-width:0}
+.pdf-df .pdf-dk{color:#185f9f;flex:0 0 auto;min-width:76px;font-weight:700}
+.pdf-df .pdf-dv{color:#185f9f;word-break:break-word;min-width:0}
+@media(max-width:1040px){.pdf-info{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.pdf-info{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.pdf-info{grid-template-columns:1fr}}
 details.sec{padding:0;margin-bottom:10px}
 details.sec > summary{padding:11px 18px;cursor:pointer;list-style:none;
   font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px}
