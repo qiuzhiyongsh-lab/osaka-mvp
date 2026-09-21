@@ -160,6 +160,87 @@
       </select>
     </label>
   </div>
+  <!-- v1.9.49 / PRD v1.4.0：高级搜索四组（房型/楼龄/沿线/单价），半隐藏（<details> 默认收起） -->
+  <details class="adv" id="advFilters" style="margin-top:10px">
+    <summary data-i18n="search.adv">高级筛选：房型 / 楼龄 / 沿线 / 单价</summary>
+    <div class="adv-grid">
+      <!-- 房型规模 -->
+      <fieldset class="adv-grp">
+        <legend data-i18n="search.grp_layout">房型规模</legend>
+        <div class="msp" id="ltMsp">
+          <button type="button" class="msp-btn" id="ltBtn" aria-expanded="false" onclick="msToggle('layout_type',event)">
+            <span class="msp-txt" id="ltTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+          </button>
+          <div class="msp-panel" id="ltPanel" hidden style="width:300px">
+            <div class="msp-head"><button type="button" class="msp-x" onclick="msClear('layout_type')">清除</button></div>
+            <div class="msp-body" id="ltBody"></div>
+            <div class="msp-foot"><span class="msp-sum" id="ltSum"></span></div>
+          </div>
+        </div>
+        <label class="field sm"><span data-i18n="search.rooms_min">部屋数 ≥</span><input id="rooms_min" inputmode="numeric" placeholder="1"></label>
+        <label class="field sm"><span data-i18n="search.rooms_max">部屋数 ≤</span><input id="rooms_max" inputmode="numeric" placeholder="4"></label>
+        <label class="field sm"><span data-i18n="search.floor_min">所在階 ≥</span><input id="floor_min" inputmode="numeric" placeholder="1"></label>
+        <label class="field sm"><span data-i18n="search.floor_max">所在階 ≤</span><input id="floor_max" inputmode="numeric" placeholder="20"></label>
+      </fieldset>
+      <!-- 楼龄 -->
+      <fieldset class="adv-grp">
+        <legend data-i18n="search.grp_age">楼龄</legend>
+        <div class="tabs" id="ageTabs" style="margin-bottom:6px">
+          <label><input type="radio" name="age_mode" value="span" checked onchange="switchAgeMode()"> <span data-i18n="search.age_span">年数段</span></label>
+          <label><input type="radio" name="age_mode" value="year" onchange="switchAgeMode()"> <span data-i18n="search.age_year">建筑年代</span></label>
+        </div>
+        <div id="ageSpan">
+          <label class="field sm"><span data-i18n="search.age_min">楼龄 ≥ 年</span><input id="age_min" inputmode="numeric" placeholder="0"></label>
+          <label class="field sm"><span data-i18n="search.age_max">楼龄 ≤ 年</span><input id="age_max" inputmode="numeric" placeholder="20"></label>
+          <span class="muted" data-i18n="search.age_new_tip">新築＝楼龄≤1</span>
+        </div>
+        <div id="ageYear" hidden>
+          <label class="field sm"><span data-i18n="search.year_from">建成年 ≥</span><input id="year_from" inputmode="numeric" placeholder="1990"></label>
+          <label class="field sm"><span data-i18n="search.year_to">建成年 ≤</span><input id="year_to" inputmode="numeric" placeholder="2025"></label>
+        </div>
+      </fieldset>
+      <!-- 交通 -->
+      <fieldset class="adv-grp">
+        <legend data-i18n="search.grp_line">交通（沿線/駅/徒歩）</legend>
+        <div class="msp" id="lnMsp">
+          <button type="button" class="msp-btn" id="lnBtn" aria-expanded="false" onclick="msToggle('line',event)">
+            <span class="msp-txt" id="lnTxt" data-i18n="search.all_line">全部线路</span><span class="msp-care">▾</span>
+          </button>
+          <div class="msp-panel" id="lnPanel" hidden style="width:340px">
+            <div class="msp-head"><button type="button" class="msp-x" onclick="msClear('line')">清除</button></div>
+            <div class="msp-body" id="lnBody"></div>
+            <div class="msp-foot"><span class="msp-sum" id="lnSum"></span></div>
+          </div>
+        </div>
+        <div class="msp" id="stnMsp">
+          <button type="button" class="msp-btn" id="stnBtn" aria-expanded="false" onclick="msToggle('station',event)">
+            <span class="msp-txt" id="stnTxt" data-i18n="search.all_station">全部车站</span><span class="msp-care">▾</span>
+          </button>
+          <div class="msp-panel" id="stnPanel" hidden style="width:340px">
+            <div class="msp-head"><button type="button" class="msp-x" onclick="msClear('station')">清除</button></div>
+            <div class="msp-body" id="stnBody"></div>
+            <div class="msp-foot"><span class="msp-sum" id="stnSum"></span></div>
+          </div>
+        </div>
+        <label class="field sm"><span data-i18n="search.walk_max">徒歩 ≤ 分</span><input id="walk_max" inputmode="numeric" placeholder="10"></label>
+      </fieldset>
+      <!-- 单价 -->
+      <fieldset class="adv-grp">
+        <legend data-i18n="search.grp_price">单价（万円）</legend>
+        <div class="tabs" id="upTabs" style="margin-bottom:6px">
+          <label><input type="radio" name="up_unit" value="sqm" checked onchange="switchUpUnit()"> <span data-i18n="search.unit_sqm">万円/㎡</span></label>
+          <label><input type="radio" name="up_unit" value="tsubo" onchange="switchUpUnit()"> <span data-i18n="search.unit_tsubo">万円/坪</span></label>
+        </div>
+        <label class="field sm"><span data-i18n="search.up_min">下限</span><input id="unit_price_min" inputmode="numeric" placeholder="30"></label>
+        <label class="field sm"><span data-i18n="search.up_max">上限</span><input id="unit_price_max" inputmode="numeric" placeholder="60"></label>
+        <div class="chips">
+          <button type="button" class="chip" onclick="setUpRange(30,60)">30–60</button>
+          <button type="button" class="chip" onclick="setUpRange(60,100)">60–100</button>
+          <button type="button" class="chip" onclick="setUpRange(100,99999)">100+</button>
+        </div>
+      </fieldset>
+    </div>
+  </details>
   <div class="row" style="margin-top:8px">
     <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
     <label class="field"><span data-i18n="search.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="search.price_max.ph" placeholder="例：5000"></label>
@@ -422,7 +503,8 @@ function mspToggle(ev){
    与 msp 的差别：只有一级（无父子联动），所以实现极简 ——
      点 chip → 切换该值 → 同步按钮文案/已选计数；查询仍由页面「查询」按钮发起。
    复用 .msp-* 的样式，保证两个控件长得一样（一致性）。 */
-var MS_PREFIX = { ward: 'ward', trade_type: 'tt', status: 'st' };
+var MS_PREFIX = { ward: 'ward', trade_type: 'tt', status: 'st',
+                 layout_type: 'lt', line: 'ln', station: 'stn' };
 var MS_SEL = { ward: {}, trade_type: {} };
 var MS_OPTS = {
   ward: [],                                   // 下面用模板里的 opts.wards 填充
@@ -432,7 +514,20 @@ var MS_OPTS = {
     { v: '専属', i18n: 'search.trade_type.senzoku' },
     { v: '代理', i18n: 'search.trade_type.dairi' },
     { v: '一般', i18n: 'search.trade_type.ippan' }
-  ]
+  ],
+  // v1.9.49 / PRD v1.4.0：户型类型（值＝尾 token，后端 layout_type UDF 精确匹配；部屋数由 rooms 控制）
+  layout_type: [
+    { v: 'ワンルーム', i18n: 'search.lt.wn' },
+    { v: 'K',  i18n: 'search.lt.k' },
+    { v: 'DK', i18n: 'search.lt.dk' },
+    { v: 'LDK', i18n: 'search.lt.ldk' },
+    { v: 'SLDK', i18n: 'search.lt.sldk' },
+    { v: 'LK', i18n: 'search.lt.lk' },
+    { v: 'SDK', i18n: 'search.lt.sdk' },
+    { v: 'SLK', i18n: 'search.lt.slk' }
+  ],
+  line: [],        // 异步从 /api/lines 拉取
+  station: []      // 级联：选线路后从 /api/stations 拉取
 };
 function msEl(k, suffix){
   return document.getElementById(MS_PREFIX[k] + suffix);
@@ -600,7 +695,74 @@ function statusToggle(ev){
 }
 /* 区选项来自本机库实际出现的区（模板注入）；面板立即渲染，不需等查询 */
 MS_OPTS.ward = {{ (opts.wards if (opts.wards is defined and opts.wards) else [])|tojson }};
-function msInitAll(){ msRender('ward'); msRender('trade_type'); statusRender(); }
+function msInitAll(){
+  msRender('ward'); msRender('trade_type'); statusRender();
+  msRender('layout_type'); msRender('line'); msRender('station');
+  loadLines();
+}
+/* v1.9.49 / PRD v1.4.0：线路候选异步加载（级联车站） */
+function loadLines(){
+  api('/api/lines').then(function(j){
+    MS_OPTS.line = (j.lines || []).map(function(l){ return l; });
+    msRender('line');
+    bindLineStationCascade();
+    // v1.9.49：若已选线路，级联拉车站选项；拉完后再回灌 localStorage 里记忆的车站选择
+    if(MS_SEL.line && Object.keys(MS_SEL.line).length){
+      reloadStations(function(){
+        if(_pendingStationRestore){
+          MS_SEL.station = {};
+          _pendingStationRestore.forEach(function(s){ MS_SEL.station[s] = 1; });
+          msRender('station');
+          _pendingStationRestore = null;
+        }
+      });
+    } else if(_pendingStationRestore){
+      _pendingStationRestore = null;   // 没选线路却记了车站：无效，丢弃
+    }
+  }).catch(function(e){ /* 线路加载失败不阻断查询页 */ });
+}
+function bindLineStationCascade(){
+  var b = document.getElementById('lnBody');
+  if(!b) return;
+  b.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+    cb.addEventListener('change', reloadStations);
+  });
+}
+function reloadStations(cb){
+  var lines = msValues('line');
+  if(!lines.length){
+    MS_OPTS.station = []; MS_SEL.station = {}; msRender('station'); if(cb) cb(); return;
+  }
+  Promise.all(lines.map(function(l){
+    return api('/api/stations?line=' + encodeURIComponent(l)).then(function(j){ return j.stations || []; });
+  })).then(function(arrs){
+    var set = {}; arrs.forEach(function(a){ a.forEach(function(s){ set[s] = 1; }); });
+    MS_OPTS.station = Object.keys(set);
+    MS_SEL.station = {}; msRender('station');
+    if(cb) cb();
+  }).catch(function(e){ if(cb) cb(); });
+}
+/* v1.9.49 / PRD v1.4.0：楼龄双模式 tab 切换（年数段 ↔ 建筑年代，互斥，Q1） */
+function switchAgeMode(){
+  var m = (document.querySelector('input[name=age_mode]:checked') || {}).value || 'span';
+  document.getElementById('ageSpan').hidden = (m !== 'span');
+  document.getElementById('ageYear').hidden = (m !== 'year');
+  // v1.9.49 修：切到另一模式时清空本模式输入框 —— 否则两模式值会一起进 buildParams，
+  // 后端把 age_min/age_max 与 year_from/year_to 当独立过滤 AND 叠加，违背「tab 互斥」语义。
+  if(m === 'span'){ document.getElementById('year_from').value=''; document.getElementById('year_to').value=''; }
+  else            { document.getElementById('age_min').value='';  document.getElementById('age_max').value=''; }
+}
+/* 待回填的车站选择（restoreQState 在线路/车站选项异步加载完后回灌，避免被 reloadStations 清空） */
+var _pendingStationRestore = null;
+/* 单价单位切换：清空已输入范围（O5-A 勇哥指示：快进快出不弹确认） */
+function switchUpUnit(){
+  document.getElementById('unit_price_min').value = '';
+  document.getElementById('unit_price_max').value = '';
+}
+function setUpRange(lo, hi){
+  document.getElementById('unit_price_min').value = lo;
+  document.getElementById('unit_price_max').value = hi;
+}
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', msInitAll);
 }else{
@@ -645,7 +807,24 @@ function saveQState(){
       tts:       msValues('trade_type'),
       limit:     document.getElementById('limit').value,
       subs:      mspSelected(),
-      status:    statusValues()                 // v1.9.46 PRD：房产状态（公开+现状+手填 混合）
+      status:    statusValues(),                 // v1.9.46 PRD：房产状态（公开+现状+手填 混合）
+      // v1.9.49 / PRD v1.4.0：四组新搜索条件记忆
+      layout_types: msValues('layout_type'),
+      rooms_min:  document.getElementById('rooms_min').value,
+      rooms_max:  document.getElementById('rooms_max').value,
+      floor_min:  document.getElementById('floor_min').value,
+      floor_max:  document.getElementById('floor_max').value,
+      age_mode:   (document.querySelector('input[name=age_mode]:checked') || {}).value || 'span',
+      age_min:    document.getElementById('age_min').value,
+      age_max:    document.getElementById('age_max').value,
+      year_from:  document.getElementById('year_from').value,
+      year_to:    document.getElementById('year_to').value,
+      lines:      msValues('line'),
+      stations:   msValues('station'),
+      walk_max:   document.getElementById('walk_max').value,
+      up_unit:    (document.querySelector('input[name=up_unit]:checked') || {}).value || 'sqm',
+      unit_price_min: document.getElementById('unit_price_min').value,
+      unit_price_max: document.getElementById('unit_price_max').value
     }));
   }catch(e){ /* 隐私模式等场景静默降级 */ }
   var hint = document.getElementById('qstate-hint');
@@ -672,6 +851,37 @@ function restoreQState(){
   ST_SEL = {};
   (st.status || []).forEach(function(v){ ST_SEL[v] = 1; });
   statusRender();
+  // v1.9.49 / PRD v1.4.0：四组新搜索条件回填
+  // 户型（静态选项，立即可渲染）
+  MS_SEL['layout_type'] = {};
+  (st.layout_types || []).forEach(function(v){ MS_SEL['layout_type'][v] = 1; });
+  msRender('layout_type');
+  // 线路（选项异步加载，先记 MS_SEL，loadLines 渲染；车站等选项拉完再回灌）
+  MS_SEL['line'] = {};
+  (st.lines || []).forEach(function(v){ MS_SEL['line'][v] = 1; });
+  _pendingStationRestore = (st.stations && st.stations.length) ? st.stations.slice() : null;
+  // 楼龄 tab 模式：先置 radio → 切模式（清空另一模式输入框），否则两模式值会一起进 buildParams
+  var am = (st.age_mode === 'year') ? 'year' : 'span';
+  var amRadio = document.querySelector('input[name=age_mode][value=' + am + ']');
+  if(amRadio){ amRadio.checked = true; }
+  switchAgeMode();
+  // 单价单位 tab：先置 radio → 触发切换（清空已填范围），再填本模式数值
+  var uu = (st.up_unit === 'tsubo') ? 'tsubo' : 'sqm';
+  var uuRadio = document.querySelector('input[name=up_unit][value=' + uu + ']');
+  if(uuRadio){ uuRadio.checked = true; switchUpUnit(); }
+  // 数字区间（active 模式才填，避免把已清空的互斥模式值又写回去）
+  ['rooms_min','rooms_max','floor_min','floor_max','walk_max'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el && st[id] != null) el.value = st[id];
+  });
+  if(am === 'span'){
+    ['age_min','age_max'].forEach(function(id){ var el = document.getElementById(id); if(el && st[id] != null) el.value = st[id]; });
+  } else {
+    ['year_from','year_to'].forEach(function(id){ var el = document.getElementById(id); if(el && st[id] != null) el.value = st[id]; });
+  }
+  if(uuRadio){
+    ['unit_price_min','unit_price_max'].forEach(function(id){ var el = document.getElementById(id); if(el && st[id] != null) el.value = st[id]; });
+  }
   if(st.date) document.getElementById('date').value = st.date;
   // v1.7.4：回填「止」与「取引態様」（旧版漏了，刷新后区间后半段丢失）
   if(st.date_to != null){
@@ -959,6 +1169,20 @@ function buildParams(page){
   msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
   // v1.9.46 PRD：房产状态 → 选中集（公开+手填）作为 public_status 发后端；现状组 Phase 1 灰显不进选中集
   statusValues().forEach(function(v){ p.append('public_status', v); });
+  // v1.9.49 / PRD v1.4.0：四组新搜索条件
+  msValues('layout_type').forEach(function(v){ p.append('layout_type', v); });
+  ['rooms_min','rooms_max','floor_min','floor_max','age_min','age_max','year_from','year_to','walk_max'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el && el.value.trim()){ var n = parseInt(el.value, 10); if(!isNaN(n)) p.set(id, n); }
+  });
+  msValues('line').forEach(function(v){ p.append('line', v); });
+  msValues('station').forEach(function(v){ p.append('station', v); });
+  var upUnit = document.querySelector('input[name=up_unit]:checked');
+  if(upUnit) p.set('unit_price_unit', upUnit.value);   // 万円原值；后端 ×10000 转円（O4-A）
+  ['unit_price_min','unit_price_max'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el && el.value.trim()){ var n = parseFloat(el.value.replace(/[,，\s]/g,'')); if(!isNaN(n)) p.set(id, n); }
+  });
   // v1.7.0：按取得日期倒序（最新在上）—— 用户在查询页要"最新放最上面"
   // v1.7.4：dto 现在是字符串（旧版是 element），判断要跟着改 —— 只填「止」时也要倒序
   // v1.8.6 修「排序方向点了完全没反应」的**前端一半责任**：

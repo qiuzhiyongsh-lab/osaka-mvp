@@ -16,6 +16,7 @@ import sqlite3
 import threading
 from datetime import datetime
 from typing import Any, Iterable
+import unicodedata
 
 from . import catalog
 from . import wareki as wareki_mod
@@ -65,6 +66,105 @@ def _built_sort_key(s):
     if m3:
         return int(m3.group(1)) * 100
     return None
+
+
+# ---------- v1.9.49 / PRD v1.4.0：搜索用派生 UDF（户型・楼龄・沿线・单价）----------
+# 必须在每个线程本地连接注册（见 _register_udfs），否则多线程 Web 报 no such function。
+# 设计前提（均已实测库内样本确认）：
+#   layout 全角字母（'3ＬＤＫ'）→ NFKC 归一后抽尾 token；floor 文本（'3階'）；
+#   built_year_month 和暦文本（'1977年（昭和52年）11月'，含全角空格）；
+#   line_station 拼串（'大阪メトロ中央線\u3000緑橋 徒歩 7分'）。
+_LAYOUT_TAIL = re.compile(r"(SLDK|SDK|SLK|LDK|DK|LK|K)$")
+_WALK = re.compile(r"(徒歩|停歩)\s*(\d+)\s*分")
+
+
+def _layout_type(s):
+    """户型结尾类型（精确等值匹配，严禁 LIKE 子串误中）：3LDK→LDK，2SLDK→SLDK，
+    1K→K，ワンルーム→ワンルーム，空/解析不出→None。"""
+    if not s:
+        return None
+    s = unicodedata.normalize("NFKC", str(s)).upper()
+    if s == "ワンルーム":
+        return "ワンルーム"
+    m = _LAYOUT_TAIL.search(s)
+    return m.group(1) if m else None
+
+
+def _layout_rooms(s):
+    """户型部屋数：3LDK→3，1K→1，ワンルーム→1，空/解析不出→None。"""
+    if not s:
+        return None
+    s = unicodedata.normalize("NFKC", str(s)).upper()
+    if "ワンルーム" in s:
+        return 1
+    m = re.match(r"(\d+)", s)
+    return int(m.group(1)) if m else None
+
+
+def _built_year_int(s):
+    """建筑年份（忽略月）：1977年→1977；空/解析不出→None。"""
+    k = _built_sort_key(s)
+    return (k // 100) if k is not None else None
+
+
+def _floor_int(s):
+    """所在階数字：3階→3，B1階/地下1階→-1，空/解析不出→None。"""
+    if not s:
+        return None
+    s = str(s).strip()
+    neg = bool(re.search(r"(地下|^B)", s))
+    m = re.search(r"\d+", s)
+    if not m:
+        return None
+    n = int(m.group(0))
+    return -n if neg else n
+
+
+def _walk_minutes(s):
+    """徒歩/停歩分钟（显式排除バス）：'緑橋 徒歩 7分'→7；'停歩3分/バス18分'→3；
+    无徒歩→None。多条徒歩取最小。"""
+    if not s:
+        return None
+    best = None
+    for m in _WALK.finditer(str(s)):
+        n = int(m.group(2))
+        best = n if best is None else min(best, n)
+    return best
+
+
+def _line_text(s):
+    """线路名：取 line_station 第一段。'大阪メトロ中央線\u3000緑橋 徒歩 7分'→'大阪メトロ中央線'。"""
+    if not s:
+        return None
+    s = str(s)
+    if "\u3000" in s:
+        return s.split("\u3000", 1)[0].strip() or None
+    m = re.match(r"(.+線)", s)
+    return (m.group(1).strip() if m else s.strip()) or None
+
+
+def _station_text(s):
+    """站名：取线路后的站名段，去掉徒歩尾。'大阪メトロ中央線\u3000緑橋 徒歩 7分'→'緑橋'。"""
+    if not s:
+        return None
+    s = str(s)
+    if "\u3000" in s:
+        rest = s.split("\u3000", 1)[1]
+    else:
+        m = re.match(r".+線\s*(.*)", s)
+        rest = m.group(1) if m else s
+    rest = _WALK.sub("", rest).replace("\u3000", " ").strip()
+    return rest or None
+
+
+def _tsubo_backfill(rec: dict) -> dict:
+    """O5 附带：写入房源时若缺 tsubo 但有 sqm，自动算 unit_price_tsubo 落库（长期自洽）。"""
+    if rec.get("unit_price_sqm") and not rec.get("unit_price_tsubo"):
+        try:
+            rec["unit_price_tsubo"] = round(float(rec["unit_price_sqm"]) * 3.30578, 2)
+        except (TypeError, ValueError):
+            pass
+    return rec
 
 
 # R20：9 个排序键 → SQL 表达式（服务端 SQL 排序；空值排最后；番号作稳定次级键）。
@@ -340,6 +440,9 @@ class Store:
         self._tls = threading.local()
         _c = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
         _c.row_factory = sqlite3.Row
+        # v1.9.49 修：首条连接（主线程 / __init__ 内使用）也必须注册 UDF，
+        # 否则主线程直接走 search() 会报 no such function: line_text（线程本地连接才注册是漏的）。
+        self._register_udfs(_c)
         _c.executescript(SCHEMA)
         _c.commit()
         self._tls.conn = _c
@@ -367,11 +470,21 @@ class Store:
 
     @staticmethod
     def _register_udfs(conn):
-        """在一条连接上注册服务端排序用的 UDF（线程本地连接各注册一次）。"""
-        try:
-            conn.create_function("built_sort_key", 1, _built_sort_key)
-        except Exception:
-            pass
+        """在一条连接上注册服务端排序/搜索用的 UDF（线程本地连接各注册一次）。"""
+        for name, fn in (
+            ("built_sort_key", _built_sort_key),
+            ("layout_type", _layout_type),
+            ("layout_rooms", _layout_rooms),
+            ("built_year_int", _built_year_int),
+            ("floor_int", _floor_int),
+            ("walk_minutes", _walk_minutes),
+            ("line_text", _line_text),
+            ("station_text", _station_text),
+        ):
+            try:
+                conn.create_function(name, 1, fn)
+            except Exception:
+                pass
 
     # ---------------- 轻量迁移（老库补列，幂等） ----------------
     # 原则：只加列、不改名、不删列 —— 老库直接可用，不需要手工迁移。
@@ -452,6 +565,7 @@ class Store:
 
     def upsert_property(self, rec: dict) -> None:
         rec = {k: v for k, v in rec.items() if k in PROPERTY_COLUMNS}
+        rec = _tsubo_backfill(rec)  # O5 附带：缺 tsubo 有 sqm 自动算（长期自洽）
         if "property_no" not in rec:
             raise ValueError("upsert_property 需要 property_no")
         existing = self.get_property(rec["property_no"])
@@ -518,6 +632,7 @@ class Store:
                 skipped += 1
                 continue
             rec = {k: v for k, v in raw.items() if k in PROPERTY_COLUMNS}
+            rec = _tsubo_backfill(rec)  # O5 附带：缺 tsubo 有 sqm 自动算（长期自洽）
             # v1.9.42：与 upsert_property 同一不变式（有 PDF ⇒ 図面=1）。
             if rec.get("pdf_path") and not rec.get("has_floorplan"):
                 rec["has_floorplan"] = 1
@@ -915,6 +1030,54 @@ class Store:
             else:
                 where.append("(reg_date_iso = ? OR chg_date_iso = ?)")
                 args += [f["date"], f["date"]]
+        # ---------- v1.9.49 / PRD v1.4.0：房型 / 楼龄 / 沿线 / 单价 四组搜索条件 ----------
+        # 设计：每个子条件独立判空，全空不追加（A10 零回归）；范围用 UDF 派生列比较。
+        # 户型（間取タイプ / 部屋数 / 所在階）
+        ltypes = [str(x).strip() for x in (f.get("layout_types") or []) if str(x).strip()]
+        if ltypes:
+            # 精确等值匹配（layout_type UDF 抽尾 token，DK≠LDK，严禁 LIKE 子串误中，A1/A2）
+            where.append("(" + " OR ".join("layout_type(layout) = ?" for _ in ltypes) + ")")
+            args += ltypes
+        if f.get("rooms_min") not in (None, ""):
+            where.append("layout_rooms(layout) >= ?"); args.append(int(f["rooms_min"]))
+        if f.get("rooms_max") not in (None, ""):
+            where.append("layout_rooms(layout) <= ?"); args.append(int(f["rooms_max"]))
+        if f.get("floor_min") not in (None, ""):
+            where.append("floor_int(floor) >= ?"); args.append(int(f["floor_min"]))
+        if f.get("floor_max") not in (None, ""):
+            where.append("floor_int(floor) <= ?"); args.append(int(f["floor_max"]))
+        # 楼龄双模式（tab 互斥，前端保证不会同时传；楼龄 = 今年 - 建成年，忽略月）
+        _this_year = "CAST(strftime('%Y','now') AS INTEGER)"
+        if f.get("age_max") not in (None, ""):
+            # 楼龄 ≤ N ⇔ 建成年 ≥ 今年 - N（新築=楼龄≤1 用 age_max=1 表达，Q2）
+            where.append(f"built_year_int(built_year_month) >= ({_this_year} - ?)")
+            args.append(int(f["age_max"]))
+        if f.get("age_min") not in (None, ""):
+            where.append(f"built_year_int(built_year_month) <= ({_this_year} - ?)")
+            args.append(int(f["age_min"]))
+        if f.get("year_from") not in (None, ""):
+            where.append("built_year_int(built_year_month) >= ?"); args.append(int(f["year_from"]))
+        if f.get("year_to") not in (None, ""):
+            where.append("built_year_int(built_year_month) <= ?"); args.append(int(f["year_to"]))
+        # 沿线（线路/车站 级联 AND + 徒歩上限；バス分钟已排除）
+        lines = [str(x).strip() for x in (f.get("lines") or []) if str(x).strip()]
+        if lines:
+            where.append("(" + " OR ".join("line_text(line_station) = ?" for _ in lines) + ")")
+            args += lines
+        stations = [str(x).strip() for x in (f.get("stations") or []) if str(x).strip()]
+        if stations:
+            where.append("(" + " OR ".join("station_text(line_station) = ?" for _ in stations) + ")")
+            args += stations
+        if f.get("walk_max") not in (None, ""):
+            where.append("walk_minutes(line_station) <= ?"); args.append(int(f["walk_max"]))
+        # 单价（单位二选一 + 万円 范围；后端 ×10000 转日元，O4-A）
+        up_unit = (f.get("unit_price_unit") or "").strip().lower()
+        if up_unit in ("sqm", "tsubo"):
+            _col = "unit_price_sqm" if up_unit == "sqm" else "unit_price_tsubo"
+            if f.get("unit_price_min") not in (None, ""):
+                where.append(f"{_col} >= ?"); args.append(int(float(f["unit_price_min"]) * 10000))
+            if f.get("unit_price_max") not in (None, ""):
+                where.append(f"{_col} <= ?"); args.append(int(float(f["unit_price_max"]) * 10000))
         if not f.get("include_inactive"):
             where.append("is_active = 1")
 
@@ -957,6 +1120,26 @@ class Store:
                 # 两级目录（一级＝一戸建／公寓／土地，二级＝新築／中古）；
                 # 库里归不进目录的種目自动进「其他」组，保证筛得出来。
                 "tree": catalog.tree(subtypes)}
+
+    # v1.9.49 / PRD v1.4.0：沿线检索的「线路 / 车站」候选（供前端级联下拉）。
+    # 线路取 line_station 第一段（UDF line_text）；车站取该线路下的 station_text。
+    def distinct_lines(self) -> list:
+        rows = self.conn.execute(
+            "SELECT DISTINCT line_text(line_station) AS ln FROM properties "
+            "WHERE line_text(line_station) IS NOT NULL AND line_text(line_station) <> '' "
+            "ORDER BY ln"
+        ).fetchall()
+        return [r["ln"] for r in rows]
+
+    def stations_for(self, line: str) -> list:
+        if not line:
+            return []
+        rows = self.conn.execute(
+            "SELECT DISTINCT station_text(line_station) AS st FROM properties "
+            "WHERE line_text(line_station) = ? AND station_text(line_station) IS NOT NULL "
+            "AND station_text(line_station) <> '' ORDER BY st", (line,)
+        ).fetchall()
+        return [r["st"] for r in rows]
 
     def stats(self) -> dict:
         """概览卡片用的统计（全部按**本地库**算）。

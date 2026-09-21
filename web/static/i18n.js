@@ -545,6 +545,13 @@
     'empty.changes':'暂无变更记录。先点上面的「手动更新」跑一轮。',
     'empty.runs':'还没有运行记录，先点「手动更新」跑一轮。',
     'search.loading':'正在加载当天数据…','search.fail':'查询失败，请重试。','search.none':'没有匹配的房源。','search.unit_price_sqm':'㎡単価','search.unit_price_tsubo':'坪単価','search.na':'—',
+    // v1.9.49 / PRD v1.4.0：查詢頁新增四組搜索條件（戶型/樓齡/沿線/單價）
+    'search.adv':'高级筛选','search.grp_layout':'户型','search.rooms_min':'房间数 ≥','search.rooms_max':'房间数 ≤',
+    'search.floor_min':'所在楼层 ≥','search.floor_max':'所在楼层 ≤','search.grp_age':'楼龄',
+    'search.age_span':'年数段','search.age_year':'建筑年代','search.age_min':'楼龄 ≥ 年','search.age_max':'楼龄 ≤ 年','search.age_new_tip':'新築＝楼龄≤1',
+    'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全部线路','search.all_station':'全部车站',
+    'search.walk_max':'徒歩 ≤ 分','search.grp_price':'单价（万円）','search.unit_sqm':'万円/㎡','search.unit_tsubo':'万円/坪','search.up_min':'下限','search.up_max':'上限',
+    'search.lt.wn':'一房','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK',
     'search.sum':'日期 {date} ｜ 共 {total} 条 ｜ 每页 {limit} 条 ｜ 本页 {rows} 条',
     'search.lib.base':'本机库共','search.lib.today':'今天','search.lib.latest':'最近有数据：',
     'search.lib.warn':'⚠ 本机库<b>今天（','search.lib.warn2':'）还没有任何数据</b>。多半是「当天的下载」还没跑，或者<b>登录会话已过期</b>（此时抓取会一声不吭地入库 0 条）。',
@@ -685,7 +692,14 @@
       'files.q_tip':'關鍵詞與「房源查詢」同一口徑：地址 / 樓名 / 物件番號 / 駅・沿線 / 間取り / 區 / 種目 / 築年月；空格分隔多詞＝都要命中。',
       'files.th_house':'房源（基本資訊）','files.house_unknown':'本機庫無此房源資料',
       'account.setpw':'設定帳號密碼',
-      'account.setpw_note':'前往「員工管理」頁：新建員工、重設隨機碼、複製現有密碼、設為管理員 / 停用（該頁僅本機 8765 可見）。'
+      'account.setpw_note':'前往「員工管理」頁：新建員工、重設隨機碼、複製現有密碼、設為管理員 / 停用（該頁僅本機 8765 可見）。',
+      // v1.9.49 / PRD v1.4.0：查詢頁新增四組搜索條件（戶型/樓齡/沿線/單價）
+      'search.adv':'進階篩選','search.grp_layout':'戶型','search.rooms_min':'房間數 ≥','search.rooms_max':'房間數 ≤',
+      'search.floor_min':'所在樓層 ≥','search.floor_max':'所在樓層 ≤','search.grp_age':'樓齡',
+      'search.age_span':'年數段','search.age_year':'建築年代','search.age_min':'樓齡 ≥ 年','search.age_max':'樓齡 ≤ 年','search.age_new_tip':'新築＝樓齡≤1',
+      'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全部線路','search.all_station':'全部車站',
+      'search.walk_max':'徒歩 ≤ 分','search.grp_price':'單價（萬円）','search.unit_sqm':'萬円/㎡','search.unit_tsubo':'萬円/坪','search.up_min':'下限','search.up_max':'上限',
+      'search.lt.wn':'一房','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
     },
     'en': {
       'ov.last2':'Last refresh',
@@ -743,7 +757,14 @@
       'files.q_tip':'Same rule as the Search page: address / building / property no. / line & station / layout / ward / type / built date. Space-separated words must all match.',
       'files.th_house':'Home (basics)','files.house_unknown':'No record in local DB',
       'account.setpw':'Set account password',
-      'account.setpw_note':'Go to Staff Management: create staff, reset the one-time code, copy the current code, set admin / disable (that page is local-only, port 8765).'
+      'account.setpw_note':'Go to Staff Management: create staff, reset the one-time code, copy the current code, set admin / disable (that page is local-only, port 8765).',
+      // v1.9.49 / PRD v1.4.0：query page four new filter groups (layout / age / line / unit price)
+      'search.adv':'Advanced','search.grp_layout':'Layout','search.rooms_min':'Rooms ≥','search.rooms_max':'Rooms ≤',
+      'search.floor_min':'Floor ≥','search.floor_max':'Floor ≤','search.grp_age':'Building age',
+      'search.age_span':'Age span','search.age_year':'Built year','search.age_min':'Age ≥ yr','search.age_max':'Age ≤ yr','search.age_new_tip':'New = age ≤ 1',
+      'search.year_from':'Built ≥','search.year_to':'Built ≤','search.grp_line':'Transit (line / station / walk)','search.all_line':'All lines','search.all_station':'All stations',
+      'search.walk_max':'Walk ≤ min','search.grp_price':'Unit price (10k ¥)','search.unit_sqm':'10k ¥/㎡','search.unit_tsubo':'10k ¥/tsubo','search.up_min':'Min','search.up_max':'Max',
+      'search.lt.wn':'1R','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
     },
     'ja': {
       'ov.last2':'最終更新',
@@ -801,7 +822,14 @@
       'files.q_tip':'キーワードは「物件検索」と同じ基準：住所 / 建物名 / 物件番号 / 沿線・駅 / 間取り / 区 / 種目 / 築年月。空白区切りの複数語はすべて一致が必要。',
       'files.th_house':'物件（基本情報）','files.house_unknown':'本機DBに該当物件なし',
       'account.setpw':'アカウントのパスワード設定',
-      'account.setpw_note':'「社員管理」ページへ：社員作成、ワンタイムコード再発行、現在のコードのコピー、管理者設定 / 無効化（同ページは本機 8765 のみ）。'
+      'account.setpw_note':'「社員管理」ページへ：社員作成、ワンタイムコード再発行、現在のコードのコピー、管理者設定 / 無効化（同ページは本機 8765 のみ）。',
+      // v1.9.49 / PRD v1.4.0：検索ページ 新検索条件4群（間取/築年/沿線/単価）
+      'search.adv':'詳細フィルタ','search.grp_layout':'間取り','search.rooms_min':'部屋数 ≥','search.rooms_max':'部屋数 ≤',
+      'search.floor_min':'所在階 ≥','search.floor_max':'所在階 ≤','search.grp_age':'築年',
+      'search.age_span':'年数帯','search.age_year':'建築年代','search.age_min':'築年 ≥ 年','search.age_max':'築年 ≤ 年','search.age_new_tip':'新築＝築年≤1',
+      'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全線','search.all_station':'全駅',
+      'search.walk_max':'徒歩 ≤ 分','search.grp_price':'単価（万円）','search.unit_sqm':'万円/㎡','search.unit_tsubo':'万円/坪','search.up_min':'下限','search.up_max':'上限',
+      'search.lt.wn':'ワンルーム','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
     }
   };
   ['zh-TW','en','ja'].forEach(function (l) {

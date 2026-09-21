@@ -940,3 +940,19 @@ details.sec > .secbody{padding:10px 18px 14px}
   .ai-dims{width:100%}
   .ai-dim{grid-template-columns:60px 1fr 28px}
 }
+
+/* v1.9.49 / PRD v1.4.0：高级搜索四组（半隐藏 <details>） */
+.adv{margin:0;border:1px solid var(--line-soft);border-radius:10px;padding:8px 12px;background:#fbfdff}
+.adv > summary{cursor:pointer;font-weight:700;color:var(--brand);font-size:13px;padding:2px 0}
+.adv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
+.adv-grp{border:1px solid var(--line-soft);border-radius:9px;padding:8px 10px;margin:0;background:#fff}
+.adv-grp legend{font-size:12px;font-weight:700;color:var(--brand);padding:0 6px}
+.adv-grp .msp{margin-bottom:8px}
+.field.sm{font-size:12px}
+.field.sm input{height:30px;width:84px;padding:0 8px;border:1px solid #cdd8ea;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box}
+.tabs{display:flex;gap:12px;font-size:12.5px}
+.tabs label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.chip{border:1px solid #cdd8ea;background:#fff;color:var(--ink);border-radius:999px;
+  padding:3px 10px;font-size:12px;cursor:pointer}
+.chip:hover{border-color:var(--brand-ink);color:var(--brand-ink)}

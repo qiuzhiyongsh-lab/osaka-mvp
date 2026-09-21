@@ -1745,6 +1745,21 @@ def api_compare():
                     "missing": missing, "rows": rows})
 
 
+@app.get("/api/lines")
+def api_lines():
+    """沿线检索：返回库内全部 DISTINCT 线路（供前端线路级联下拉）。"""
+    _refresh_cfg()
+    return {"lines": STORE.distinct_lines()}
+
+
+@app.get("/api/stations")
+def api_stations():
+    """沿线检索：返回指定线路下的 DISTINCT 车站（级联下拉）。"""
+    _refresh_cfg()
+    line = (request.args.get("line") or "").strip()
+    return {"stations": STORE.stations_for(line)}
+
+
 @app.get("/api/query")
 def api_query():
     """查询本地库，默认按「当天」过滤；返回房源行 + 解析后的详情 + PDF 链接。
@@ -1792,6 +1807,26 @@ def api_query():
         # v1.5.4：日期口径 —— registration=平台登録日 / change=平台変更日 / any=两者任一。
         # 用户要求：日期按「平台新建或变更日」算，不是我方下载日。
         "date_caliber": (request.args.get("date_caliber") or "any").strip().lower(),
+        # v1.9.49 / PRD v1.4.0：查询页新增 房型 / 楼龄 / 沿线 / 单价 四组搜索条件。
+        # 全部「全空不追加」= A10 零回归；多选同名参数重复传 = OR（与 ward/subtype 同机制）。
+        "layout_types": [x.strip() for x in request.args.getlist("layout_type") if x.strip()],
+        "rooms_min": request.args.get("rooms_min", ""),
+        "rooms_max": request.args.get("rooms_max", ""),
+        "floor_min": request.args.get("floor_min", ""),
+        "floor_max": request.args.get("floor_max", ""),
+        # 楼龄双模式（tab 互斥，前端保证不会同时传）：年数段 age_min/age_max 与 建筑年代 year_from/year_to。
+        "age_min": request.args.get("age_min", ""),
+        "age_max": request.args.get("age_max", ""),
+        "year_from": request.args.get("year_from", ""),
+        "year_to": request.args.get("year_to", ""),
+        # 沿线：线路/车站 级联（AND），徒歩上限。
+        "lines": [x.strip() for x in request.args.getlist("line") if x.strip()],
+        "stations": [x.strip() for x in request.args.getlist("station") if x.strip()],
+        "walk_max": request.args.get("walk_max", ""),
+        # 单价：单位二选一（sqm/tsubo），金额范围（万円）。
+        "unit_price_unit": (request.args.get("unit_price_unit") or "").strip().lower(),
+        "unit_price_min": request.args.get("unit_price_min", ""),
+        "unit_price_max": request.args.get("unit_price_max", ""),
     }
     # v1.7.0：日期段优先 —— 起止任一带值就走范围，清掉单日期避免双重过滤
     # v1.7.4 修静默 BUG：旧代码清完 f["date"] 后，下面的「默认填今天」又把它填回来，
