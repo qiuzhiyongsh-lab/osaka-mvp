@@ -3353,8 +3353,29 @@ def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
         page.locator(btn).last.click(timeout=8000)
         page.wait_for_load_state("networkidle", timeout=40000)
         page.wait_for_timeout(1500)
+        # 真机取证（2026-09-21，forensics_bug2_dom.py）：番号検索返回
+        # 「検索結果が0件です」时结果页 0 行、根本没有「詳細」按钮 → 原代码
+        # 会卡 8000ms 超时、每轮误报"打开详情失败"。根因 = 该物件已 成約済/取り下げ
+        # （不在公开检索池，番号検索本就查不到），不是 locator 写错（硬门禁②已看真实 DOM）。
+        # 修法 = 先判 0 件 / 结果 0 行 / 无「詳細」按钮，直接优雅跳过，不再卡超时。
+        _html0 = (page.content() or "")
+        if ("検索結果が0件" in _html0) or ("0件です" in _html0):
+            log("  · " + property_no + " 番号検索 0件（成約済/取り下げ等，无詳細可补，跳过）")
+            return None
+        _rows0 = sel.get("result_rows") or "div.p-table-body-row"
+        try:
+            if page.locator(_rows0).count() == 0:
+                log("  · " + property_no + " 番号検索 结果 0 行（无詳細可补，跳过）")
+                return None
+        except Exception:
+            pass
+        # 点「詳細」前确认按钮存在，避免对不存在元素卡 8000ms 超时
+        _det = page.locator(sel["detail_button"])
+        if _det.count() == 0:
+            log("  · " + property_no + " 番号検索 结果页无「詳細」按钮（跳过）")
+            return None
         # 结果列表点「詳細」（REINS 是 <button>，可能同标签或开新标签）
-        page.locator(sel["detail_button"]).first.click(timeout=8000)
+        _det.first.click(timeout=8000)
         page.wait_for_load_state("domcontentloaded", timeout=30000)
         page.wait_for_timeout(900)
         dp = page
