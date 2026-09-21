@@ -956,3 +956,32 @@ details.sec > .secbody{padding:10px 18px 14px}
 .chip{border:1px solid #cdd8ea;background:#fff;color:var(--ink);border-radius:999px;
   padding:3px 10px;font-size:12px;cursor:pointer}
 .chip:hover{border-color:var(--brand-ink);color:var(--brand-ink)}
+
+/* v1.9.50 / PRD-05：查询页搜索条件缺陷修复配套样式 */
+/* ① 房型「库内 0 条」灰显（§4.3 O3-A） */
+.msp-chip.is-disabled{opacity:.45;cursor:not-allowed}
+.msp-chip.is-disabled input{pointer-events:none}
+.ms-nodata{font-style:normal;font-size:11px;color:#9aa7bd;margin-left:2px}
+/* ② 楼龄双滑块滑轨（§4.4） */
+.slider-txt{display:flex;align-items:center;gap:4px;font-size:12.5px;flex-wrap:wrap}
+.num-sm{width:56px;height:28px;padding:0 6px;border:1px solid #cdd8ea;border-radius:7px;
+  font-size:13px;font-family:inherit;box-sizing:border-box}
+.dual-range{position:relative;height:30px;margin:8px 2px 2px}
+.dual-range input[type=range]{position:absolute;left:0;right:0;width:100%;margin:0;
+  -webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;height:30px}
+.dual-range input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--brand-ink);
+  border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer}
+.dual-range input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:#dbe4f2}
+.dual-range input[type=range]::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;
+  border-radius:50%;background:var(--brand-ink);border:2px solid #fff;cursor:pointer}
+.dual-range input[type=range]::-moz-range-track{height:5px;border-radius:3px;background:#dbe4f2}
+.unit{color:#7b8798;font-size:12px}
+/* ③ 面板增高可视区 + 内部分组滚动（§4.6） */
+#lnPanel .msp-body,#stnPanel .msp-body{min-height:300px;max-height:340px;overflow:auto}
+.msp-panel{z-index:60}
+/* ④ 半透明遮罩：面板展开时不遮挡下方内容（§4.6 B9） */
+.msp-mask{position:fixed;inset:0;background:rgba(15,23,42,.16);z-index:50}
+/* ⑤ 单价单位切换视觉高亮（§4.7 P2） */
+.tabs label input[type=radio]:checked + span{background:var(--brand-ink);color:#fff;
+  border-radius:999px;padding:2px 9px;font-weight:700}

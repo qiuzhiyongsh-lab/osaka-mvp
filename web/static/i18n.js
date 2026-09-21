@@ -552,6 +552,12 @@
     'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全部线路','search.all_station':'全部车站',
     'search.walk_max':'徒歩 ≤ 分','search.grp_price':'单价（万円）','search.unit_sqm':'万円/㎡','search.unit_tsubo':'万円/坪','search.up_min':'下限','search.up_max':'上限',
     'search.lt.wn':'一房','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK',
+    // v1.9.50 / PRD-05：房型补齐 10 项（新增 KK/SK）+ 0 条灰显；楼龄滑轨；楼层/房间口语化
+    'search.lt.kk':'KK','search.lt.sk':'SK','search.lt_none':'暂无数据','search.lt.wn_tip':'单间（1R）',
+    'search.age_from':'楼龄 从','search.age_to':'年 到','search.age_end':'年',
+    'search.age_chip_new':'新築(≤1年)','search.age_chip_5':'5年内','search.age_chip_10':'10年内','search.age_chip_20':'20年内',
+    'search.rooms_from':'房间 从','search.rooms_to':'到','search.rooms_unit':'室',
+    'search.floor_from':'楼层 从','search.floor_to':'到','search.floor_unit':'层',
     'search.sum':'日期 {date} ｜ 共 {total} 条 ｜ 每页 {limit} 条 ｜ 本页 {rows} 条',
     'search.lib.base':'本机库共','search.lib.today':'今天','search.lib.latest':'最近有数据：',
     'search.lib.warn':'⚠ 本机库<b>今天（','search.lib.warn2':'）还没有任何数据</b>。多半是「当天的下载」还没跑，或者<b>登录会话已过期</b>（此时抓取会一声不吭地入库 0 条）。',
@@ -699,7 +705,13 @@
       'search.age_span':'年數段','search.age_year':'建築年代','search.age_min':'樓齡 ≥ 年','search.age_max':'樓齡 ≤ 年','search.age_new_tip':'新築＝樓齡≤1',
       'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全部線路','search.all_station':'全部車站',
       'search.walk_max':'徒歩 ≤ 分','search.grp_price':'單價（萬円）','search.unit_sqm':'萬円/㎡','search.unit_tsubo':'萬円/坪','search.up_min':'下限','search.up_max':'上限',
-      'search.lt.wn':'一房','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
+      'search.lt.wn':'一房','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK',
+      // v1.9.50 / PRD-05：房型補齊 10 項（新增 KK/SK）+ 0 條灰顯；樓齡滑軌；樓層/房間口語化
+      'search.lt.kk':'KK','search.lt.sk':'SK','search.lt_none':'暫無數據','search.lt.wn_tip':'單間（1R）',
+      'search.age_from':'樓齡 從','search.age_to':'年 到','search.age_end':'年',
+      'search.age_chip_new':'新築(≤1年)','search.age_chip_5':'5年內','search.age_chip_10':'10年內','search.age_chip_20':'20年內',
+      'search.rooms_from':'房間 從','search.rooms_to':'到','search.rooms_unit':'室',
+      'search.floor_from':'樓層 從','search.floor_to':'到','search.floor_unit':'層'
     },
     'en': {
       'ov.last2':'Last refresh',
@@ -764,7 +776,13 @@
       'search.age_span':'Age span','search.age_year':'Built year','search.age_min':'Age ≥ yr','search.age_max':'Age ≤ yr','search.age_new_tip':'New = age ≤ 1',
       'search.year_from':'Built ≥','search.year_to':'Built ≤','search.grp_line':'Transit (line / station / walk)','search.all_line':'All lines','search.all_station':'All stations',
       'search.walk_max':'Walk ≤ min','search.grp_price':'Unit price (10k ¥)','search.unit_sqm':'10k ¥/㎡','search.unit_tsubo':'10k ¥/tsubo','search.up_min':'Min','search.up_max':'Max',
-      'search.lt.wn':'1R','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
+      'search.lt.wn':'1R','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK',
+      // v1.9.50 / PRD-05: layout 10 options (added KK/SK) + grey-out; age slider; floor/rooms wording
+      'search.lt.kk':'KK','search.lt.sk':'SK','search.lt_none':'No data','search.lt.wn_tip':'Studio (1R)',
+      'search.age_from':'Age from','search.age_to':'yr to','search.age_end':'yr',
+      'search.age_chip_new':'New (≤1y)','search.age_chip_5':'Within 5y','search.age_chip_10':'Within 10y','search.age_chip_20':'Within 20y',
+      'search.rooms_from':'Rooms from','search.rooms_to':'to','search.rooms_unit':'rm',
+      'search.floor_from':'Floor from','search.floor_to':'to','search.floor_unit':'F'
     },
     'ja': {
       'ov.last2':'最終更新',
@@ -829,7 +847,13 @@
       'search.age_span':'年数帯','search.age_year':'建築年代','search.age_min':'築年 ≥ 年','search.age_max':'築年 ≤ 年','search.age_new_tip':'新築＝築年≤1',
       'search.year_from':'建成年 ≥','search.year_to':'建成年 ≤','search.grp_line':'交通（沿線/駅/徒歩）','search.all_line':'全線','search.all_station':'全駅',
       'search.walk_max':'徒歩 ≤ 分','search.grp_price':'単価（万円）','search.unit_sqm':'万円/㎡','search.unit_tsubo':'万円/坪','search.up_min':'下限','search.up_max':'上限',
-      'search.lt.wn':'ワンルーム','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK'
+      'search.lt.wn':'ワンルーム','search.lt.k':'K','search.lt.dk':'DK','search.lt.ldk':'LDK','search.lt.sldk':'SLDK','search.lt.lk':'LK','search.lt.sdk':'SDK','search.lt.slk':'SLK',
+      // v1.9.50 / PRD-05：間取10項目（KK/SK追加）+ 0件グレー表示；築年スライダー；階/部屋の表記
+      'search.lt.kk':'KK','search.lt.sk':'SK','search.lt_none':'データなし','search.lt.wn_tip':'ワンルーム（1R）',
+      'search.age_from':'築年 から','search.age_to':'年 まで','search.age_end':'年',
+      'search.age_chip_new':'新築(≤1年)','search.age_chip_5':'5年以内','search.age_chip_10':'10年以内','search.age_chip_20':'20年以内',
+      'search.rooms_from':'部屋 から','search.rooms_to':'まで','search.rooms_unit':'室',
+      'search.floor_from':'階 から','search.floor_to':'まで','search.floor_unit':'階'
     }
   };
   ['zh-TW','en','ja'].forEach(function (l) {

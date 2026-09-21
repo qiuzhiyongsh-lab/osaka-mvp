@@ -179,6 +179,18 @@ if _seed.exists():
 else:
     print("[种子] 没有 data/site_data.json，线上将是空库", flush=True)
 
+# v1.9.50 / PRD-05 §4.1：**种子灌完之后**必须再学一次线路 / 车站字典。
+#   原因：上面 `_store = Store(...)` 发生在灌种子**之前**，那时库是空的，
+#   __init__ 里的字典学习什么都学不到 → 线上「全部线路」下拉会是空的。
+#   这里 force=True 重学一次，保证首次启动就有 35 条真线路 / 站名映射。
+try:
+    _store._ensure_rail_dict(force=True)
+    _nl = _store.conn.execute("SELECT COUNT(*) FROM rail_lines").fetchone()[0]
+    _ns = _store.conn.execute("SELECT COUNT(*) FROM station_line_map").fetchone()[0]
+    print("[线路字典] 线路 %d 条 / 站名映射 %d 条" % (_nl, _ns), flush=True)
+except Exception as _e:                                            # noqa: BLE001
+    print("[线路字典] 刷新失败（不影响启动，退化为含『線』判定）：%s" % _e, flush=True)
+
 from web.app import create_app                                     # noqa: E402
 
 app = create_app()

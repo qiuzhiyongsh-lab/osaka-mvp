@@ -177,10 +177,12 @@
             <div class="msp-foot"><span class="msp-sum" id="ltSum"></span></div>
           </div>
         </div>
-        <label class="field sm"><span data-i18n="search.rooms_min">部屋数 ≥</span><input id="rooms_min" inputmode="numeric" placeholder="1"></label>
-        <label class="field sm"><span data-i18n="search.rooms_max">部屋数 ≤</span><input id="rooms_max" inputmode="numeric" placeholder="4"></label>
-        <label class="field sm"><span data-i18n="search.floor_min">所在階 ≥</span><input id="floor_min" inputmode="numeric" placeholder="1"></label>
-        <label class="field sm"><span data-i18n="search.floor_max">所在階 ≤</span><input id="floor_max" inputmode="numeric" placeholder="20"></label>
+        <!-- v1.9.50 / PRD-05 §4.5 P1-2：统一为「从 N … 到 M …」范式（对齐页面既有价格/面积写法），
+             不再用「≥ / ≤」符号 —— 勇哥图 6：「要『高于多少层 / 低于多少层』」 -->
+        <label class="field sm"><span data-i18n="search.rooms_from">房间 从</span><input id="rooms_min" inputmode="numeric" placeholder="1"><span class="unit" data-i18n="search.rooms_unit">室</span></label>
+        <label class="field sm"><span data-i18n="search.rooms_to">到</span><input id="rooms_max" inputmode="numeric" placeholder="9"><span class="unit" data-i18n="search.rooms_unit">室</span></label>
+        <label class="field sm"><span data-i18n="search.floor_from">楼层 从</span><input id="floor_min" inputmode="numeric" placeholder="1"><span class="unit" data-i18n="search.floor_unit">层</span></label>
+        <label class="field sm"><span data-i18n="search.floor_to">到</span><input id="floor_max" inputmode="numeric" placeholder="60"><span class="unit" data-i18n="search.floor_unit">层</span></label>
       </fieldset>
       <!-- 楼龄 -->
       <fieldset class="adv-grp">
@@ -189,10 +191,27 @@
           <label><input type="radio" name="age_mode" value="span" checked onchange="switchAgeMode()"> <span data-i18n="search.age_span">年数段</span></label>
           <label><input type="radio" name="age_mode" value="year" onchange="switchAgeMode()"> <span data-i18n="search.age_year">建筑年代</span></label>
         </div>
+        <!-- v1.9.50 / PRD-05 §4.4 P1-1：勇哥指定改「双滑块滑轨 + 两个数值框」，
+             并口语化（不用「≥ / ≤」，改「楼龄 从 N 年 到 M 年」）。
+             默认 0–99 = 全区间（此时不发后端过滤，等同不限）。 -->
         <div id="ageSpan">
-          <label class="field sm"><span data-i18n="search.age_min">楼龄 ≥ 年</span><input id="age_min" inputmode="numeric" placeholder="0"></label>
-          <label class="field sm"><span data-i18n="search.age_max">楼龄 ≤ 年</span><input id="age_max" inputmode="numeric" placeholder="20"></label>
-          <span class="muted" data-i18n="search.age_new_tip">新築＝楼龄≤1</span>
+          <div class="slider-txt">
+            <span data-i18n="search.age_from">楼龄 从</span>
+            <input id="age_min" class="num-sm" type="number" min="0" max="99" value="0" oninput="onAgeNum()">
+            <span data-i18n="search.age_to">年 到</span>
+            <input id="age_max" class="num-sm" type="number" min="0" max="99" value="99" oninput="onAgeNum()">
+            <span data-i18n="search.age_end">年</span>
+          </div>
+          <div class="dual-range">
+            <input type="range" id="age_lo" min="0" max="99" value="0" oninput="onAgeRange()">
+            <input type="range" id="age_hi" min="0" max="99" value="99" oninput="onAgeRange()">
+          </div>
+          <div class="chips">
+            <button type="button" class="chip" onclick="setAgeRange(0,1)" data-i18n="search.age_chip_new">新築(≤1年)</button>
+            <button type="button" class="chip" onclick="setAgeRange(0,5)" data-i18n="search.age_chip_5">5年内</button>
+            <button type="button" class="chip" onclick="setAgeRange(0,10)" data-i18n="search.age_chip_10">10年内</button>
+            <button type="button" class="chip" onclick="setAgeRange(0,20)" data-i18n="search.age_chip_20">20年内</button>
+          </div>
         </div>
         <div id="ageYear" hidden>
           <label class="field sm"><span data-i18n="search.year_from">建成年 ≥</span><input id="year_from" inputmode="numeric" placeholder="1990"></label>
@@ -241,6 +260,8 @@
       </fieldset>
     </div>
   </details>
+  <!-- v1.9.50 / PRD-05 §4.6：面板展开时的半透明遮罩（B9：展开不得遮挡下方内容，点遮罩即收起） -->
+  <div id="mspMask" class="msp-mask" hidden onclick="msCloseAll();msSyncMask()"></div>
   <div class="row" style="margin-top:8px">
     <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
     <label class="field"><span data-i18n="search.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="search.price_max.ph" placeholder="例：5000"></label>
@@ -505,7 +526,15 @@ function mspToggle(ev){
    复用 .msp-* 的样式，保证两个控件长得一样（一致性）。 */
 var MS_PREFIX = { ward: 'ward', trade_type: 'tt', status: 'st',
                  layout_type: 'lt', line: 'ln', station: 'stn' };
-var MS_SEL = { ward: {}, trade_type: {} };
+/* v1.9.50 / PRD-05 §4.2：单一数据源。
+   v1.9.49 的根因就是「新增一个 MSP 要同步改 N 处，漏一处就出问题」——
+   点外部收起的 key 数组没带上 layout_type/line/station，新面板点了不收。
+   现在所有遍历（初始化 / 点击外部收起 / Esc 收起）统一走 MSP_KEYS，新增只需改 MS_PREFIX。 */
+var MSP_KEYS = Object.keys(MS_PREFIX);
+/* ⚠ MS_SEL 必须给每个 MSP 预置空对象：msRender 里直接读 MS_SEL[k][v]，
+   键不存在会 TypeError —— 首次访问（localStorage 无历史）时面板会整块空白。 */
+var MS_SEL = { ward: {}, trade_type: {}, status: {},
+              layout_type: {}, line: {}, station: {} };
 var MS_OPTS = {
   ward: [],                                   // 下面用模板里的 opts.wards 填充
   trade_type: [
@@ -516,15 +545,19 @@ var MS_OPTS = {
     { v: '一般', i18n: 'search.trade_type.ippan' }
   ],
   // v1.9.49 / PRD v1.4.0：户型类型（值＝尾 token，后端 layout_type UDF 精确匹配；部屋数由 rooms 控制）
+  // v1.9.50 / PRD-05 §4.3：补齐到 PRD v1.4.0 §4.1 要求的 **10 项**（v1.9.49 漏了 KK / SK），
+  //   并按库内条数灰显（KK / SK / SLK 实测 0 条 → 标「暂无数据」，有数据自动转可选）。
   layout_type: [
     { v: 'ワンルーム', i18n: 'search.lt.wn' },
     { v: 'K',  i18n: 'search.lt.k' },
     { v: 'DK', i18n: 'search.lt.dk' },
-    { v: 'LDK', i18n: 'search.lt.ldk' },
-    { v: 'SLDK', i18n: 'search.lt.sldk' },
+    { v: 'KK', i18n: 'search.lt.kk' },
     { v: 'LK', i18n: 'search.lt.lk' },
+    { v: 'LDK', i18n: 'search.lt.ldk' },
+    { v: 'SK', i18n: 'search.lt.sk' },
     { v: 'SDK', i18n: 'search.lt.sdk' },
-    { v: 'SLK', i18n: 'search.lt.slk' }
+    { v: 'SLK', i18n: 'search.lt.slk' },
+    { v: 'SLDK', i18n: 'search.lt.sldk' }
   ],
   line: [],        // 异步从 /api/lines 拉取
   station: []      // 级联：选线路后从 /api/stations 拉取
@@ -537,12 +570,19 @@ function msOptLabel(o){ return (typeof o === 'string') ? o : t(o.i18n); }
 function msRender(k){
   var body = msEl(k, 'Body');
   if(!body) return;
+  // v1.9.50 防御：键没预置时自动补空对象并标记禁用态（v1.9.49 缺键会 TypeError → 整块面板空白）
+  if(!MS_SEL[k]) MS_SEL[k] = {};
   var h = '';
   (MS_OPTS[k] || []).forEach(function(o){
     var v = msOptVal(o);
-    h += '<label class="msp-chip"><input type="checkbox" data-ms="' + esc(k) + '" data-v="' + esc(v) + '"'
-      +  (MS_SEL[k][v] ? ' checked' : '') + ' onchange="msPick(this)">'
-      +  '<span>' + esc(msOptLabel(o)) + '</span></label>';
+    // 库内 0 条 → 灰显「暂无数据」（PRD-05 §4.3 O3-A）
+    var dis = (typeof o === 'object' && o.disabled) ? ' disabled' : '';
+    var cls = dis ? ' class="msp-chip is-disabled"' : ' class="msp-chip"';
+    h += '<label' + cls + '><input type="checkbox" data-ms="' + esc(k) + '" data-v="' + esc(v) + '"'
+      +  (MS_SEL[k][v] ? ' checked' : '') + dis + ' onchange="msPick(this)">'
+      +  '<span>' + esc(msOptLabel(o))
+      +  (dis ? '<i class="ms-nodata">（' + esc(t('search.lt_none')) + '）</i>' : '')
+      +  '</span></label>';
   });
   body.innerHTML = h;
   msSync(k);
@@ -603,17 +643,46 @@ function msToggle(k, ev){
   var b = msEl(k, 'Btn');
   if(b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
   if(open) msPlace(k);
+  msSyncMask();
 }
-/* 点面板外面收起（已选条件不受影响 —— 只是把面板收起来） */
-document.addEventListener('click', function(ev){
-  ['ward', 'trade_type', 'status'].forEach(function(k){
+/* v1.9.50 / PRD-05 §4.6：有任一面板打开就显示半透明遮罩，全部收起则移除 */
+function msSyncMask(){
+  var any = MSP_KEYS.some(function(k){
+    var p = msEl(k, 'Panel');
+    return p && !p.hasAttribute('hidden');
+  });
+  var m = document.getElementById('mspMask');
+  if(!m) return;
+  if(any) m.removeAttribute('hidden'); else m.setAttribute('hidden', '');
+}
+/* 点面板外面收起 / Esc 收起（已选条件不受影响 —— 只是把面板收起来）
+   v1.9.50：改为遍历 MSP_KEYS（= MS_PREFIX 全部键），v1.9.49 这里写死了三个键，
+   导致 layout_type / line / station 三个新面板点外面永远不收（勇哥图 4）。 */
+function msCloseAll(exceptKey){
+  MSP_KEYS.forEach(function(k){
+    if(k === exceptKey) return;
     var box = msEl(k, 'Msp'), p = msEl(k, 'Panel');
     if(!box || !p || p.hasAttribute('hidden')) return;
-    if(box.contains(ev.target)) return;
     p.setAttribute('hidden', '');
     var b = msEl(k, 'Btn');
     if(b) b.setAttribute('aria-expanded', 'false');
   });
+}
+document.addEventListener('click', function(ev){
+  MSP_KEYS.forEach(function(k){
+    var box = msEl(k, 'Msp'), p = msEl(k, 'Panel');
+    if(!box || !p || p.hasAttribute('hidden')) return;
+    if(box.contains(ev.target)) return;      // 点在面板自己身上 → 不动
+    p.setAttribute('hidden', '');
+    var b = msEl(k, 'Btn');
+    if(b) b.setAttribute('aria-expanded', 'false');
+  });
+  msSyncMask();
+});
+document.addEventListener('keydown', function(ev){
+  if(ev.key !== 'Escape' && ev.key !== 'Esc') return;
+  msCloseAll();
+  msSyncMask();
 });
 /* v1.9.46 PRD：房产状态「双分组多选面板」（公开状态组 + 现状组）。
    不复用 msRender（它只支持扁平单组），这里独立实现两套选中集合 + 手填新增。
@@ -695,7 +764,16 @@ function statusToggle(ev){
 }
 /* 区选项来自本机库实际出现的区（模板注入）；面板立即渲染，不需等查询 */
 MS_OPTS.ward = {{ (opts.wards if (opts.wards is defined and opts.wards) else [])|tojson }};
+/* v1.9.50 / PRD-05 §4.3：各房型库内条数（后端 filter_options 注入）。
+   0 条的房型灰显并标「暂无数据」，有数据自动转可选（O3-A）。 */
+var LAYOUT_COUNTS = {{ (opts.layout_counts if (opts.layout_counts is defined and opts.layout_counts) else {})|tojson }};
+function applyLayoutCounts(){
+  (MS_OPTS.layout_type || []).forEach(function(o){
+    o.disabled = ((LAYOUT_COUNTS[o.v] || 0) === 0);
+  });
+}
 function msInitAll(){
+  applyLayoutCounts();                 // ⚠ 必须先算灰显，再渲染（否则第一次渲染没有 disabled 态）
   msRender('ward'); msRender('trade_type'); statusRender();
   msRender('layout_type'); msRender('line'); msRender('station');
   loadLines();
@@ -747,10 +825,39 @@ function switchAgeMode(){
   var m = (document.querySelector('input[name=age_mode]:checked') || {}).value || 'span';
   document.getElementById('ageSpan').hidden = (m !== 'span');
   document.getElementById('ageYear').hidden = (m !== 'year');
-  // v1.9.49 修：切到另一模式时清空本模式输入框 —— 否则两模式值会一起进 buildParams，
-  // 后端把 age_min/age_max 与 year_from/year_to 当独立过滤 AND 叠加，违背「tab 互斥」语义。
+  // v1.9.49 修（v1.9.50 适配滑轨）：切到另一模式时把本模式复位 ——
+  // 否则两模式值会一起进 buildParams，被后端当独立过滤 AND 叠加，违背「tab 互斥」语义。
   if(m === 'span'){ document.getElementById('year_from').value=''; document.getElementById('year_to').value=''; }
-  else            { document.getElementById('age_min').value='';  document.getElementById('age_max').value=''; }
+  else            { setAgeRange(0, 99); }   // 楼龄复位为全区间 = 不限
+}
+/* v1.9.50 / PRD-05 §4.4：楼龄双滑块（0–99 年）+ 数值框双向绑定。
+   · 拖滑块 → 数字框同步；改数字框 → 滑块同步
+   · 拖过头会钳住（lo 不得超过 hi），避免出现「从 30 年到 10 年」这种反向区间
+   · 默认 0–99 = 全区间，buildParams 里视同「不限」不发后端 */
+function _ageClamp(n, def){
+  n = parseInt(n, 10);
+  if(isNaN(n)) n = def;
+  return Math.max(0, Math.min(99, n));
+}
+function onAgeRange(){
+  var lo = _ageClamp(document.getElementById('age_lo').value, 0);
+  var hi = _ageClamp(document.getElementById('age_hi').value, 99);
+  if(lo > hi){ lo = hi; document.getElementById('age_lo').value = lo; }
+  document.getElementById('age_min').value = lo;
+  document.getElementById('age_max').value = hi;
+}
+function onAgeNum(){
+  var lo = _ageClamp(document.getElementById('age_min').value, 0);
+  var hi = _ageClamp(document.getElementById('age_max').value, 99);
+  if(lo > hi){ hi = lo; document.getElementById('age_max').value = hi; }
+  document.getElementById('age_lo').value = lo;
+  document.getElementById('age_hi').value = hi;
+}
+function setAgeRange(lo, hi){
+  document.getElementById('age_min').value = lo;
+  document.getElementById('age_max').value = hi;
+  document.getElementById('age_lo').value = lo;
+  document.getElementById('age_hi').value = hi;
 }
 /* 待回填的车站选择（restoreQState 在线路/车站选项异步加载完后回灌，避免被 reloadStations 清空） */
 var _pendingStationRestore = null;
@@ -875,7 +982,9 @@ function restoreQState(){
     if(el && st[id] != null) el.value = st[id];
   });
   if(am === 'span'){
-    ['age_min','age_max'].forEach(function(id){ var el = document.getElementById(id); if(el && st[id] != null) el.value = st[id]; });
+    // v1.9.50：楼龄是滑轨，回填必须同时同步「数字框 + 两个滑块」，否则显示的区间和值不一致
+    var _lo = parseInt(st.age_min, 10), _hi = parseInt(st.age_max, 10);
+    setAgeRange(isNaN(_lo) ? 0 : _lo, isNaN(_hi) ? 99 : _hi);
   } else {
     ['year_from','year_to'].forEach(function(id){ var el = document.getElementById(id); if(el && st[id] != null) el.value = st[id]; });
   }
@@ -1171,10 +1280,15 @@ function buildParams(page){
   statusValues().forEach(function(v){ p.append('public_status', v); });
   // v1.9.49 / PRD v1.4.0：四组新搜索条件
   msValues('layout_type').forEach(function(v){ p.append('layout_type', v); });
-  ['rooms_min','rooms_max','floor_min','floor_max','age_min','age_max','year_from','year_to','walk_max'].forEach(function(id){
+  ['rooms_min','rooms_max','floor_min','floor_max','year_from','year_to','walk_max'].forEach(function(id){
     var el = document.getElementById(id);
     if(el && el.value.trim()){ var n = parseInt(el.value, 10); if(!isNaN(n)) p.set(id, n); }
   });
+  // 楼龄：滑轨默认 0–99 = 全区间 → 视同「不限」不发后端（避免无意义的 0/99 过滤条件）
+  var _alo = parseInt((document.getElementById('age_min') || {}).value, 10);
+  var _ahi = parseInt((document.getElementById('age_max') || {}).value, 10);
+  var _ageFull = (isNaN(_alo) || isNaN(_ahi)) || (_alo === 0 && _ahi === 99);
+  if(!_ageFull){ p.set('age_min', _alo); p.set('age_max', _ahi); }
   msValues('line').forEach(function(v){ p.append('line', v); });
   msValues('station').forEach(function(v){ p.append('station', v); });
   var upUnit = document.querySelector('input[name=up_unit]:checked');

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import collections
 import json
 import re
 import sqlite3
@@ -132,15 +133,53 @@ def _walk_minutes(s):
     return best
 
 
+# v1.9.50 / PRD-05 §4.1：真线路字典 + 站名反查表。
+#   SQLite UDF 内部**不能查表**（会递归且极慢），所以由 Store 在启动时把两张字典表
+#   读进模块级内存，UDF 只读内存。rail_lines 未载入时退化到「含『線』字」判定，不至于全库失效。
+_RAIL_LINES: set = set()
+_STATION_MAP: dict = {}          # {站名: [线路, ...]}，支持同名多线
+
+
+def set_rail_dict(lines, smap=None) -> None:
+    """供 Store 注入线路字典 / 站名反查表（UDF 读内存，不查表）。"""
+    global _RAIL_LINES, _STATION_MAP
+    _RAIL_LINES = set(lines or ())
+    _STATION_MAP = dict(smap or {})
+
+
+def lines_of_station(station: str) -> list:
+    """站名 → 线路列表（反查）。"""
+    return list(_STATION_MAP.get((station or "").strip()) or [])
+
+
 def _line_text(s):
-    """线路名：取 line_station 第一段。'大阪メトロ中央線\u3000緑橋 徒歩 7分'→'大阪メトロ中央線'。"""
+    """线路名（v1.9.50 重做：只认字典，绝不返回站名）。
+
+    · 干净数据 '大阪メトロ中央線\u3000緑橋 徒歩 7分' → '大阪メトロ中央線'（须命中 rail_lines）
+    · 脏数据   '東天下茶屋 北畠 昭和町'（REINS 只写了站名）→ 按半角空格拆站名逐个反查线路
+    · 脏数据   '公共交通機関なし' → None（归入「无线路」，即不限）
+    · 反查不到 → None（⚠ 旧版这里返回整串站名，正是下拉 508 项里 473 项垃圾的源头）
+    """
     if not s:
         return None
-    s = str(s)
+    s = str(s).strip()
+    if not s:
+        return None
     if "\u3000" in s:
-        return s.split("\u3000", 1)[0].strip() or None
-    m = re.match(r"(.+線)", s)
-    return (m.group(1).strip() if m else s.strip()) or None
+        ln = s.split("\u3000", 1)[0].strip()
+        if not ln:
+            return None
+        if _RAIL_LINES:
+            return ln if ln in _RAIL_LINES else None
+        return ln if "線" in ln else None          # 字典未载入时的兜底
+    # ---- 以下为「只写了站名」的脏数据 ----
+    if "公共交通" in s and ("なし" in s or "無し" in s):
+        return None
+    for tok in [t.strip() for t in s.split(" ") if t.strip()]:
+        for ln in lines_of_station(tok):
+            if ln:
+                return ln
+    return None
 
 
 def _station_text(s):
@@ -426,6 +465,26 @@ CREATE TABLE IF NOT EXISTS ai_extractions (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_no ON ai_extractions(property_no);
+
+-- v1.9.50 / PRD-05 §4.1 P0-1：线路 / 车站数据底座。
+--   背景：v1.9.49 的「全部线路」下拉是 DISTINCT line_text(line_station) 直接拿脏数据，
+--   508 项里 473 项是**站名**（REINS 原文 727 条只写了站名没写线路）→ 用户没法选。
+--   修法：真线路做成字典表，line_text() 只在命中字典时才返回线路名，否则 NULL。
+CREATE TABLE IF NOT EXISTS rail_lines (
+  name        TEXT PRIMARY KEY,          -- 线路名，如 大阪メトロ御堂筋線
+  prop_count  INTEGER DEFAULT 0,         -- 库内房源数（展示用，非筛选依据）
+  source      TEXT DEFAULT 'auto',       -- auto=从库内学习 / manual=人工补录
+  updated_at  TEXT
+);
+CREATE TABLE IF NOT EXISTS station_line_map (
+  station     TEXT NOT NULL,             -- 站名
+  line        TEXT NOT NULL,             -- 所属线路（一个站可属多条线）
+  prop_count  INTEGER DEFAULT 0,
+  source      TEXT DEFAULT 'auto',
+  PRIMARY KEY (station, line)
+);
+CREATE INDEX IF NOT EXISTS idx_slm_line ON station_line_map(line);
+CREATE INDEX IF NOT EXISTS idx_slm_station ON station_line_map(station);
 """
 
 
@@ -448,6 +507,8 @@ class Store:
         self._tls.conn = _c
         self.conn.executescript(SCHEMA)
         self._ensure_columns()
+        # v1.9.50 / PRD-05 §4.1：线路 / 车站字典（line_text UDF 依赖内存字典，必须先载入）
+        self._ensure_rail_dict()
         self.conn.commit()
 
     @property
@@ -512,6 +573,89 @@ class Store:
             "pdf_saved": "INTEGER DEFAULT 0",     # v1.4.0：PDF 层分子
         },
     }
+
+    # ---------------- v1.9.50：线路 / 车站数据底座（PRD-05 §4.1 P0-1） ----------------
+    # 人工补录：从干净记录学不到线路归属的站名（实测 1496 个站名 token 中仅 11 个未命中），
+    # 均为大阪知名站、归属明确。勇哥 / PM 复核后可直接改这里或改 station_line_map 表。
+    MANUAL_STATION_LINE = {
+        "大江橋": ["京阪本線"],
+        "渡辺橋": ["京阪本線"],
+        "大阪阿部野橋": ["近鉄南大阪線"],
+        "大阪難波": ["阪神なんば線"],
+        "姫松": ["阪神本線"],
+        "布施": ["近鉄大阪線"],
+        "住吉鳥居前": ["南海高野線"],
+    }
+
+    def _ensure_rail_dict(self, force: bool = False) -> None:
+        """建 / 灌 rail_lines + station_line_map，并载入内存字典（幂等，老库免迁移）。
+
+        为什么非做不可（PRD-05 §3.1）：
+          v1.9.49 的 /api/lines 直接 DISTINCT line_text(line_station)，而 REINS 有
+          **727 条（15.7%）只写了站名没写线路** → 下拉 508 项里 473 项是站名，用户没法选。
+          这里把真线路做成字典（实测 35 条，且全部含『線』），再把 727 条脏数据按半角空格
+          拆站名、逐个反查所属线路（实测 720/721 条可命中）。
+        """
+        c = self.conn
+        have = 0
+        try:
+            have = c.execute("SELECT COUNT(*) FROM rail_lines").fetchone()[0]
+        except Exception:
+            have = 0
+        if have and not force:
+            self._load_rail_dict(c)
+            return
+        rows = c.execute(
+            "SELECT line_station FROM properties "
+            "WHERE line_station IS NOT NULL AND line_station <> ''").fetchall()
+        lines = collections.Counter()
+        pairs = collections.Counter()
+        for r in rows:
+            s = (r["line_station"] if hasattr(r, "keys") else r[0]) or ""
+            s = str(s).strip()
+            if not s or "\u3000" not in s:
+                continue                      # 脏数据没有线路，只靠后续反查
+            p = [x.strip() for x in s.split("\u3000") if x.strip()]
+            if not p:
+                continue
+            ln = p[0]
+            if "線" not in ln:
+                continue                      # 不是轨道线路名，不入字典
+            lines[ln] += 1
+            if len(p) > 1:
+                st = re.split(r"\s*(?:徒歩|停歩)", p[1])[0].strip()
+                if st:
+                    pairs[(st, ln)] += 1
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            c.execute("DELETE FROM rail_lines WHERE source='auto'")
+            c.executemany(
+                "INSERT OR REPLACE INTO rail_lines(name, prop_count, source, updated_at)"
+                " VALUES(?,?,'auto',?)", [(k, v, now) for k, v in lines.items()])
+            c.execute("DELETE FROM station_line_map WHERE source='auto'")
+            c.executemany(
+                "INSERT OR REPLACE INTO station_line_map(station, line, prop_count, source)"
+                " VALUES(?,?,?,'auto')", [(st, ln, n) for (st, ln), n in pairs.items()])
+            c.executemany(
+                "INSERT OR REPLACE INTO station_line_map(station, line, prop_count, source)"
+                " VALUES(?,?,0,'manual')",
+                [(st, ln) for st, lns in self.MANUAL_STATION_LINE.items() for ln in lns])
+            c.commit()
+        except Exception as e:                                       # noqa: BLE001
+            print("[线路字典] 写入失败（不影响查询）：%s" % e)
+        self._load_rail_dict(c)
+
+    def _load_rail_dict(self, conn=None) -> None:
+        """把两张字典表读进模块级内存 —— UDF 只读内存，绝不查表（会递归且极慢）。"""
+        c = conn or self.conn
+        try:
+            lines = [r[0] for r in c.execute("SELECT name FROM rail_lines")]
+            smap = collections.defaultdict(list)
+            for st, ln in c.execute("SELECT station, line FROM station_line_map"):
+                smap[st].append(ln)
+            set_rail_dict(lines, dict(smap))
+        except Exception as e:                                       # noqa: BLE001
+            print("[线路字典] 载入失败（退化为含『線』判定）：%s" % e)
 
     def _ensure_columns(self) -> None:
         for table, cols in self._ADD_COLUMNS.items():
@@ -1066,8 +1210,18 @@ class Store:
             args += lines
         stations = [str(x).strip() for x in (f.get("stations") or []) if str(x).strip()]
         if stations:
-            where.append("(" + " OR ".join("station_text(line_station) = ?" for _ in stations) + ")")
-            args += stations
+            # v1.9.50：脏数据（只写了站名）是一坨 '東天下茶屋 北畠 昭和町'，
+            # station_text 等值匹配会漏掉后面几个站 → 用**空格边界** LIKE 兜底。
+            # 加空格边界是为了不吃子串误匹配（『北畠』不会误中『北畠東』）。
+            conds, a2 = [], []
+            for st in stations:
+                conds.append(
+                    "(station_text(line_station) = ? "
+                    "OR (' ' || line_station || ' ') LIKE '% ' || ? || ' %' "
+                    "OR line_station = ?)")
+                a2 += [st, st, st]
+            where.append("(" + " OR ".join(conds) + ")")
+            args += a2
         if f.get("walk_max") not in (None, ""):
             where.append("walk_minutes(line_station) <= ?"); args.append(int(f["walk_max"]))
         # 单价（单位二选一 + 万円 范围；后端 ×10000 转日元，O4-A）
@@ -1119,27 +1273,75 @@ class Store:
         return {"wards": col("ward"), "subtypes": subtypes, "kinds": col("kind"),
                 # 两级目录（一级＝一戸建／公寓／土地，二级＝新築／中古）；
                 # 库里归不进目录的種目自动进「其他」组，保证筛得出来。
-                "tree": catalog.tree(subtypes)}
+                "tree": catalog.tree(subtypes),
+                # v1.9.50 / PRD-05 §4.3：各房型在库内的条数 —— 前端据此把 0 条的房型
+                # （实测 KK / SK / SLK）灰显标「暂无数据」，有数据自动转可选（O3-A）。
+                "layout_counts": self.layout_type_counts()}
+
+    def layout_type_counts(self) -> dict:
+        """各房型（間取タイプ）在架房源数，如 {'LDK': 2092, 'DK': 264}。"""
+        try:
+            rows = self.conn.execute(
+                "SELECT layout_type(layout) AS t, COUNT(*) AS c FROM properties "
+                "WHERE is_active = 1 AND layout IS NOT NULL AND layout <> '' "
+                "GROUP BY t").fetchall()
+        except Exception:                                            # noqa: BLE001
+            return {}
+        return {r["t"]: int(r["c"]) for r in rows if r["t"]}
 
     # v1.9.49 / PRD v1.4.0：沿线检索的「线路 / 车站」候选（供前端级联下拉）。
     # 线路取 line_station 第一段（UDF line_text）；车站取该线路下的 station_text。
     def distinct_lines(self) -> list:
+        """真线路全量（v1.9.50：改读字典，不再 DISTINCT 脏数据）。
+
+        旧实现 DISTINCT line_text(line_station) → 508 项里 473 项是站名；
+        现在返回 rail_lines 字典（约 35 条），按库内房源数降序 = 常用线路在前。
+        """
+        try:
+            rows = self.conn.execute(
+                "SELECT name FROM rail_lines ORDER BY prop_count DESC, name").fetchall()
+            names = [r["name"] for r in rows if r["name"]]
+        except Exception:                                            # noqa: BLE001
+            names = []
+        if names:
+            return names
+        # 字典还没建好时，退化为「含『線』」判定，至少不返回纯站名
         rows = self.conn.execute(
             "SELECT DISTINCT line_text(line_station) AS ln FROM properties "
-            "WHERE line_text(line_station) IS NOT NULL AND line_text(line_station) <> '' "
-            "ORDER BY ln"
-        ).fetchall()
-        return [r["ln"] for r in rows]
+            "WHERE line_station LIKE '%\u3000%'").fetchall()
+        return sorted({r["ln"] for r in rows
+                       if r["ln"] and "線" in r["ln"]})
 
     def stations_for(self, line: str) -> list:
+        """该线路的车站 = 字典 ∪ 库内反查（PRD-05 §4.1）。
+
+        库内部分要把「只写了站名」的脏数据按半角空格拆开，
+        否则下拉会出现 '東天下茶屋 北畠 昭和町' 这种一坨站名的垃圾选项。
+        """
         if not line:
             return []
-        rows = self.conn.execute(
-            "SELECT DISTINCT station_text(line_station) AS st FROM properties "
-            "WHERE line_text(line_station) = ? AND station_text(line_station) IS NOT NULL "
-            "AND station_text(line_station) <> '' ORDER BY st", (line,)
-        ).fetchall()
-        return [r["st"] for r in rows]
+        sts = set()
+        try:
+            for r in self.conn.execute(
+                    "SELECT station FROM station_line_map WHERE line = ?", (line,)):
+                if r["station"]:
+                    sts.add(r["station"])
+        except Exception:                                            # noqa: BLE001
+            pass
+        try:
+            for r in self.conn.execute(
+                    "SELECT DISTINCT station_text(line_station) AS st FROM properties "
+                    "WHERE line_text(line_station) = ?", (line,)):
+                st = (r["st"] or "").strip()
+                if not st:
+                    continue
+                if " " in st:                     # 脏数据：多站名一坨 → 拆开
+                    sts.update(t for t in st.split(" ") if t)
+                else:
+                    sts.add(st)
+        except Exception:                                            # noqa: BLE001
+            pass
+        return sorted(sts)
 
     def stats(self) -> dict:
         """概览卡片用的统计（全部按**本地库**算）。
