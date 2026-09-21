@@ -86,6 +86,47 @@ def install_excepthooks() -> None:
     threading.excepthook = _thread_hook
 
 
+def _run_server_dual_stack(app, host: str, port: int) -> None:
+    """启动 Flask 服务：IPv4 主监听 + 尽力补 IPv6 回环监听（双栈）。
+
+    为什么双栈：本机 `localhost` 通常解析成 `::1, 127.0.0.1`（IPv6 优先）。
+    旧实现只 `app.run(host="127.0.0.1")` 绑 IPv4，导致用 `localhost` 访问时
+    Edge 先连 ::1 被拒、回退 IPv4 不如 Chrome 稳 → "无法访问"；Chrome 用
+    Happy Eyeballs 回退 127.0.0.1 正常。补 [::1] 监听后，`localhost` 在
+    Edge/Chrome 都通。IPv6 绑定失败（极少数环境）不影响 IPv4 主监听。
+    """
+    from werkzeug.serving import make_server
+
+    ipv4 = make_server(host or "127.0.0.1", port, app, threaded=True)
+    ipv4.daemon_threads = True
+
+    ipv6 = None
+    try:
+        ipv6 = make_server("::1", port, app, threaded=True)
+        ipv6.daemon_threads = True
+    except Exception as e:                                # noqa: BLE001
+        say(f"· IPv6 回环监听跳过（[::1]:{port} 绑定失败，不影响 IPv4）："
+            f"{type(e).__name__}: {e}")
+
+    if ipv6 is not None:
+        threading.Thread(target=ipv6.serve_forever, daemon=True,
+                         name="flask-ipv6").start()
+        say(f"· 双栈监听：127.0.0.1:{port} + [::1]:{port}"
+            f"（localhost 在 Edge/Chrome 均可用）")
+
+    try:
+        ipv4.serve_forever()
+    finally:
+        ipv4.shutdown()
+        ipv4.server_close()
+        if ipv6 is not None:
+            try:
+                ipv6.shutdown()
+                ipv6.server_close()
+            except Exception:
+                pass
+
+
 def serve_once(host: str, port: int, extra_args: list[str]) -> None:
     from web.app import app, CFG, PATHS, SCHED
 
@@ -125,8 +166,7 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
     app.jinja_env.auto_reload = True
     app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-    app.run(host=host, port=port, debug=False,
-            use_reloader=False, threaded=True)
+    _run_server_dual_stack(app, host, port)
 
 
 def main() -> int:
