@@ -566,7 +566,14 @@ function msEl(k, suffix){
   return document.getElementById(MS_PREFIX[k] + suffix);
 }
 function msOptVal(o){ return (typeof o === 'string') ? o : o.v; }
-function msOptLabel(o){ return (typeof o === 'string') ? o : t(o.i18n); }
+function msOptLabel(o){
+  // v1.9.52 修：车站项是 {group, v} 的**纯值对象**（没有 i18n）；线路项同理。
+  // v1.9.51 把车站项改成 {group,v} 后，旧实现直接 t(o.i18n)=t(undefined) → 标签为空
+  // → 面板里只剩一排空方框（勇哥 2 图反馈）。现对纯值项回退返回 o.v（站名/线路名）。
+  if(typeof o === 'string') return o;
+  if(o && o.i18n) return t(o.i18n);
+  return (o && o.v) || '';
+}
 function msRender(k){
   var body = msEl(k, 'Body');
   if(!body) return;
