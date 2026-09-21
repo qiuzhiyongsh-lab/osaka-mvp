@@ -148,7 +148,7 @@ def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
                  ) if last_error else None
     con.execute(
         "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at,last_ai_at,last_ai_error)"
-        " VALUES (1,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+        " VALUES (1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
         " last_at=excluded.last_at, last_count=excluded.last_count,"
         " last_mode=excluded.last_mode, last_endpoint=excluded.last_endpoint,"
         " last_error=excluded.last_error, last_error_at=excluded.last_error_at,"
