@@ -160,6 +160,27 @@
       </select>
     </label>
   </div>
+  <!-- v1.9.50 / PRD-05 §4.8：价格 / 面积 / 日期 这一行挪到「高级筛选」**上面**（勇哥图 6 圈红） -->
+  <div class="row" style="margin-top:10px">
+    <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
+    <label class="field"><span data-i18n="search.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="search.price_max.ph" placeholder="例：5000"></label>
+    <label class="field"><span data-i18n="search.area_min">面积下限(㎡)</span><input id="area_min" data-i18n-ph="search.area_min.ph" placeholder="例：50"></label>
+    <label class="field"><span data-i18n="search.area_max">面积上限(㎡)</span><input id="area_max" data-i18n-ph="search.area_max.ph" placeholder="例：80"></label>
+    <label class="field"><span data-i18n="search.date">日期(起)</span>
+      <input type="date" id="date" value="{{ today }}">
+    </label>
+    <label class="field"><span data-i18n="search.date_to">日期(止)</span>
+      <input type="date" id="date_to">
+    </label>
+    <label class="field"><span data-i18n="search.date_caliber">日期口径</span>
+      <select id="date_caliber">
+        <option value="any" selected data-i18n="search.date_caliber.any">登録日或変更日</option>
+        <option value="change" data-i18n="search.date_caliber.change">変更日（平台变更）</option>
+        <option value="registration" data-i18n="search.date_caliber.reg">登録日（平台新建）</option>
+        <option value="download" data-i18n="search.date_caliber.dl">下载日（本地抓到）</option>
+      </select>
+    </label>
+  </div>
   <!-- v1.9.49 / PRD v1.4.0：高级搜索四组（房型/楼龄/沿线/单价），半隐藏（<details> 默认收起） -->
   <details class="adv" id="advFilters" style="margin-top:10px">
     <summary data-i18n="search.adv">高级筛选：房型 / 楼龄 / 沿线 / 单价</summary>
@@ -262,27 +283,6 @@
   </details>
   <!-- v1.9.50 / PRD-05 §4.6：面板展开时的半透明遮罩（B9：展开不得遮挡下方内容，点遮罩即收起） -->
   <div id="mspMask" class="msp-mask" hidden onclick="msCloseAll();msSyncMask()"></div>
-  <div class="row" style="margin-top:8px">
-    <label class="field"><span data-i18n="search.price_min">价格下限(万円)</span><input id="price_min" data-i18n-ph="search.price_min.ph" placeholder="例：2000"></label>
-    <label class="field"><span data-i18n="search.price_max">价格上限(万円)</span><input id="price_max" data-i18n-ph="search.price_max.ph" placeholder="例：5000"></label>
-    <label class="field"><span data-i18n="search.area_min">面积下限(㎡)</span><input id="area_min" data-i18n-ph="search.area_min.ph" placeholder="例：50"></label>
-    <label class="field"><span data-i18n="search.area_max">面积上限(㎡)</span><input id="area_max" data-i18n-ph="search.area_max.ph" placeholder="例：80"></label>
-    <label class="field"><span data-i18n="search.date">日期(起)</span>
-      <input type="date" id="date" value="{{ today }}">
-    </label>
-    <label class="field"><span data-i18n="search.date_to">日期(止)</span>
-      <input type="date" id="date_to">
-    </label>
-    <label class="field"><span data-i18n="search.date_caliber">日期口径</span>
-      <select id="date_caliber">
-        <option value="any" selected data-i18n="search.date_caliber.any">登録日或変更日</option>
-        <option value="change" data-i18n="search.date_caliber.change">変更日（平台变更）</option>
-        <option value="registration" data-i18n="search.date_caliber.reg">登録日（平台新建）</option>
-        <option value="download" data-i18n="search.date_caliber.dl">下载日（本地抓到）</option>
-      </select>
-    </label>
-
-  </div>
   <!-- v1.8.6：取引態様 / 只看带PDF / 每页条数 三项已**并入下面 #filterForm 的第一行右端**
        （勇哥圈选「要合并成同一行」）。此处**不能再渲染一遍** ——
        同一 ID 出现两次时 JS 只会取到第一个，后面那套会静默失效（v1.8.5 踩过这个坑）。 -->
@@ -570,20 +570,37 @@ function msOptLabel(o){ return (typeof o === 'string') ? o : t(o.i18n); }
 function msRender(k){
   var body = msEl(k, 'Body');
   if(!body) return;
-  // v1.9.50 防御：键没预置时自动补空对象并标记禁用态（v1.9.49 缺键会 TypeError → 整块面板空白）
+  // v1.9.50 防御：键没预置时自动补空对象（v1.9.49 缺键会 TypeError → 整块面板空白）
   if(!MS_SEL[k]) MS_SEL[k] = {};
-  var h = '';
-  (MS_OPTS[k] || []).forEach(function(o){
+  function chip(o){
     var v = msOptVal(o);
-    // 库内 0 条 → 灰显「暂无数据」（PRD-05 §4.3 O3-A）
-    var dis = (typeof o === 'object' && o.disabled) ? ' disabled' : '';
+    var dis = (typeof o === 'object' && o.disabled) ? ' disabled' : '';   // 库内 0 条 → 灰显
     var cls = dis ? ' class="msp-chip is-disabled"' : ' class="msp-chip"';
-    h += '<label' + cls + '><input type="checkbox" data-ms="' + esc(k) + '" data-v="' + esc(v) + '"'
-      +  (MS_SEL[k][v] ? ' checked' : '') + dis + ' onchange="msPick(this)">'
-      +  '<span>' + esc(msOptLabel(o))
-      +  (dis ? '<i class="ms-nodata">（' + esc(t('search.lt_none')) + '）</i>' : '')
-      +  '</span></label>';
-  });
+    return '<label' + cls + '><input type="checkbox" data-ms="' + esc(k) + '" data-v="' + esc(v) + '"'
+      + (MS_SEL[k][v] ? ' checked' : '') + dis + ' onchange="msPick(this)">'
+      + '<span>' + esc(msOptLabel(o))
+      + (dis ? '<i class="ms-nodata">（' + esc(t('search.lt_none')) + '）</i>' : '')
+      + '</span></label>';
+  }
+  var h = '';
+  // v1.9.50 / PRD-05 §4.8：选项带 group 时**按组分行**渲染 —— 车站面板按线路分组，
+  // 第一条线路的车站排完另起一行再排下一条（勇哥要求）。
+  var opts = MS_OPTS[k] || [];
+  var hasGroup = opts.some(function(o){ return o && o.group; });
+  if(hasGroup){
+    var order = [], gmap = {};
+    opts.forEach(function(o){
+      var g = o.group || '';
+      if(!gmap[g]){ gmap[g] = []; order.push(g); }
+      gmap[g].push(o);
+    });
+    order.forEach(function(g){
+      if(g) h += '<div class="msp-group">' + esc(g) + '</div>';
+      h += '<div class="msp-row">' + gmap[g].map(chip).join('') + '</div>';
+    });
+  } else {
+    h = opts.map(chip).join('');
+  }
   body.innerHTML = h;
   msSync(k);
 }
@@ -807,18 +824,28 @@ function bindLineStationCascade(){
   });
 }
 function reloadStations(cb){
+  // v1.9.50 / PRD-05 §4.8：按**线路选中顺序**逐条取车站，组成分组列表
+  // （第一条线路的车站排完另起一行，再排下一条线路的 —— 勇哥要求）。
+  // 用串联而非 Promise.all，保证顺序就是用户点选的顺序。
   var lines = msValues('line');
   if(!lines.length){
     MS_OPTS.station = []; MS_SEL.station = {}; msRender('station'); if(cb) cb(); return;
   }
-  Promise.all(lines.map(function(l){
-    return api('/api/stations?line=' + encodeURIComponent(l)).then(function(j){ return j.stations || []; });
-  })).then(function(arrs){
-    var set = {}; arrs.forEach(function(a){ a.forEach(function(s){ set[s] = 1; }); });
-    MS_OPTS.station = Object.keys(set);
-    MS_SEL.station = {}; msRender('station');
+  var acc = [];
+  var chain = Promise.resolve();
+  lines.forEach(function(l){
+    chain = chain.then(function(){
+      return api('/api/stations?line=' + encodeURIComponent(l)).then(function(j){
+        (j.stations || []).forEach(function(s){ acc.push({ group: l, v: s }); });
+      }).catch(function(){ /* 单条线路失败不阻断其余 */ });
+    });
+  });
+  chain.then(function(){
+    MS_OPTS.station = acc;
+    MS_SEL.station = {};
+    msRender('station');
     if(cb) cb();
-  }).catch(function(e){ if(cb) cb(); });
+  });
 }
 /* v1.9.49 / PRD v1.4.0：楼龄双模式 tab 切换（年数段 ↔ 建筑年代，互斥，Q1） */
 function switchAgeMode(){
@@ -1084,6 +1111,18 @@ function resetForm(){
   mspClear(true);                       // 物件種目：清空多选
   msClear('ward'); msClear('trade_type');   // v1.7.6：区 / 取引態様 也清空
   statusClear();                        // v1.9.46 PRD：房产状态也清空
+  // v1.9.50 / PRD-05 §4.8：重置必须把「高级筛选」四组一并复位（勇哥图 1）
+  ['rooms_min','rooms_max','floor_min','floor_max','year_from','year_to','walk_max',
+   'unit_price_min','unit_price_max'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  ['layout_type','line','station'].forEach(function(k){ MS_SEL[k] = {}; msRender(k); });
+  MS_OPTS.station = []; msRender('station');          // 线路清空后车站选项要跟着清
+  setAgeRange(0, 99);                                  // 楼龄滑轨回全区间（不限）
+  var _amS = document.querySelector('input[name=age_mode][value=span]');
+  if(_amS){ _amS.checked = true; switchAgeMode(); }     // 楼龄模式回「年数段」
+  var _upS = document.querySelector('input[name=up_unit][value=sqm]');
+  if(_upS){ _upS.checked = true; switchUpUnit(); }      // 单价单位回「万円/㎡」
   document.getElementById('date').value = todayLocal();
   var _dto = document.getElementById('date_to'); if(_dto) _dto.value = '';   // v1.7.4：重置也要清「止」
   document.getElementById('date_caliber').value='any';

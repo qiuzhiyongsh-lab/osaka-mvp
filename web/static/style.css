@@ -985,3 +985,25 @@ details.sec > .secbody{padding:10px 18px 14px}
 /* ⑤ 单价单位切换视觉高亮（§4.7 P2） */
 .tabs label input[type=radio]:checked + span{background:var(--brand-ink);color:#fff;
   border-radius:999px;padding:2px 9px;font-weight:700}
+/* ⑥ 车站面板按线路分组：每条线路一行，下一条另起一行（§4.8） */
+.msp-group{font-size:11.5px;font-weight:700;color:var(--brand);margin:9px 0 5px;
+  border-bottom:1px dashed var(--line-soft);padding-bottom:2px}
+.msp-group:first-child{margin-top:0}
+.msp-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:2px}
+/* ⑦ 房间/楼层等「从…到…」同一行内显示，不拆两行（勇哥图 2：房间/楼层） */
+.adv-grp .field.sm{display:inline-flex;align-items:center;gap:4px;
+  margin:0 10px 6px 0;white-space:nowrap;vertical-align:middle}
+.adv-grp .field.sm input{width:66px}
+.adv-grp .field.sm .unit{margin-left:-2px}
+/* ⑨ tab 文案一行内显示（勇哥图 4/5）：「年数段」「建筑年代」「万円/㎡」「万円/坪」
+     在窄列里会被逐字挤成竖排 —— 强制 nowrap，胶囊才横着长。 */
+.tabs{flex-wrap:wrap}
+.tabs label span{white-space:nowrap}
+.tabs label{white-space:nowrap}
+/* ⑧ 楼龄滑轨：更宽更扁（不要太高，勇哥图 3） */
+.dual-range{height:22px;margin:6px 0 2px}
+.dual-range input[type=range]{height:22px}
+.dual-range input[type=range]::-webkit-slider-thumb{width:15px;height:15px}
+.dual-range input[type=range]::-moz-range-thumb{width:15px;height:15px}
+.dual-range input[type=range]::-webkit-slider-runnable-track{height:6px}
+.dual-range input[type=range]::-moz-range-track{height:6px}

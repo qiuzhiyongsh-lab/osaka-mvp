@@ -183,7 +183,15 @@ def _line_text(s):
 
 
 def _station_text(s):
-    """站名：取线路后的站名段，去掉徒歩尾。'大阪メトロ中央線\u3000緑橋 徒歩 7分'→'緑橋'。"""
+    """站名（v1.9.50 重做：只取线路后的**第一个 token**）。
+
+    REINS 原始格式 = `线路\u3000站名 交通手段 时间[ /交通手段 时间]`，例如：
+      大阪環状線\u3000天満 徒歩\u30007分/車\u30001.3km
+      大阪環状線\u3000大正 停歩\u30003分/バス\u300018分
+    旧实现只 `_WALK.sub` 掉第一个「徒歩/停歩 N分」，尾巴 '/車 1.3km'、'/バス 18分'
+    留在站名里 → 火车站下拉冒出 `/車`、`1.3km`、`18分`、`/バス` 这些垃圾选项（勇哥图 7）。
+    这里直接取第一个空白分隔的 token，天然就是站名。
+    """
     if not s:
         return None
     s = str(s)
@@ -192,8 +200,21 @@ def _station_text(s):
     else:
         m = re.match(r".+線\s*(.*)", s)
         rest = m.group(1) if m else s
-    rest = _WALK.sub("", rest).replace("\u3000", " ").strip()
-    return rest or None
+    rest = rest.replace("\u3000", " ").strip()
+    tok = rest.split(" ")[0].strip() if rest else ""
+    return tok or None
+
+
+# v1.9.50 / PRD-05 §4.8：车站名的「非站名」兜底过滤。
+#   即使 _station_text 已取第一个 token，万一个别脏值仍带这些词，也不该出现在车站下拉。
+_JUNK_STATION = re.compile(r"(バス|km|/|車$|^\d+分$|^停留所$)")
+
+
+def _is_junk_station(name: str) -> bool:
+    n = (name or "").strip()
+    if not n or len(n) > 12:            # 过长的多半是拼进来的杂串
+        return True
+    return bool(_JUNK_STATION.search(n))
 
 
 def _tsubo_backfill(rec: dict) -> dict:
@@ -623,8 +644,10 @@ class Store:
                 continue                      # 不是轨道线路名，不入字典
             lines[ln] += 1
             if len(p) > 1:
-                st = re.split(r"\s*(?:徒歩|停歩)", p[1])[0].strip()
-                if st:
+                # v1.9.50：统一走 _station_text（取第一个 token）并过滤「バス/km/分」等非站名，
+                # 避免 '大正 バス'、'寺田町 バス' 这类脏站名进字典（勇哥图 7）。
+                st = _station_text(s)
+                if st and not _is_junk_station(st):
                     pairs[(st, ln)] += 1
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
@@ -1324,8 +1347,9 @@ class Store:
         try:
             for r in self.conn.execute(
                     "SELECT station FROM station_line_map WHERE line = ?", (line,)):
-                if r["station"]:
-                    sts.add(r["station"])
+                st = (r["station"] or "").strip()
+                if st and not _is_junk_station(st):
+                    sts.add(st)
         except Exception:                                            # noqa: BLE001
             pass
         try:
@@ -1335,13 +1359,56 @@ class Store:
                 st = (r["st"] or "").strip()
                 if not st:
                     continue
-                if " " in st:                     # 脏数据：多站名一坨 → 拆开
-                    sts.update(t for t in st.split(" ") if t)
-                else:
-                    sts.add(st)
+                for t in (st.split(" ") if " " in st else [st]):     # 脏数据多站名 → 拆开
+                    t = t.strip()
+                    if t and not _is_junk_station(t):
+                        sts.add(t)
         except Exception:                                            # noqa: BLE001
             pass
-        return sorted(sts)
+        return self._order_stations(line, sts)
+
+    # v1.9.50 / PRD-05 §4.8：日本实际站序（大阪主要线路）。
+    #   车站下拉按**真实线路站序**从上到下排（勇哥：「按照日本本身的排列顺序」），
+    #   表里没收录的线路退化为「按站名排序」，不影响可用性。
+    STATION_ORDER = {
+        "大阪環状線": ["大阪", "天満", "桜ノ宮", "京橋", "大阪城公園", "森ノ宮", "玉造",
+                    "鶴橋", "桃谷", "寺田町", "天王寺", "新今宮", "今宮", "芦原橋",
+                    "大正", "弁天町", "西九条", "野田", "福島"],
+        "大阪メトロ御堂筋線": ["江坂", "東三国", "新大阪", "西中島南方", "中津", "梅田",
+                        "淀屋橋", "本町", "心斎橋", "なんば", "大国町", "動物園前",
+                        "天王寺", "昭和町", "西田辺", "長居", "あびこ", "北花田",
+                        "新金岡", "なかもず"],
+        "大阪メトロ谷町線": ["大日", "守口", "太子橋今市", "千林大宮", "関目高殿", "野江内代",
+                       "都島", "天神橋筋六丁目", "中崎町", "東梅田", "南森町", "天満橋",
+                       "谷町四丁目", "谷町六丁目", "谷町九丁目", "四天王寺前夕陽ヶ丘",
+                       "天王寺", "阿倍野", "文の里", "田辺", "駒川中野", "平野",
+                       "喜連瓜破", "出戸", "長原", "八尾南"],
+        "大阪メトロ中央線": ["コスモスクエア", "大阪港", "朝潮橋", "弁天町", "九条", "阿波座",
+                       "本町", "堺筋本町", "谷町四丁目", "森ノ宮", "緑橋", "深江橋",
+                       "高井田", "長田", "荒本", "吉田", "新石切", "生駒"],
+        "大阪メトロ千日前線": ["野田阪神", "玉川", "阿波座", "西長堀", "桜川", "難波", "日本橋",
+                        "谷町九丁目", "鶴橋", "今里", "新深江", "小路", "北巽", "南巽"],
+        "大阪メトロ堺筋線": ["天神橋筋六丁目", "扇町", "南森町", "北浜", "堺筋本町", "長堀橋",
+                       "日本橋", "恵美須町", "動物園前", "天下茶屋"],
+        "大阪メトロ四つ橋線": ["西梅田", "肥後橋", "本町", "四ツ橋", "難波", "大国町", "花園町",
+                        "岸里", "玉出", "北加賀屋", "住之江公園"],
+        "大阪メトロ長堀鶴見線": ["大正", "ドーム前千代崎", "西長堀", "西大橋", "心斎橋", "長堀橋",
+                         "松屋町", "谷町六丁目", "玉造", "森ノ宮", "大阪ビジネスパーク",
+                         "京橋", "蒲生四丁目", "今福鶴見", "横堤", "鶴見緑地", "門真南"],
+        "JR京都線": ["大阪", "新大阪", "東淀川", "吹田", "岸辺", "千里丘", "茨木", "摂津富田",
+                   "JR総持寺", "高槻"],
+        "阪急京都線": ["大阪梅田", "十三", "南方", "崇禅寺", "淡路", "上新庄", "相川", "正雀",
+                    "摂津市", "南茨木"],
+        "阪神本線": ["大阪梅田", "福島", "野田", "淀川", "姫島", "千船", "杭瀬", "大物", "尼崎"],
+    }
+
+    def _order_stations(self, line: str, sts) -> list:
+        """按日本实际站序排；表内未收录的线路退回按站名排序。"""
+        order = self.STATION_ORDER.get(line)
+        if not order:
+            return sorted(sts)
+        idx = {s: i for i, s in enumerate(order)}
+        return sorted(sts, key=lambda s: (idx.get(s, 10_000), s))
 
     def stats(self) -> dict:
         """概览卡片用的统计（全部按**本地库**算）。
