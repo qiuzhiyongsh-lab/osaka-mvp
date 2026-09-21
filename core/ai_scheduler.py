@@ -70,6 +70,7 @@ class AIScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._busy = threading.Event()
+        self._foreign_busy_hook = None   # v1.9.47：手动「正式生成」通道的忙标志钩子
         self._last_run_date: str = ""
         self._rearm = threading.Event()
         self.last_result: dict | None = None
@@ -86,6 +87,22 @@ class AIScheduler:
     @property
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
+
+    # ---------------- 跨通道互斥（v1.9.47）----------------
+    def set_foreign_busy_hook(self, fn) -> None:
+        """注册外部忙标志钩子：手动「正式生成」通道用它告知本调度器「手动在跑」。"""
+        self._foreign_busy_hook = fn
+
+    def is_busy(self) -> bool:
+        """综合忙：自身 _busy 或外部钩子（手动通道）任一为真即忙。"""
+        if self._busy.is_set():
+            return True
+        if self._foreign_busy_hook is not None:
+            try:
+                return bool(self._foreign_busy_hook())
+            except Exception:                                      # noqa: BLE001
+                return False
+        return False
 
     def describe(self) -> str:
         sa = self._sa()
@@ -249,7 +266,7 @@ class AIScheduler:
     def run_now(self, trigger: str = "manual", limit: int | None = None,
                 force: bool | None = None) -> dict:
         """立即跑一轮（自动通道用）。返回统计 dict。已在跑则返回 busy。"""
-        if self._busy.is_set():
+        if self.is_busy():
             return {"status": "busy", "message": "已有 AI 抽取在跑，请稍后"}
         if self.store is None:
             return {"status": "error", "message": "AI 独立库未初始化"}
@@ -273,7 +290,7 @@ class AIScheduler:
         candidates 由调用方（设置页接口）按「PDF 下载时间 + 種目范围 +
         跳过已生成」圈定后传入；与 run_now 共用 _run_batch 的管道与并发逻辑。
         """
-        if self._busy.is_set():
+        if self.is_busy():
             return {"status": "busy", "message": "已有 AI 抽取在跑，请稍后"}
         if self.store is None:
             return {"status": "error", "message": "AI 独立库未初始化"}

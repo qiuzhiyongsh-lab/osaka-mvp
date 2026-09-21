@@ -89,7 +89,29 @@ AI_GEN_JOB: dict = {             # 手动「正式生成」进度（设置页轮
     "running": False, "trigger": "", "total": 0, "done": 0,
     "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
     "current": "", "started_at": "", "finished_at": "", "error": "",
+    "stage": "",
 }
+# v1.9.47：手动/自动双通道互斥。_AI_GEN_LOCK 保证「检查 running + 置位 running」
+# 在同一把锁内原子完成，杜绝 TOCTOU 竞态（日志曾实证：6 秒内同批任务被启动两次 →
+# 重复抽取、云端额度被双扣）。AI_SCHED 也反向感知手动忙（set_foreign_busy_hook）。
+_AI_GEN_LOCK = threading.Lock()
+
+
+def _ai_gen_try_start() -> bool:
+    """原子占位：锁内检查 + 置位 running。True=占位成功可继续；False=已有在跑。"""
+    with _AI_GEN_LOCK:
+        if AI_GEN_JOB["running"]:
+            return False
+        if AI_SCHED is not None and AI_SCHED.is_busy():
+            return False
+        AI_GEN_JOB["running"] = True
+        AI_GEN_JOB["stage"] = "圈定候选"
+        return True
+
+
+# 让 AI 自动调度感知「手动正式生成」在跑（双向互斥）。
+if AI_SCHED is not None:
+    AI_SCHED.set_foreign_busy_hook(lambda: AI_GEN_JOB["running"])
 
 # 日志同时落盘：data/logs/server.log。服务"莫名其妙没了"时靠它查原因。
 LOG_DIR = Path(PATHS["root"]) / "logs"
@@ -1117,6 +1139,7 @@ def _ai_generate_worker(candidates: list[str], force: bool) -> None:
         AI_GEN_JOB["done"] = done
     AI_GEN_JOB["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     AI_GEN_JOB["running"] = False
+    AI_GEN_JOB["stage"] = ""
     log(f"[AI生成] 完成：{AI_GEN_JOB['done']}/{AI_GEN_JOB['total']} "
         f"本地{AI_GEN_JOB['local']} 云端{AI_GEN_JOB['cloud']} "
         f"跳过{AI_GEN_JOB['skip']} 失败{AI_GEN_JOB['fail']}")
@@ -1136,25 +1159,44 @@ def api_ai_generate():
 
     body: {"date": "YYYY-MM-DD"|null, "only_today": bool, "force": bool}
     默认只补缺失（有 PDF 但无 AI 解读的房源），勾 force 才整范围重跑。
+
+    v1.9.47：先原子占位（_ai_gen_try_start 在锁内检查+置位 running），再圈定候选；
+    并发点击只会有一个占位成功，其余直接 409（带人话文案 + 来源 + 进度）。
     """
     _refresh_cfg()
-    if AI_GEN_JOB["running"]:
-        return jsonify({"ok": False, "error": "已有正式生成在跑，请稍后",
-                        "job": AI_GEN_JOB}), 409
+    if not _ai_gen_try_start():
+        auto_busy = bool(AI_SCHED is not None and AI_SCHED.is_busy()
+                         and not AI_GEN_JOB["running"])
+        return jsonify({
+            "ok": False,
+            "message": "已有 AI 生成任务在跑，请稍后（可刷新本页查看进度）",
+            "source": "auto" if auto_busy else "manual",
+            "job": AI_GEN_JOB,
+        }), 409
     body = request.get_json(force=True, silent=True) or {}
     date = body.get("date") or None
     only_today = bool(body.get("only_today"))
     force = bool(body.get("force"))
-    cands = _ai_generate_candidates(date, only_today, force)
+    try:
+        cands = _ai_generate_candidates(date, only_today, force)
+    except Exception as e:                                  # noqa: BLE001
+        AI_GEN_JOB["running"] = False
+        AI_GEN_JOB["stage"] = ""
+        AI_GEN_JOB["error"] = f"圈定候选失败：{type(e).__name__}: {e}"
+        log(f"[AI生成] 圈定候选异常：{AI_GEN_JOB['error']}")
+        return jsonify({"ok": False, "message": AI_GEN_JOB["error"],
+                        "job": AI_GEN_JOB}), 500
     if not cands:
+        AI_GEN_JOB["running"] = False
+        AI_GEN_JOB["stage"] = ""
         return jsonify({"ok": True,
                         "message": "没有需要生成的房源（范围内无匹配 PDF，或均已生成）",
                         "count": 0, "job": AI_GEN_JOB})
     AI_GEN_JOB.update({
-        "running": True, "trigger": "manual", "total": len(cands), "done": 0,
+        "trigger": "manual", "total": len(cands), "done": 0,
         "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
         "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "finished_at": "", "error": "",
+        "finished_at": "", "error": "", "stage": "抽取中",
     })
     threading.Thread(target=_ai_generate_worker, args=(cands, force),
                      daemon=True, name="ai-generate").start()

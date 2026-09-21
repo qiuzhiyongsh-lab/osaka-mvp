@@ -472,15 +472,38 @@ function aiGenerate(){
   var force = document.getElementById('aiGenForce').checked;
   var date = document.getElementById('aiGenDate').value || null;
   var gb = document.getElementById('aiGenBtn');
+  var m = document.getElementById('aiGenMsg');
+  /* v1.9.47：点击即禁用按钮 + 提示圈定中，避免连点造成重复抽取（TOCTOU 竞态）。*/
+  if(gb){ gb.disabled = true; gb.classList.add('disabled'); }
+  if(m) m.textContent = '正在圈定候选房源…';
   postJSON('/api/ai/generate', {date: date, only_today: onlyToday, force: force}).then(function(j){
-    var m = document.getElementById('aiGenMsg');
-    if(m) m.textContent = (j && j.ok) ? ('已启动，共 ' + (j.count || 0) + ' 份') : ('失败：' + ((j && j.error) || ''));
+    if(m) m.textContent = (j && j.ok) ? ('已启动，共 ' + (j.count || 0) + ' 份') : ('失败：' + ((j && j.error) || (j && j.message) || ''));
     if(j && j.ok){
-      /* v1.9.40：跑起来就禁用按钮（后端也有 409 防重入），避免连点 */
+      /* v1.9.40/1.9.47：跑起来就禁用按钮（后端也有原子防重入），避免连点 */
       if(gb){ gb.disabled = true; gb.classList.add('disabled'); }
       startAIGenPoll();
     }
-  }).catch(function(e){ var m = document.getElementById('aiGenMsg'); if(m) m.textContent = '出错：' + e; });
+  }).catch(function(e){
+    if(!m) return;
+    if(e && e.status === 409){
+      /* v1.9.47：409 现在带人话文案 + 进度 → 自动跟随，不再弹「409 CONFLICT」黑话 */
+      var job = (e.payload && e.payload.job) || {};
+      var src = (e.payload && e.payload.source) || 'manual';
+      if(job.running){
+        m.textContent = '已有生成在跑（已完成 ' + (job.done||0) + '/' + (job.total||0) + '），已自动跟随进度…';
+        if(gb){ gb.disabled = true; gb.classList.add('disabled'); }
+        startAIGenPoll();
+      } else {
+        m.textContent = (src === 'auto')
+          ? 'AI 自动生成调度正在运行，请稍后重试（可在「AI 读取时间」卡片看状态）'
+          : '已有生成任务在跑，请稍后重试';
+        if(gb){ gb.disabled = false; gb.classList.remove('disabled'); }
+      }
+    } else {
+      m.textContent = '出错：' + (e && e.message ? e.message : e);
+      if(gb){ gb.disabled = false; gb.classList.remove('disabled'); }
+    }
+  });
 }
 function startAIGenPoll(){
   if(_aiGenTimer) clearInterval(_aiGenTimer);
@@ -493,6 +516,7 @@ function startAIGenPoll(){
           '总 ' + (job.total || 0) + ' ｜ 已完成 ' + (job.done || 0) +
           ' ｜ 本地 ' + (job.local || 0) + ' ｜ 云端 ' + (job.cloud || 0) +
           ' ｜ 跳过 ' + (job.skip || 0) + ' ｜ 失败 ' + (job.fail || 0) +
+          (job.stage ? ('\n阶段：' + job.stage) : '') +
           (job.running ? ('\n当前：' + (job.current || '')) : '') +
           (job.finished_at ? ('\n完成于 ' + job.finished_at) : '');
       }
