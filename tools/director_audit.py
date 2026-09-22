@@ -156,9 +156,24 @@ def check_qa():
     seed = PUB / "data" / "site_data.json"
     if seed.exists():
         raw = seed.read_text(encoding="utf-8")
-        leak = len(re.findall(r'"pdf_(?:path|url)"\s*:\s*(?!null)', raw))
-        rec("QA", "PDF 泄漏检查", RED if leak else GREEN,
-            f"数据包里出现 {leak} 处非空 pdf_path/pdf_url" if leak else "0 处（符合要求）")
+        # v1.9.62 **新口径**（勇哥 2026-09-23 拍板「PDF 上云 + 登录即可看」后修订）：
+        #   · `pdf_path` = 本机路径 → **永远必须为 0**，出现即红（旧红线在此保留并收紧）。
+        #   · `pdf_url`  = COS 预签名直链 → **允许存在**，但值必须是 http(s) 外链；
+        #                  若塞了本机路径/相对路径，同样判红（防"假直链真路径"）。
+        #   旧判定 `pdf_(path|url)` 一律计数 → 会把合法的 COS 直链误报为泄漏（9-23 实际发生）。
+        leak_path = len(re.findall(r'"pdf_path"\s*:\s*(?!null)', raw))
+        urls = re.findall(r'"pdf_url"\s*:\s*"([^"]*)"', raw)
+        urls = [u for u in urls if u]
+        bad_url = [u for u in urls if not u.startswith("http")]
+        if leak_path or bad_url:
+            rec("QA", "PDF 泄漏检查", RED,
+                f"pdf_path 非空 {leak_path} 处 / 非外链 pdf_url {len(bad_url)} 处"
+                + (f"（样例 {bad_url[0][:40]}）" if bad_url else ""))
+        elif urls:
+            rec("QA", "PDF 泄漏检查", GREEN,
+                f"pdf_path 0 处；pdf_url {len(urls)} 处均为 COS 外链（符合新口径）")
+        else:
+            rec("QA", "PDF 泄漏检查", GREEN, "0 处（符合要求）")
         try:
             gen = json.loads(raw).get("generated_at", "")
             h = hours_since(gen)
