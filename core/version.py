@@ -7,8 +7,11 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.52"
-BUILD_AT = "2026-09-21 12:10"
+VERSION = "1.9.53"
+BUILD_AT = "2026-09-22 09:30"
+# ============================================================================
+# v1.9.53（2026-09-22 09:30 · 查询页「沿线/车站」面板体验增强（勇哥 3 图）：① 线路/车站面板新增「全选」按钮（修 msSelectAll 对字符串线路项 o.v=undefined 漏选的 bug，改用 msOptVal；且只勾当前筛选可见项）② 面板头部新增筛选文本框，按标签子串实时过滤选项、隐藏空组、不改选中态 ③ 分组标题与首行贴紧、减小纵向空隙（根因 = 通用 .msp-body 是 display:flex 横排，分组标题与车站行被当 flex 子项换行错位；线路/车站面板强制 display:block）④ 补回缺失官方站「なんば駅（S16）」：STATION_ORDER 千日前線/四つ橋線 難波→なんば（2014 改名，三方取证），stations_for 合并 STATION_ORDER 官方站序保证字典缺的真实站不遗漏，難波(汉字)仅南海本線等私营线保留不误归一。改动文件：core/store.py（STATION_ORDER+stations_for）、web/templates/search.html（面板 HTML+msRender/msSelectAll/msClear/msFilter/MS_FILTER）、web/static/style.css（.msp-group/.msp-row 收 margin + .msp-filter/.msp-nomatch + body display:block）、web/static/i18n.js（cat.filter/cat.no_match 四语）、core/version.py）
+# ============================================================================
 # ============================================================================
 # v1.9.48（2026-09-21 12:10 · 🟠修「阶段B 番号検索补详情 3 条持续 TimeoutError 8000ms」：真机取证(forensics_bug2_dom.py)确认根因 = 那 3 套(300140791556/100140789119/100140779224)已 成約済/取り下げ，番号検索返回「検索結果が0件です」、结果页 0 行、根本无「詳細」按钮可点；原代码去点不存在的按钮卡满 8000ms 超时、每轮误报一次。非 locator 写错（已看真实 DOM）。修法 = _fetch_detail_by_no 点「詳細」前加「0件/结果0行/无詳細按钮」三重优雅跳过守卫，不再卡超时、不再误报。影响文件：core/crawler.py 仅 _fetch_detail_by_no 加守卫，纯行为防护、零 locator 改动。需重启本地后台后下一轮阶段B 即验证。）
 # v1.9.47（2026-09-21 10:19 · 🔴修「推线上跳过 / 自动上传异常：OperationalError: 10 values for 9 columns」：根因 = publisher.set_state 的 INSERT 列名 9 列、VALUES 却给 10 个值（多写一个 ?），参数仅 8 个 → SQLite 报列数不符，publish_state 水位线写不进。线上推送本身（/api/ingest 60/60 确认）不受影响，仅本地台账缺失 + 误报「推线上跳过」。修法 = VALUES 删掉多余一个 ?（1+8? 对齐 9 列 8 参）。影响文件：core/publisher.py 仅 set_state，纯 SQL 对齐，零行为变更。需重启本地后台后下一轮推送即验证。）

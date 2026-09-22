@@ -978,7 +978,10 @@ details.sec > .secbody{padding:10px 18px 14px}
 .dual-range input[type=range]::-moz-range-track{height:5px;border-radius:3px;background:#dbe4f2}
 .unit{color:#7b8798;font-size:12px}
 /* ③ 面板增高可视区 + 内部分组滚动（§4.6） */
-#lnPanel .msp-body,#stnPanel .msp-body{min-height:300px;max-height:340px;overflow:auto}
+/* v1.9.53：线路/车站面板 body 强制纵向堆叠。原 .msp-body 是 display:flex 横排，
+   会让「分组标题」与「车站行」被当成 flex 子项横排换行 → 标题和首行之间出现大块空隙（勇哥图 3）。
+   display:block 后分组标题与车站行自然纵向贴紧，间距只由 .msp-group/.msp-row 的 margin 控制。 */
+#lnPanel .msp-body,#stnPanel .msp-body{display:block;min-height:auto;max-height:340px;overflow:auto}
 .msp-panel{z-index:60}
 /* ④ 半透明遮罩：面板展开时不遮挡下方内容（§4.6 B9） */
 .msp-mask{position:fixed;inset:0;background:rgba(15,23,42,.16);z-index:50}
@@ -986,10 +989,19 @@ details.sec > .secbody{padding:10px 18px 14px}
 .tabs label input[type=radio]:checked + span{background:var(--brand-ink);color:#fff;
   border-radius:999px;padding:2px 9px;font-weight:700}
 /* ⑥ 车站面板按线路分组：每条线路一行，下一条另起一行（§4.8） */
-.msp-group{font-size:11.5px;font-weight:700;color:var(--brand);margin:9px 0 5px;
+/* v1.9.53：收紧分组纵向间距，标题与首行贴紧、减空隙（勇哥图 3） */
+.msp-group{font-size:11.5px;font-weight:700;color:var(--brand);margin:4px 0 3px;
   border-bottom:1px dashed var(--line-soft);padding-bottom:2px}
 .msp-group:first-child{margin-top:0}
 .msp-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:2px}
+/* v1.9.53：线路/车站面板头部 = [全选][清除] + 筛选输入框；按钮行在上、筛选框整行换行在下 */
+#lnPanel .msp-head,#stnPanel .msp-head{flex-wrap:wrap;gap:6px}
+.msp-head-btns{display:inline-flex;gap:6px;align-items:center}
+.msp-filter{flex:1 1 100%;min-width:0;margin-top:2px;padding:5px 9px;font-size:12.5px;
+  border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff;
+  box-sizing:border-box}
+.msp-filter:focus{outline:none;border-color:var(--brand-ink)}
+.msp-nomatch{padding:14px 4px;font-size:12.5px;color:var(--sub);text-align:center}
 /* ⑦ 房间/楼层等「从…到…」同一行内显示，不拆两行（勇哥图 2：房间/楼层） */
 .adv-grp .field.sm{display:inline-flex;align-items:center;gap:4px;
   margin:0 10px 6px 0;white-space:nowrap;vertical-align:middle}

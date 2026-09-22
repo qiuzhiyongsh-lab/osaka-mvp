@@ -247,7 +247,13 @@
             <span class="msp-txt" id="lnTxt" data-i18n="search.all_line">全部线路</span><span class="msp-care">▾</span>
           </button>
           <div class="msp-panel" id="lnPanel" hidden style="width:340px">
-            <div class="msp-head"><button type="button" class="msp-x" onclick="msClear('line')">清除</button></div>
+            <div class="msp-head">
+              <div class="msp-head-btns">
+                <button type="button" class="msp-x" onclick="msSelectAll('line')" data-i18n="cat.select_all">全选</button>
+                <button type="button" class="msp-x" onclick="msClear('line')" data-i18n="cat.clear">清除</button>
+              </div>
+              <input type="text" class="msp-filter" id="lnFilter" data-i18n-ph="cat.filter" placeholder="筛选选项…" oninput="msFilter('line', this.value)">
+            </div>
             <div class="msp-body" id="lnBody"></div>
             <div class="msp-foot"><span class="msp-sum" id="lnSum"></span></div>
           </div>
@@ -257,7 +263,13 @@
             <span class="msp-txt" id="stnTxt" data-i18n="search.all_station">全部车站</span><span class="msp-care">▾</span>
           </button>
           <div class="msp-panel" id="stnPanel" hidden style="width:340px">
-            <div class="msp-head"><button type="button" class="msp-x" onclick="msClear('station')">清除</button></div>
+            <div class="msp-head">
+              <div class="msp-head-btns">
+                <button type="button" class="msp-x" onclick="msSelectAll('station')" data-i18n="cat.select_all">全选</button>
+                <button type="button" class="msp-x" onclick="msClear('station')" data-i18n="cat.clear">清除</button>
+              </div>
+              <input type="text" class="msp-filter" id="stnFilter" data-i18n-ph="cat.filter" placeholder="筛选选项…" oninput="msFilter('station', this.value)">
+            </div>
             <div class="msp-body" id="stnBody"></div>
             <div class="msp-foot"><span class="msp-sum" id="stnSum"></span></div>
           </div>
@@ -535,6 +547,10 @@ var MSP_KEYS = Object.keys(MS_PREFIX);
    键不存在会 TypeError —— 首次访问（localStorage 无历史）时面板会整块空白。 */
 var MS_SEL = { ward: {}, trade_type: {}, status: {},
               layout_type: {}, line: {}, station: {} };
+/* v1.9.53：线路/车站面板的实时筛选输入（按标签子串过滤，只改可见性不改选中态）。
+   与 MS_SEL 一一对应；为空＝不过滤。 */
+var MS_FILTER = { ward: '', trade_type: '', status: '',
+                 layout_type: '', line: '', station: '' };
 var MS_OPTS = {
   ward: [],                                   // 下面用模板里的 opts.wards 填充
   trade_type: [
@@ -574,6 +590,15 @@ function msOptLabel(o){
   if(o && o.i18n) return t(o.i18n);
   return (o && o.v) || '';
 }
+function msVisibleOpts(k){
+  // v1.9.53：实时筛选。按标签子串（忽略大小写）过滤；空过滤＝全部。
+  var f = (MS_FILTER[k] || '').trim().toLowerCase();
+  var opts = MS_OPTS[k] || [];
+  if(!f) return opts;
+  return opts.filter(function(o){
+    return (msOptLabel(o) || '').toLowerCase().indexOf(f) >= 0;
+  });
+}
 function msRender(k){
   var body = msEl(k, 'Body');
   if(!body) return;
@@ -592,7 +617,14 @@ function msRender(k){
   var h = '';
   // v1.9.50 / PRD-05 §4.8：选项带 group 时**按组分行**渲染 —— 车站面板按线路分组，
   // 第一条线路的车站排完另起一行再排下一条（勇哥要求）。
-  var opts = MS_OPTS[k] || [];
+  // v1.9.53：先按筛选框收窄可见项（不改选中态），分组内无匹配项则整组不显示。
+  var opts = msVisibleOpts(k);
+  if(!opts.length){
+    h = '<div class="msp-nomatch">' + esc(t('cat.no_match')) + '</div>';
+    body.innerHTML = h;
+    msSync(k);
+    return;
+  }
   var hasGroup = opts.some(function(o){ return o && o.group; });
   if(hasGroup){
     var order = [], gmap = {};
@@ -602,6 +634,7 @@ function msRender(k){
       gmap[g].push(o);
     });
     order.forEach(function(g){
+      if(!gmap[g].length) return;                 // v1.9.53：空组（被筛选掉）不渲染标题
       if(g) h += '<div class="msp-group">' + esc(g) + '</div>';
       h += '<div class="msp-row">' + gmap[g].map(chip).join('') + '</div>';
     });
@@ -638,18 +671,28 @@ function msSync(k){
 }
 function msClear(k){
   MS_SEL[k] = {};
+  MS_FILTER[k] = '';
+  var inp = document.getElementById(MS_PREFIX[k] + 'Filter');
+  if(inp) inp.value = '';
   msRender(k);
 }
 /* v1.8.6：多选面板「全选」（勇哥反馈：原来只有「清空」，想整组勾上得一个个点）。
    注意：不勾 = 不限（后端不筛选）；全选 = 显式把每个值都 OR 上，结果等价但**看得见**，
-   对「我想明确指定这几个，而不是漏掉」这种心智更友好。 */
+   对「我想明确指定这几个，而不是漏掉」这种心智更友好。
+   v1.9.53：① 用 msOptVal(o) 取值（线路项是字符串，o.v 为 undefined 会漏选）；
+            ② 只勾当前筛选可见项（在筛选框里点「全选」= 全选可见，更符合直觉）。 */
 function msSelectAll(k){
-  var opts = MS_OPTS[k] || [];
+  var opts = msVisibleOpts(k);
   MS_SEL[k] = {};
-  opts.forEach(function(o){ MS_SEL[k][o.v] = 1; });
+  opts.forEach(function(o){ MS_SEL[k][msOptVal(o)] = 1; });
   msRender(k);
   // 与 msClear / msPick **完全一致**：只改勾选状态，不自动查询（统一由「查询」按钮触发）。
   // 别在这里自作主张加 doQuery —— 会和「点选 → 再点查询」的既有交互打架。
+}
+/* v1.9.53：线路/车站面板的实时筛选输入回调。只收窄可见项，不改选中态。 */
+function msFilter(k, val){
+  MS_FILTER[k] = val || '';
+  msRender(k);
 }
 function msPlace(k){
   var p = msEl(k, 'Panel'), b = msEl(k, 'Btn');

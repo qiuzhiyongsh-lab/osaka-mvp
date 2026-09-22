@@ -1115,6 +1115,7 @@
   ZH['search.status_add_ph']='输入状态名，回车添加'; ZH['search.status_now_tip']='Phase 2 待启用';
   // 多选面板「全选」（勇哥要求：除了清空，还要能一键全选）
   ZH['cat.select_all']='全选'; ZH['cat.selected_all']='已全选 {n} 项';
+  ZH['cat.filter']='筛选选项…'; ZH['cat.no_match']='无匹配项';
 
   DICT['zh-TW']['search.trade_type.all']='全部';
   DICT['zh-TW']['search.trade_type.seller']='売主（業主直售）';
@@ -1123,6 +1124,7 @@
   DICT['zh-TW']['search.trade_type.dairi']='代理（賣方代理）';
   DICT['zh-TW']['search.trade_type.ippan']='一般（一般媒介）';
   DICT['zh-TW']['cat.select_all']='全選'; DICT['zh-TW']['cat.selected_all']='已全選 {n} 項';
+  DICT['zh-TW']['cat.filter']='篩選選項…'; DICT['zh-TW']['cat.no_match']='無符合項目';
 
   DICT['en']['search.trade_type.all']='All';
   DICT['en']['search.trade_type.seller']='売主 (direct from owner)';
@@ -1131,6 +1133,7 @@
   DICT['en']['search.trade_type.dairi']='代理 (seller agency)';
   DICT['en']['search.trade_type.ippan']='一般 (open listing)';
   DICT['en']['cat.select_all']='Select all'; DICT['en']['cat.selected_all']='All {n} selected';
+  DICT['en']['cat.filter']='Filter options…'; DICT['en']['cat.no_match']='No matches';
 
   DICT['ja']['search.trade_type.all']='すべて';
   DICT['ja']['search.trade_type.seller']='売主（元付・直接取引）';
@@ -1139,6 +1142,7 @@
   DICT['ja']['search.trade_type.dairi']='代理（売主代理）';
   DICT['ja']['search.trade_type.ippan']='一般（一般媒介）';
   DICT['ja']['cat.select_all']='すべて選択'; DICT['ja']['cat.selected_all']='{n} 件を全選択';
+  DICT['ja']['cat.filter']='オプションを絞り込む…'; DICT['ja']['cat.no_match']='該当なし';
 
   /* ---- v1.8.6：详情页内嵌 PDF 卡片（替掉原来的「打开本地 PDF」跳转按钮）---- */
   ZH['detail.pdf_h']='房源図面 PDF'; ZH['detail.pdf_hint']='本机 PDF 原件（不会上传到线上）';
