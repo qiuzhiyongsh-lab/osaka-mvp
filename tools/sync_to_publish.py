@@ -3,8 +3,9 @@
 
 用法
 ----
-    python tools/sync_to_publish.py            # 同步（代码 + 数据）
-    python tools/sync_to_publish.py --dry      # 只看会做什么，不动文件
+    python tools/sync_to_publish.py                      # 同步（代码 + 数据）
+    python tools/sync_to_publish.py --dry                # 只看会做什么，不动文件
+    python tools/sync_to_publish.py --allow-skip-pull    # 【慎用】回流失败时仍发版（离线等极特殊场景，风险自担）
 
 为什么需要它
 ------------
@@ -200,6 +201,8 @@ app = create_app()
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="只报告，不动文件")
+    ap.add_argument("--allow-skip-pull", action="store_true",
+                    help="【慎用】账号回流失败时仍继续发版（仅离线发版且确认线上无自设密码时用，风险自担）")
     args = ap.parse_args()
     dry = args.dry
     print(("=" * 62))
@@ -267,22 +270,58 @@ def main() -> int:
         (TARGET / "config.yaml").write_text(
             yaml.safe_dump(safe, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
-    # ── ③a 发版前账号回流（v1.9.56 · 2026-09-22 多人登录故障的根治点）──
+    # ── ③a 发版前账号回流（v1.9.56 根治点 · v1.9.57 改为失败即中止）──
     #   线上 ≥ v1.9.28 时员工可在线上自设密码，但若从未回流/漏镜像，本包就带**旧种子**
     #   （cleared=0）。线上容器每次重建（每次发版都重建）都按本包种子灌库
     #   → 员工自设的密码被打回随机码 → 报「密码错误」（这就是 09-22 反复发生的闭环）。
     #   发版前先 pull 一次：把线上自设密码救回本地，并重写+镜像种子，随后 ③b 打包即为最新。
-    #   尽力而为：网络不通只警告，绝不阻塞发版。
+    #   ⚠ v1.9.57 稳健性修正（呼应 PRD §7 铁律）：pull_and_adopt 在网络/鉴权失败时
+    #     **返回 {"ok":False} 而非抛异常**，旧代码会误打印「无变化」并照常打包旧种子 → 故障复现。
+    #     故：回流 ok:False 或任何异常 → **立即中止同步（return 3）**，绝不带旧种子发版；
+    #     仅当显式 --allow-skip-pull 且操作员知情，才放行继续（用于离线发版等极特殊场景）。
+    #     回流成功（ok:True）后强制重导出本地种子，确保 ③b 打包的是回流后的最新版。
+    _allow_skip = bool(getattr(args, "allow_skip_pull", False))
     try:
         if str(MVP) not in sys.path:
             sys.path.insert(0, str(MVP))
         from core import account_sync as _accsync          # noqa: PLC0415
+        from core import accounts as _acc_mod              # noqa: PLC0415
+        from core import config as _cfgmod                 # noqa: PLC0415
+        # ⚠ 必须先 init 本地库路径（设 _DB_PATH），否则 adopt_remote/export_seed 会因
+        #    _DB_PATH=None 抛 TypeError（与 _diag_pull 同因）。publisher 进程启动时已 init，
+        #    但本脚本是独立进程，需自己 init。
+        _acc_mod.init(_cfgmod.paths(cfg)["db"])
         _rr = _accsync.pull_and_adopt(cfg, log=lambda m: print("     " + m))
+        if not _rr.get("ok"):
+            # 回流失败：网络/鉴权/线上拒收等。此时无法确认本地种子是否最新，
+            # 带旧种子发版 = 09-22 故障复现。除非操作员显式知情放行，否则中止。
+            print("   ✗ ③a 账号回流失败：%s" % _rr.get("error", _rr))
+            if _allow_skip:
+                print("   ⚠ --allow-skip-pull 已指定：操作员确认线上无自设密码，继续发版（风险自担）")
+            else:
+                print("   ✗ 已中止同步（return 3）。请先排查网络/线上可用性或 /api/accounts/state，"
+                      "确认能回流后再发版 —— 切勿带旧种子重建容器。")
+                return 3
         _ad = list((_rr or {}).get("adopted") or [])
-        print("③a 账号回流：%s" % (("已采纳线上自设密码 → " + ",".join(_ad)) if _ad else "无变化"))
+        if _ad:
+            print("③a 账号回流：已采纳线上自设密码 → %s" % ",".join(_ad))
+        else:
+            print("③a 账号回流：无变化（线上无新自设密码，本地种子即最新）")
+        # 回流成功后强制重导出本地种子，确保 ③b 打包的是回流后的最新版
+        # （即便 _mirror_seed 内部漏写本地，也不致带旧种子发版）。
+        try:
+            _acc_mod.export_seed(str(MVP / "data" / "accounts.seed.json"))
+            print("③a 本地种子已按回流结果重新导出（exported_at 已刷新）")
+        except Exception as _e2:                           # noqa: BLE001
+            print("   ✗ ③a 回流后重导出本地种子失败：%s —— 已中止，避免带旧种子发版" % _e2)
+            return 3
     except Exception as _e:                                # noqa: BLE001
-        print("③a 账号回流跳过（%s: %s）—— ⚠ 若线上有人自设过密码，本包可能带旧种子"
-              % (type(_e).__name__, _e))
+        print("   ✗ ③a 账号回流异常：%s: %s" % (type(_e).__name__, _e))
+        if _allow_skip:
+            print("   ⚠ --allow-skip-pull 已指定：继续发版（风险自担）")
+        else:
+            print("   ✗ 已中止同步（return 3）。请排查后重试。")
+            return 3
 
     # ── ③b 账户种子（PRD-19 §17 · 线下建号 → 同步上云）──
     # 例外说明：本脚本从不整体上传 data/，但账户种子是**唯一特例** —— 它只含 pbkdf2
