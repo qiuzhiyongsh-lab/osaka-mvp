@@ -293,7 +293,7 @@ def _access_guard():
     放行白名单：/login、/api/auth/login、/api/ping、/static/*、访问码页。
     """
     path = request.path
-    if path in ("/login", "/api/auth/login", "/api/ping") or path.startswith("/static/"):
+    if path in ("/login", "/api/auth/login", "/api/ping", "/api/selfcheck") or path.startswith("/static/"):
         return None
     # ⚠ v1.9.19 🔴 修复（2026-09-19 实测事故）：/api/ingest 是**机器对机器**通道
     #   —— 本机每轮抓完把数据 POST 到线上。它自带 `X-Publish-Token` 校验（见 api_ingest），
