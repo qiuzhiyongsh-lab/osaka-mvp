@@ -9,8 +9,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.59"
-BUILD_AT = "2026-09-22 16:44"
+VERSION = "1.9.60"
+BUILD_AT = "2026-09-23 02:13"
 # ============================================================================
 # v1.9.57（2026-09-22 15:55 · 🛡️发版稳健性加固：tools/sync_to_publish.py ③a「发版前账号回流」改为失败即中止）：
 #   根因：原 ③a「尽力而为：网络不通只警告，绝不阻塞发版」注释与 PRD §7 铁律（「若③a报跳过必须先排查再发」）直接矛盾。
