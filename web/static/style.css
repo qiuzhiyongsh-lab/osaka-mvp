@@ -1007,6 +1007,17 @@ details.sec > .secbody{padding:10px 18px 14px}
   margin:0 10px 6px 0;white-space:nowrap;vertical-align:middle}
 .adv-grp .field.sm input{width:66px}
 .adv-grp .field.sm .unit{margin-left:-2px}
+/* ⑩ 房间/楼层：整条「从 N 到 M 室/层」一行内完整显示（v1.9.54，勇哥图 1）
+     根因：原来是两个 .field.sm（各带一份单位），窄容器下第二块被挤到下一行 →
+     单位重复 + 上下两行错位。改为单容器 .range-row + nowrap 一次排完。 */
+.range-row{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;
+  margin:0 0 8px;font-size:12.5px;color:var(--sub)}
+.range-row:last-child{margin-bottom:0}
+.range-row .rr-lbl{font-weight:700;white-space:nowrap}
+.range-row .rr-sep,.range-row .unit{white-space:nowrap}
+/* 输入框沿用 .num-sm 的 56px；列最窄约 238px（adv-grid minmax 260 − padding），
+   EN「Rooms from … to … rm」≈229px，留 9px 余量不溢出、不换行。 */
+.range-row .num-sm{width:56px;min-width:44px;text-align:center}
 /* ⑨ tab 文案一行内显示（勇哥图 4/5）：「年数段」「建筑年代」「万円/㎡」「万円/坪」
      在窄列里会被逐字挤成竖排 —— 强制 nowrap，胶囊才横着长。 */
 .tabs{flex-wrap:wrap}

@@ -7,8 +7,10 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.53"
-BUILD_AT = "2026-09-22 09:30"
+VERSION = "1.9.54"
+BUILD_AT = "2026-09-22 09:15"
+# ============================================================================
+# v1.9.54（2026-09-22 09:15 · 🎨查询页「房间/楼层」改版（勇哥图 1）：原来「房间」由两个 .field.sm 组成（各带一份单位「室」），窄容器下第二块被挤到下一行 → 单位重复 + 上下两行错位。改为单个 .range-row 容器，整条「房间 从 [N] 到 [M] 室」强制一行内完整显示；「楼层」同法处理。复用既有 i18n 键（search.rooms_from/rooms_to/rooms_unit、search.floor_from/floor_to/floor_unit），零新增。改动文件：web/templates/search.html（房间/楼层 HTML 改 .range-row）、web/static/style.css（新增 .range-row/.rr-lbl/.rr-sep 规则）、core/version.py）
 # ============================================================================
 # v1.9.53（2026-09-22 09:30 · 查询页「沿线/车站」面板体验增强（勇哥 3 图）：① 线路/车站面板新增「全选」按钮（修 msSelectAll 对字符串线路项 o.v=undefined 漏选的 bug，改用 msOptVal；且只勾当前筛选可见项）② 面板头部新增筛选文本框，按标签子串实时过滤选项、隐藏空组、不改选中态 ③ 分组标题与首行贴紧、减小纵向空隙（根因 = 通用 .msp-body 是 display:flex 横排，分组标题与车站行被当 flex 子项换行错位；线路/车站面板强制 display:block）④ 补回缺失官方站「なんば駅（S16）」：STATION_ORDER 千日前線/四つ橋線 難波→なんば（2014 改名，三方取证），stations_for 合并 STATION_ORDER 官方站序保证字典缺的真实站不遗漏，難波(汉字)仅南海本線等私营线保留不误归一。改动文件：core/store.py（STATION_ORDER+stations_for）、web/templates/search.html（面板 HTML+msRender/msSelectAll/msClear/msFilter/MS_FILTER）、web/static/style.css（.msp-group/.msp-row 收 margin + .msp-filter/.msp-nomatch + body display:block）、web/static/i18n.js（cat.filter/cat.no_match 四语）、core/version.py）
 # ============================================================================

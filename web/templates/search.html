@@ -200,10 +200,22 @@
         </div>
         <!-- v1.9.50 / PRD-05 §4.5 P1-2：统一为「从 N … 到 M …」范式（对齐页面既有价格/面积写法），
              不再用「≥ / ≤」符号 —— 勇哥图 6：「要『高于多少层 / 低于多少层』」 -->
-        <label class="field sm"><span data-i18n="search.rooms_from">房间 从</span><input id="rooms_min" inputmode="numeric" placeholder="1"><span class="unit" data-i18n="search.rooms_unit">室</span></label>
-        <label class="field sm"><span data-i18n="search.rooms_to">到</span><input id="rooms_max" inputmode="numeric" placeholder="9"><span class="unit" data-i18n="search.rooms_unit">室</span></label>
-        <label class="field sm"><span data-i18n="search.floor_from">楼层 从</span><input id="floor_min" inputmode="numeric" placeholder="1"><span class="unit" data-i18n="search.floor_unit">层</span></label>
-        <label class="field sm"><span data-i18n="search.floor_to">到</span><input id="floor_max" inputmode="numeric" placeholder="60"><span class="unit" data-i18n="search.floor_unit">层</span></label>
+        <!-- v1.9.54：房间/楼层由两个 .field.sm（各带一份单位，窄容器下被挤成两行）改为
+             单个 .range-row —— 整条「从 N 到 M 室/层」强制一行内完整显示（勇哥图 1）。 -->
+        <div class="range-row">
+          <span class="rr-lbl" data-i18n="search.rooms_from">房间 从</span>
+          <input id="rooms_min" class="num-sm" inputmode="numeric" placeholder="1">
+          <span class="rr-sep" data-i18n="search.rooms_to">到</span>
+          <input id="rooms_max" class="num-sm" inputmode="numeric" placeholder="9">
+          <span class="unit" data-i18n="search.rooms_unit">室</span>
+        </div>
+        <div class="range-row">
+          <span class="rr-lbl" data-i18n="search.floor_from">楼层 从</span>
+          <input id="floor_min" class="num-sm" inputmode="numeric" placeholder="1">
+          <span class="rr-sep" data-i18n="search.floor_to">到</span>
+          <input id="floor_max" class="num-sm" inputmode="numeric" placeholder="60">
+          <span class="unit" data-i18n="search.floor_unit">层</span>
+        </div>
       </fieldset>
       <!-- 楼龄 -->
       <fieldset class="adv-grp">
