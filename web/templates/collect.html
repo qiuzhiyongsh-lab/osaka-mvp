@@ -679,6 +679,7 @@ setTimeout(loadPublishStatus, 300);
     <button class="ghost" onclick="pcPreview()">预览</button>
     <button onclick="pcUpload()">开始上传</button>
     <button class="ghost" onclick="pcResign()">立即重签（续期）</button>
+    <button class="ghost" onclick="pcRepush()">重新回推线上</button>
     <span class="muted" id="pc_preview"></span>
   </div>
 
@@ -1127,6 +1128,18 @@ function pcResign(){
     .then(function(r){ return r.json(); }).then(function(j){
       pcSet('pc_prog_txt', j.ok ? ('重签 ' + j.resigned + ' 条（共 ' + j.checked + ' 条在册）')
                                 : ('重签失败：' + (j.msg || j.error || '')));
+      pcLoad();
+    });
+}
+/* v1.9.62：一键把本地已生成的 pdf_url 全部回推线上（补 ingest 曾丢字段的欠账）。
+   不重传 COS、不重签 —— 只走 /api/ingest 写线上库。 */
+function pcRepush(){
+  document.getElementById('pc_prog').style.display = 'block';
+  pcSet('pc_prog_txt', '正在回推线上（可能需要一两分钟）…');
+  fetch('/api/pdf_cloud/repush', { method:'POST' })
+    .then(function(r){ return r.json(); }).then(function(j){
+      pcSet('pc_prog_txt', j.ok ? ('回推完成：本批 ' + j.sent + ' 条 / 共 ' + j.total + ' 条')
+                                : ('回推失败：' + ((j.errors || [])[0] || j.error || '')));
       pcLoad();
     });
 }

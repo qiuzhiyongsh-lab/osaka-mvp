@@ -41,8 +41,12 @@ from core import accounts as acc_mod                    # noqa: E402  (PRD-19 �
 from core import account_sync as acc_sync                # noqa: E402  (v1.9.28 账号双向同步)
 from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 AI 解读独立库)
 
-# 线上收数时**永不接受**的列（勇哥：PDF 不上传）
-NEVER_UPLOAD_KEYS = {"pdf_path", "pdf_url", "absent_runs"}
+# 线上收数时**永不接受**的列。
+#   v1.9.62：pdf_url 已**移出**本集合 —— 勇哥 2026-09-23 拍板「PDF 上云 + 登录即可看」后，
+#   线上必须收下 COS 预签名直链才能渲染図面；本机路径 pdf_path 仍永不接受。
+#   🔴 这是 2026-09-23 批量上传「回推显示成功、线上却不显示」的根因：
+#      v1.9.60 只改了 sync_to_publish 的 PDF_KEYS，**漏了这里** → ingest 把 pdf_url 过滤掉了。
+NEVER_UPLOAD_KEYS = {"pdf_path", "absent_runs"}
 
 
 # ---------------- 全局：配置 / 库 / 调度 / 日志 ----------------
@@ -427,8 +431,10 @@ def api_ingest():
     **不需要重新发布**（发布 = 容器重建 = 有 1~2 分钟空窗，能省则省）。
 
     安全：必须带对 `publish.ingest_token`（本机 config.yaml），否则 401。
-    卫生：只收 `PROPERTY_COLUMNS` 里的列，PDF 三件套（pdf_path/pdf_url/absent_runs）
-          一律丢弃 —— 勇哥明确要求 PDF 不上传。
+    卫生：只收 `PROPERTY_COLUMNS` 里的列；**本机路径**（pdf_path / absent_runs）丢弃。
+          ⚠ v1.9.62：`pdf_url` 已**放行** —— 勇哥 2026-09-23 拍板「PDF 上云 + 登录即可看」后，
+            线上靠它渲染 COS 预签名直链。此前被 NEVER_UPLOAD_KEYS 丢弃，是 2026-09-23
+            「批量上传回推显示成功、线上却不显示」的根因。
     """
     _refresh_cfg()
     want = str(((CFG.get("publish") or {}).get("ingest_token") or "")).strip()
@@ -2218,8 +2224,9 @@ def api_pdf_cloud_upload():
     nos = [r["no"] for r in rows]
     if not nos:
         return jsonify({"ok": False, "error": "该范围内没有可上传的 PDF"}), 400
-    tid = pdf_cloud.start_upload(nos, push_online=bool(body.get("push_online", True)))
-    log("[PDF云] 启动上传任务 %s：%d 份" % (tid, len(nos)))
+    tid = pdf_cloud.start_upload(nos, push_online=bool(body.get("push_online", True)), log=log)
+    log("[PDF云] 启动上传任务 %s：%d 份（下载日 %s ~ %s）"
+        % (tid, len(nos), body.get("date_from") or "不限", body.get("date_to") or "不限"))
     return jsonify({"ok": True, "task_id": tid, "total": len(nos)})
 
 
@@ -2236,6 +2243,14 @@ def api_pdf_cloud_resign():
     """手动触发一次自动重签（剩余 < 2 天的刷新 URL 并回推线上，无需发版）。"""
     from core import pdf_cloud
     r = pdf_cloud.resign_due(log=log)
+    return jsonify({"ok": bool(r.get("ok")), **r})
+
+
+@app.post("/api/pdf_cloud/repush")
+def api_pdf_cloud_repush():
+    """一键把本地全部非空 pdf_url 回推线上（补 2026-09-23 ingest 丢字段的历史欠账）。"""
+    from core import pdf_cloud
+    r = pdf_cloud.repush_all(log=log)
     return jsonify({"ok": bool(r.get("ok")), **r})
 
 

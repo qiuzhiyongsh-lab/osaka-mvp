@@ -192,9 +192,14 @@ def push_urls(cfg: dict, pairs: list[tuple], log=None) -> dict:
     return publisher.post_rows(cfg, rows, log=log)
 
 
-def start_upload(nos: list[str], push_online: bool = True,
-                 date_from: str | None = None, date_to: str | None = None) -> str:
-    """起后台线程批量上传，返回 task_id（UI 轮询 status）。"""
+def start_upload(nos: list[str], push_online: bool = True, log=None,
+                 progress_every: int = 50) -> str:
+    """起后台线程批量上传，返回 task_id（UI 轮询 status）。
+
+    log：可选日志回调 —— 上传过程写进设置页「实时日志」（勇哥 2026-09-23 要求：
+         「上传在日志里面没有看到，需要把这个放在日志里面」）。
+    """
+    say = log or (lambda *_a, **_k: None)
     with _TASKS_LOCK:
         _task_seq[0] += 1
         tid = "t%d" % _task_seq[0]
@@ -204,14 +209,19 @@ def start_upload(nos: list[str], push_online: bool = True,
 
     def _run():
         cfg = _cfg()
+        t0 = time.time()
+        bucket = (cfg.get("cos") or {}).get("bucket")
+        say("[PDF云] 开始上传 %d 份 PDF → COS（%s）" % (len(nos), bucket))
         try:
             cos, cli = client(cfg)
         except Exception as e:                                # noqa: BLE001
+            say("[PDF云] ✗ 初始化失败：%s" % e)
             with _TASKS_LOCK:
                 _TASKS[tid].update(state="error", errors=[str(e)])
             return
+
         pairs = []
-        for no in nos:
+        for i, no in enumerate(nos, 1):
             with _TASKS_LOCK:
                 _TASKS[tid]["current"] = no
             try:
@@ -229,12 +239,28 @@ def start_upload(nos: list[str], push_online: bool = True,
                     _TASKS[tid]["done"] += 1
                     _TASKS[tid]["fail"] += 1
                     _TASKS[tid]["errors"].append("%s %s: %s" % (no, type(e).__name__, e))
+            if i % progress_every == 0:
+                with _TASKS_LOCK:
+                    s = dict(_TASKS[tid])
+                say("[PDF云] 进度 %d/%d（成功 %d / 失败 %d）· 用时 %.0fs"
+                    % (i, len(nos), s["ok"], s["fail"], time.time() - t0))
+
+        with _TASKS_LOCK:
+            s = dict(_TASKS[tid])
+        say("[PDF云] 上传完成：成功 %d / 失败 %d，用时 %.0fs"
+            % (s["ok"], s["fail"], time.time() - t0))
+        if s["errors"]:
+            say("[PDF云] 失败样例（最多 5 条）：%s" % "; ".join(s["errors"][:5]))
+
         pushed = {"ok": True, "sent": 0}
         if push_online and pairs:
             try:
                 pushed = push_urls(cfg, pairs)
             except Exception as e:                            # noqa: BLE001
                 pushed = {"ok": False, "errors": [str(e)]}
+            say("[PDF云] 回推线上 pdf_url %d 条：%s"
+                % (len(pairs), "成功 %s 条" % pushed.get("sent") if pushed.get("ok")
+                   else ("失败 %s" % (pushed.get("errors") or ""))))
         with _TASKS_LOCK:
             _TASKS[tid].update(state="done", current="", pushed=pushed)
 
@@ -305,3 +331,35 @@ def resign_due(threshold: int = RESIGN_THRESHOLD, push_online: bool = True,
         % (len(pairs), len(rows), "成功" if pushed.get("ok") else "失败"))
     return {"ok": True, "resigned": len(pairs), "checked": len(rows),
             "pushed": pushed, "fails": fails}
+
+
+def repush_all(log=None) -> dict:
+    """把本地库里**全部非空 pdf_url** 回推线上（一键补齐）。
+
+    用途（2026-09-23 真实场景）：线上 `/api/ingest` 曾把 pdf_url 过滤掉，
+    导致批量上传"回推成功但线上不显示"；修复收数侧后，用本函数一键把已生成的
+    pdf_url 补推上线，**不必重传 COS、也不必重签**。
+    """
+    say = log or (lambda *_a, **_k: None)
+    cfg = _cfg()
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT property_no, pdf_url FROM properties WHERE pdf_url IS NOT NULL AND pdf_url != ''").fetchall()
+    finally:
+        con.close()
+    pairs = [(n, u) for n, u in rows]
+    if not pairs:
+        say("[PDF云] 本地没有已上传的 pdf_url，无需回推")
+        return {"ok": True, "total": 0, "sent": 0}
+    say("[PDF云] 开始全量回推 %d 条 pdf_url 到线上…" % len(pairs))
+    try:
+        res = push_urls(cfg, pairs, log=say)
+    except Exception as e:                                    # noqa: BLE001
+        say("[PDF云] ✗ 回推异常：%s" % e)
+        return {"ok": False, "total": len(pairs), "sent": 0, "errors": [str(e)]}
+    say("[PDF云] 回推完成：%s（本批 %d 条）"
+        % (("成功 %s 条" % res.get("sent")) if res.get("ok") else ("失败 %s" % (res.get("errors") or "")),
+           res.get("sent") or 0))
+    return {"ok": bool(res.get("ok")), "total": len(pairs), "sent": res.get("sent"),
+            "errors": res.get("errors")}
