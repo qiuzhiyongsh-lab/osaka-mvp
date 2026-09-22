@@ -25,7 +25,7 @@ local_extract:
   ocr_timeout_sec: 60
   ocr_max_pages: 1
   tesseract_path: ''
-  fallback_model: true
+  fallback_model: false
   fallback_max_per_run: 50
   ocr_enrich_important: true
 schedule_ai:

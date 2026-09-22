@@ -266,11 +266,16 @@
     <label class="chk"><input type="checkbox" class="ai-kind" value="売マンション" checked> 売マンション</label>
     <label class="chk"><input type="checkbox" class="ai-kind" value="売土地" checked> 売土地</label>
   </div>
+  <div style="margin:12px 0 2px;padding-top:10px;border-top:1px dashed var(--line-soft)">
+    <label class="chk"><input type="checkbox" id="aiCloudFallback"> 允许云端 AI 兜底
+      <span class="hint">（本地文字层/OCR 读不出的字段才调用云端模型，会产生费用；不勾=只走线下、永不调云端）</span></label>
+  </div>
   <div class="actions" style="margin-top:8px;display:flex;gap:8px">
     <button class="ghost" onclick="saveAIRead()">保存 AI 读取设置</button>
     <span class="muted" id="aiReadMsg"></span>
   </div>
-  <script>window.__aiReadKinds = {{ (cfg.get('ai_read_scope') or []) | tojson }};</script>
+  <script>window.__aiReadKinds = {{ (cfg.get('ai_read_scope') or []) | tojson }};
+  window.__aiCloudFallback = {{ 'true' if (cfg.get('local_extract') or {}).get('fallback_model') else 'false' }};</script>
 </div>
 
 <!-- ============ AI 读取时间（v1.9.39 / PRD-25 R6：自动生成调度 + 手动正式生成） ============ -->
@@ -393,13 +398,20 @@ function loadAIRead(){
   document.querySelectorAll('.ai-kind').forEach(function(c){
     c.checked = !rk.length || rk.indexOf(c.value) >= 0;   // 空列表=全勾
   });
+  /* v1.9.55：云端兜底开关回显（true=走云端，false=只走线下） */
+  var cf = document.getElementById('aiCloudFallback');
+  if(cf) cf.checked = (window.__aiCloudFallback === true || window.__aiCloudFallback === 'true');
 }
 function saveAIRead(){
   var sel = Array.prototype.slice.call(document.querySelectorAll('.ai-kind:checked'))
                  .map(function(c){ return c.value; });
-  postJSON('/api/ai/settings', {read_kinds: sel}).then(function(j){
+  var cfEl = document.getElementById('aiCloudFallback');
+  var cf = !!(cfEl && cfEl.checked);            // v1.9.55：一并保存「云端兜底」总闸
+  postJSON('/api/ai/settings', {read_kinds: sel, cloud_fallback: cf}).then(function(j){
     var m = document.getElementById('aiReadMsg');
-    if(m) m.textContent = (j && j.status === 'ok') ? '已保存 ✅' : ('失败：' + ((j && j.error) || ''));
+    if(m) m.textContent = (j && j.status === 'ok')
+      ? ('已保存 ✅' + (cf ? '（允许云端兜底）' : '（只走线下，不调云端）'))
+      : ('失败：' + ((j && j.error) || ''));
   }).catch(function(e){
     var m = document.getElementById('aiReadMsg'); if(m) m.textContent = '保存出错：' + e;
   });

@@ -7,8 +7,10 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.54"
-BUILD_AT = "2026-09-22 09:15"
+VERSION = "1.9.55"
+BUILD_AT = "2026-09-22 10:50"
+# ============================================================================
+# v1.9.55（2026-09-22 10:50 · 🔌AI 解读暂时改走「线下」（勇哥 2026-09-22）：把 local_extract.fallback_model 当云端兜底总闸 —— 关闭时详情页「重新生成」无论本地是否抽满都只落本地结果并直接返回（不再弹「是否走云端」、不再报「没配 API Key」400 红框），force_cloud/allow_cloud 一律忽略；夜间自动生成/批量同样不调云端。设置页「AI 读取范围」卡片新增「允许云端 AI 兜底」开关（默认关，随时可切回云端）。改动文件：config.yaml（fallback_model: true→false）、web/app.py（/api/ai/<no>/run 走线下分支 + /api/ai/settings 收 cloud_fallback）、web/templates/collect.html（开关+回显+保存）、web/templates/detail.html（partial 提示）、web/static/i18n.js（detail.ai_interpret_local_partial 四语）、core/version.py）
 # ============================================================================
 # v1.9.54（2026-09-22 09:15 · 🎨查询页「房间/楼层」改版（勇哥图 1）：原来「房间」由两个 .field.sm 组成（各带一份单位「室」），窄容器下第二块被挤到下一行 → 单位重复 + 上下两行错位。改为单个 .range-row 容器，整条「房间 从 [N] 到 [M] 室」强制一行内完整显示；「楼层」同法处理。复用既有 i18n 键（search.rooms_from/rooms_to/rooms_unit、search.floor_from/floor_to/floor_unit），零新增。改动文件：web/templates/search.html（房间/楼层 HTML 改 .range-row）、web/static/style.css（新增 .range-row/.rr-lbl/.rr-sep 规则）、core/version.py）
 # ============================================================================

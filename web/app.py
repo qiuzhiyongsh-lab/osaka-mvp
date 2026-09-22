@@ -913,7 +913,14 @@ def api_ai_run(property_no: str):
                         "route": "local"})
 
     local_ok = bool(res.get("local_hit"))
-    if local_ok and not force_cloud:
+    # v1.9.55（勇哥 2026-09-22）：云端兜底总闸 = local_extract.fallback_model。
+    #   关闭（走线下）→ 无论本地是否抽满，都**只落本地结果**并直接返回 ok：
+    #     不再返回 incomplete（前端因此不会弹「是否走云端」），更不会走到
+    #     「没配 API Key」的 400 红框；force_cloud / allow_cloud 一律忽略（走线下就是走线下）。
+    #   开启（走云端）→ 保持 v1.9.26 以来「本地优先 → 问用户 → 才烧钱」的三段式。
+    cloud_fallback = bool(le.get("fallback_model"))
+
+    def _save_local():
         ai_pipeline.save_fields(AI_STORE, property_no, res)
         card = ai_pipeline.to_extraction_result(res)
         STORE.upsert_ai_extraction(
@@ -921,10 +928,24 @@ def api_ai_run(property_no: str):
             prompt_version="local-v1", pdf_hash=res.get("pdf_hash", ""),
             cost_ms=res.get("ms"),
         )
+
+    if cloud_fallback and local_ok and not force_cloud:
+        _save_local()
         log(f"[AI] {property_no} 本地抽取完成（{res.get('ms')}ms，"
             f"{len(res.get('fields') or {})} 字段，云端 0 次）")
         return jsonify({"ok": True, "status": "ok", "property_no": property_no,
                         "route": "local", "cloud_used": 0,
+                        "fields": len(res.get("fields") or {}),
+                        "ms": res.get("ms")})
+
+    if not cloud_fallback:
+        # 走线下：本地没抽满也落库显示（否则详情页 AI 卡片空着，用户以为没跑）。
+        _save_local()
+        log(f"[AI] {property_no} 本地抽取完成·走线下（{res.get('ms')}ms，"
+            f"{len(res.get('fields') or {})} 字段，云端 0 次，未抽满={not local_ok}）")
+        return jsonify({"ok": True, "status": "ok", "property_no": property_no,
+                        "route": "local", "cloud_used": 0, "cloud_fallback": False,
+                        "partial": not local_ok,
                         "fields": len(res.get("fields") or {}),
                         "ms": res.get("ms")})
 
@@ -1045,6 +1066,14 @@ def api_ai_settings():
                     v = bool(v)
                 sa[k] = v
         cfg["schedule_ai"] = sa
+    if "cloud_fallback" in body:
+        # v1.9.55（勇哥 2026-09-22）：云端 AI 兜底总闸（落 local_extract.fallback_model）。
+        #   false=走线下（只跑本地文字层/OCR，永不调云端、不弹「是否走云端」）；
+        #   true =走云端（恢复「本地优先→问用户→才烧钱」三段式）。
+        #   放 local_extract 段而非 ai 块：ai 块含真 api_key，cfgmod.save 会整块剔除。
+        le = dict(cfg.get("local_extract") or {})
+        le["fallback_model"] = bool(body.get("cloud_fallback"))
+        cfg["local_extract"] = le
     cfgmod.save(cfg)
     # 按 enabled 启停 AIScheduler（不碰私密 ai 块；PRD-25 R6）
     # v1.9.40：线上只读站**绝不**拉起调度线程（PUBLIC 下 SCHED/PUB_LOOP 本就不启动）；
@@ -1056,10 +1085,12 @@ def api_ai_settings():
         else:
             AI_SCHED.stop()
     log(f"[AI设置] ai_read_scope={cfg.get('ai_read_scope')} "
-        f"schedule_ai.enabled={(cfg.get('schedule_ai') or {}).get('enabled')}")
+        f"schedule_ai.enabled={(cfg.get('schedule_ai') or {}).get('enabled')} "
+        f"cloud_fallback={(cfg.get('local_extract') or {}).get('fallback_model')}")
     return jsonify({"status": "ok",
                     "ai_read_scope": cfg.get("ai_read_scope"),
-                    "schedule_ai": cfg.get("schedule_ai")})
+                    "schedule_ai": cfg.get("schedule_ai"),
+                    "cloud_fallback": bool((cfg.get("local_extract") or {}).get("fallback_model"))})
 
 
 def _ai_generate_candidates(date: str | None, only_today: bool, force: bool) -> list[str]:

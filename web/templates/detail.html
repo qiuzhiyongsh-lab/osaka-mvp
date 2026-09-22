@@ -544,7 +544,9 @@ function runAI(opts){
     aiSetBtn(t('detail.ai_interpret_regen'), false);
     aiMsg(meta, j.route === 'cloud'
       ? t('detail.ai_interpret_cloud_done')
-      : tf('detail.ai_interpret_local_done', {n: j.fields || 0}), false);
+      : (j.partial
+          ? tf('detail.ai_interpret_local_partial', {n: j.fields || 0})
+          : tf('detail.ai_interpret_local_done', {n: j.fields || 0})), false);
     loadAI();
   })
   .catch(function(){
