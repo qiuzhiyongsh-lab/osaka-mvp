@@ -375,6 +375,7 @@ def inject_globals():
         "test": dict(TEST_RESULT),
         "version": ver.VERSION,
         "build_at": ver.BUILD_AT,
+        "drift_info": ver.runtime_versions(),
         "public": PUBLIC,
         "auth_enabled": AUTH_ENABLED,
         "me": _current_user(),
@@ -409,6 +410,12 @@ def _refresh_cfg():
 @app.get("/api/ping")
 def api_ping():
     return jsonify({"ok": True, "ts": _now(), "pid": os.getpid()})
+
+
+@app.get("/api/selfcheck")
+def api_selfcheck():
+    """免登录版本漂移自检：running（进程当前）vs disk（磁盘最新）。"""
+    return jsonify({"ok": True, "ts": _now(), "pid": os.getpid(), **ver.runtime_versions()})
 
 
 @app.post("/api/ingest")

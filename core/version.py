@@ -6,9 +6,11 @@
   每次发布/重大更新时手动把这两个值改掉；页面底部会自动显示。
 """
 from __future__ import annotations
+import subprocess
+from pathlib import Path
 
-VERSION = "1.9.57"
-BUILD_AT = "2026-09-22 15:55"
+VERSION = "1.9.58"
+BUILD_AT = "2026-09-22 16:28"
 # ============================================================================
 # v1.9.57（2026-09-22 15:55 · 🛡️发版稳健性加固：tools/sync_to_publish.py ③a「发版前账号回流」改为失败即中止）：
 #   根因：原 ③a「尽力而为：网络不通只警告，绝不阻塞发版」注释与 PRD §7 铁律（「若③a报跳过必须先排查再发」）直接矛盾。
@@ -1446,3 +1448,87 @@ BUILD_AT = "2026-09-22 15:55"
 #          修「对比栏概况小卡整片消失」（局部变量遮蔽全局 i18n 函数 t() 导致渲染中断）。
 # v1.0.0：登录链路真机修复（有头模式 + 校准 Vue SPA 选择器 + 遵守条款勾选）；
 #          全站页面按 PM/架构视角重整（新增「数据抓取设置」，仪表盘瘦身）；UI 统一刷新。
+
+
+# ============================================================================
+# v1.9.58（2026-09-22 16:28 · 🔍 本地 8765 版本漂移自检）
+#   【背景】PRD §3.1 根因：代码落盘后无自动重启钩子，本地 8765 渲染可能滞后一版
+#     （改了 app.py/core 但没双击 start_mvp.bat 重启）。此前页脚只显示被导入时的
+#     version，看不出「磁盘已是新版、进程还在跑旧版」的漂移。
+#   【新增】runtime_versions() 同时给出 running（进程当前导入值）与 disk（每次重新读
+#     磁盘最新值，含 git HEAD 比对），drift=True 即「落盘未重启」。前端页脚按 drift 亮
+#     黄色横幅提示双击 start_mvp.bat 重启 8765；后端新增免登录 GET /api/selfcheck。
+#   【门禁】③ 真机 e2e 待勇哥双击重启 8765 复验（页脚无漂移 / 改一版后亮横幅）；
+#     ⑥ 发布后健康检查 = 线上 /api/selfcheck 返回 running==disk（发版即最新，无漂移）。
+# ============================================================================
+def _git_head_now() -> str:
+    """直接读 .git 文件得到当前 HEAD 短哈希（不依赖 git 二进制，最快）。"""
+    try:
+        root = Path(__file__).resolve().parent.parent
+        head_file = root / ".git" / "HEAD"
+        if not head_file.exists():
+            return ""
+        ref = head_file.read_text(encoding="utf-8", errors="ignore").strip()
+        if ref.startswith("ref:"):
+            ref_path = root / ".git" / ref[4:].strip()
+            if ref_path.exists():
+                return ref_path.read_text(encoding="utf-8", errors="ignore").strip()[:12]
+        return ref[:12]  # detached HEAD：本身就是 commit hash
+    except Exception:
+        return ""
+
+
+def _git_head_via_cmd() -> str:
+    """兜底：用 git 命令读 HEAD（当 .git/HEAD 文件读不到时）。"""
+    try:
+        root = Path(__file__).resolve().parent.parent
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root), capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()[:12]
+    except Exception:
+        pass
+    return ""
+
+
+# 进程启动时捕获的 running 头（落盘那一刻的 HEAD，重启后才会更新）
+RUNNING_GIT_HEAD = _git_head_now() or _git_head_via_cmd()
+
+
+def disk_version() -> str:
+    """重新读磁盘 version.py 里的最新 VERSION（每次调用都读，反映落盘后未重启的值）。"""
+    try:
+        src = Path(__file__).read_text(encoding="utf-8", errors="ignore")
+        for line in src.splitlines():
+            s = line.strip()
+            if s.startswith("VERSION ="):
+                if '"' in s:
+                    return s.split('"')[1]
+                if "'" in s:
+                    return s.split("'")[1]
+    except Exception:
+        pass
+    return VERSION
+
+
+def disk_git_head() -> str:
+    """磁盘最新 git HEAD（与 RUNNING_GIT_HEAD 比较可发现「代码落盘但未重启」）。"""
+    return _git_head_now() or _git_head_via_cmd()
+
+
+def runtime_versions() -> dict:
+    """运行期版本自检：running（进程当前）/ disk（磁盘最新），不一致即漂移。"""
+    dv = disk_version()
+    dh = disk_git_head()
+    drift = (dv != VERSION) or bool(dh and RUNNING_GIT_HEAD and dh != RUNNING_GIT_HEAD)
+    return {
+        "running_version": VERSION,
+        "running_build_at": BUILD_AT,
+        "running_git_head": RUNNING_GIT_HEAD,
+        "disk_version": dv,
+        "disk_git_head": dh,
+        "drift": drift,
+        "source": "osaka-mvp",
+    }
