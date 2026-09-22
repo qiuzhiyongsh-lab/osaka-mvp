@@ -262,6 +262,9 @@ PUBLIC_HIDDEN_APIS = (
     #   两者都属"只有本机才有意义"的能力，线上明确 403（设置页 /collect 本来就 404 隐藏）。
     #   注：/api/ai/schedule/status、/api/ai/generate/status 是 GET 只读查询，不在此列。
     "/api/ai/settings", "/api/ai/generate",
+    # v1.9.61：PDF 上云（COS）是**本机专属**能力 —— 线上没有 COS 密钥、也没有
+    #   data/attachments 目录，且这些接口会触发真实上传动作 → 对外站一律 403。
+    "/api/pdf_cloud",
 )
 
 
@@ -2165,6 +2168,77 @@ def api_publish_status():
     })
 
 
+# ============================================================
+# PDF 上云（腾讯云 COS · 私有读 + 本地预签名）· v1.9.61
+#   日期口径 = **本地下载日**（勇哥 2026-09-23 拍板）
+#   线上对外站 403（见 PUBLIC_HIDDEN_APIS 的 /api/pdf_cloud）
+# ============================================================
+def _pdf_cloud_err():
+    """COS 未配置时返回友好错误响应（None = 正常可用）。"""
+    try:
+        from core import pdf_cloud
+        pdf_cloud._cos_conf()
+        return None
+    except Exception as e:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.get("/api/pdf_cloud/status")
+def api_pdf_cloud_status():
+    """设置页卡片状态：本地份数 / 已上传 / 待上传 / 最早过期天数。"""
+    from core import pdf_cloud
+    return jsonify({"ok": True, **(pdf_cloud.status() or {})})
+
+
+@app.post("/api/pdf_cloud/preview")
+def api_pdf_cloud_preview():
+    """按日期段预览会上传哪些（**只算不传**）。body: {date_from, date_to, only_not_uploaded}"""
+    from core import pdf_cloud
+    body = request.get_json(force=True, silent=True) or {}
+    rows = pdf_cloud.scan(date_from=(body.get("date_from") or "").strip() or None,
+                          date_to=(body.get("date_to") or "").strip() or None,
+                          only_not_uploaded=bool(body.get("only_not_uploaded")))
+    return jsonify({"ok": True,
+                    "count": len(rows),
+                    "not_uploaded": sum(1 for r in rows if not r["uploaded"]),
+                    "items": rows[:20]})
+
+
+@app.post("/api/pdf_cloud/upload")
+def api_pdf_cloud_upload():
+    """按日期段上传（后台线程）。body: {date_from, date_to, only_not_uploaded, push_online}"""
+    err = _pdf_cloud_err()
+    if err:
+        return err
+    from core import pdf_cloud
+    body = request.get_json(force=True, silent=True) or {}
+    rows = pdf_cloud.scan(date_from=(body.get("date_from") or "").strip() or None,
+                          date_to=(body.get("date_to") or "").strip() or None,
+                          only_not_uploaded=bool(body.get("only_not_uploaded")))
+    nos = [r["no"] for r in rows]
+    if not nos:
+        return jsonify({"ok": False, "error": "该范围内没有可上传的 PDF"}), 400
+    tid = pdf_cloud.start_upload(nos, push_online=bool(body.get("push_online", True)))
+    log("[PDF云] 启动上传任务 %s：%d 份" % (tid, len(nos)))
+    return jsonify({"ok": True, "task_id": tid, "total": len(nos)})
+
+
+@app.get("/api/pdf_cloud/upload/status")
+def api_pdf_cloud_upload_status():
+    """⚠ 任务态**嵌套在 task 里**返回（不能直接 **展开）——
+       因为 task 内部 `ok` 字段是「成功条数」，展开会顶掉接口自身的 ok=True。"""
+    from core import pdf_cloud
+    return jsonify({"ok": True, "task": pdf_cloud.task_status(request.args.get("task_id") or "")})
+
+
+@app.post("/api/pdf_cloud/resign")
+def api_pdf_cloud_resign():
+    """手动触发一次自动重签（剩余 < 2 天的刷新 URL 并回推线上，无需发版）。"""
+    from core import pdf_cloud
+    r = pdf_cloud.resign_due(log=log)
+    return jsonify({"ok": bool(r.get("ok")), **r})
+
+
 @app.post("/api/publish/settings")
 def api_publish_settings():
     """保存上传设置（自动开关 / 周期 / 日期段 / 线上地址 / 口径）。"""
@@ -2965,6 +3039,32 @@ def api_accounts_sync_now():
                     "status": acc_sync.status(CFG)})
 
 
+def _start_pdf_resign_loop(interval_hours: int = 6):
+    """v1.9.61：本地常驻的 **PDF 签名自动续期**线程（勇哥 2026-09-23 拍板）。
+
+    为什么要它：COS 预签名直链有效期上限 **7 天**，过期后线上详情页的 iframe
+    会加载失败，而**刷新页面没用**（pdf_url 是库里存的静态串，只有重签 + 回推才更新）。
+    这里每 6 小时扫一次，把「剩余 < 2 天」的重签，并**增量回推线上**（走 /api/ingest，
+    **不需要发版**）。
+    """
+    import time
+
+    def _loop():
+        time.sleep(60)                      # 启动后先让开，避免与启动自检抢资源
+        while True:
+            try:
+                from core import pdf_cloud
+                r = pdf_cloud.resign_due(log=log)
+                if r.get("ok") and r.get("resigned"):
+                    log("[PDF云] 自动重签 %d 条并回推线上" % r["resigned"])
+            except Exception as _e:          # noqa: BLE001
+                log("[PDF云] 自动重签异常：%s" % _e)
+            time.sleep(interval_hours * 3600)
+
+    threading.Thread(target=_loop, daemon=True, name="pdf-resign").start()
+    log("[PDF云] 自动重签线程已启动（每 %d 小时检查一次）" % interval_hours)
+
+
 if __name__ == "__main__":
     log(f"本地站点启动：http://{CFG['web']['host']}:{CFG['web']['port']}")
     log(f"数据落盘目录：{PATHS['root']}")
@@ -2982,6 +3082,8 @@ if __name__ == "__main__":
         # PRD 25：AI 抽取定时（每晚 23:00 窗口）—— 只读本地 PDF，与抓取时段不冲突
         if AI_SCHED is not None and (CFG.get("schedule_ai") or {}).get("enabled"):
             AI_SCHED.start()
+        # v1.9.61：PDF 预签名自动续期（本地常驻即生效；COS 直链 7 天过期问题的根治手段）
+        _start_pdf_resign_loop()
     else:
         log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),

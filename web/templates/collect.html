@@ -648,6 +648,48 @@ setTimeout(loadPublishStatus, 300);
 </script>
 
 <!-- ============ 测试结果 ============ -->
+<!-- v1.9.61：PDF 上云（腾讯云 COS · 私有读 + 本地预签名 7 天直链）
+     日期口径 = 本地下载日（勇哥 2026-09-23 拍板）。仅本机可用（线上 PUBLIC 对该接口 403）。 -->
+<div class="card step" id="pdfCloudCard">
+  <h2><span data-i18n="pdfcloud.h">PDF 上云（図面）</span>
+    <span class="hint" data-i18n="pdfcloud.hint">按「本地下载日」选日期段，把 PDF 传到云端，线上详情页直接看</span></h2>
+
+  <div class="row" style="margin:6px 0 10px;gap:14px;flex-wrap:wrap">
+    <span>PDF 总数：<b id="pc_total">—</b></span>
+    <span>已上传：<b id="pc_done">—</b></span>
+    <span>待上传：<b id="pc_pending">—</b></span>
+    <span>最早过期：<b id="pc_exp">—</b></span>
+    <span class="muted" id="pc_err"></span>
+  </div>
+
+  <div class="fields">
+    <label class="field"><span data-i18n="pdfcloud.date_from">下载日 起</span>
+      <input type="date" id="pc_from"></label>
+    <label class="field"><span data-i18n="pdfcloud.date_to">下载日 止</span>
+      <input type="date" id="pc_to"></label>
+    <label class="field" style="flex:0 0 auto"><span data-i18n="pdfcloud.onlynew">只传没传过的</span>
+      <input type="checkbox" id="pc_onlynew" checked></label>
+  </div>
+
+  <div class="actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="ghost" onclick="pcQuick('today')">今天</button>
+    <button class="ghost" onclick="pcQuick('7d')">近 7 天</button>
+    <button class="ghost" onclick="pcQuick('30d')">近 30 天</button>
+    <button class="ghost" onclick="pcQuick('all')">全部未上传</button>
+    <button class="ghost" onclick="pcPreview()">预览</button>
+    <button onclick="pcUpload()">开始上传</button>
+    <button class="ghost" onclick="pcResign()">立即重签（续期）</button>
+    <span class="muted" id="pc_preview"></span>
+  </div>
+
+  <div id="pc_prog" style="margin-top:10px;display:none">
+    <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden">
+      <div id="pc_bar" style="height:100%;width:0;background:#2b7cff;transition:width .3s"></div>
+    </div>
+    <div class="muted" id="pc_prog_txt" style="margin-top:6px"></div>
+  </div>
+</div>
+
 <div class="card">
   <h2><span data-i18n="testbox.h">测试结果</span> <span class="hint" data-i18n="testbox.hint">四个测试按钮的最近一次结果</span></h2>
   {% set items = [('login','测试登录','test.l_login'),('query','测试查询','test.l_query'),('download_test','测试下载数据','test.l_dl'),('download_real','真实下载数据','test.l_real')] %}
@@ -1005,5 +1047,89 @@ setInterval(function(){ pull(); pollDl(); }, 2500);
 setSwitchLabel();
 setSaveStartLabel();
 window.addEventListener('i18n:changed', function(){ try{ setSwitchLabel(); setSaveStartLabel(); }catch(e){} });
+
+/* ============================================================
+   v1.9.61 · PDF 上云（腾讯云 COS · 私有读 + 本地预签名）
+   日期口径 = 本地下载日。任务态在 j.task 里（j.ok 是接口成功标志，别混用）。
+   ============================================================ */
+function pcIso(d){ var p2 = function(n){ return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + p2(d.getMonth()+1) + '-' + p2(d.getDate()); }
+function pcSet(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; }
+
+function pcLoad(){
+  fetch('/api/pdf_cloud/status').then(function(r){ return r.json(); }).then(function(j){
+    if(!j.ok){ pcSet('pc_err', j.error || '读取失败'); return; }
+    pcSet('pc_total',   j.local_total);
+    pcSet('pc_done',    j.uploaded);
+    pcSet('pc_pending', j.pending);
+    pcSet('pc_exp',     (j.expire_in_days == null ? '—' : (j.expire_in_days + ' 天')));
+    if(!j.cos_ok) pcSet('pc_err', 'COS 未配置：' + (j.cos_err || ''));
+  }).catch(function(e){ pcSet('pc_err', '读取失败：' + e); });
+}
+function pcRange(){
+  return { date_from: (document.getElementById('pc_from')||{}).value || '',
+           date_to:   (document.getElementById('pc_to')||{}).value   || '',
+           only_not_uploaded: !!(document.getElementById('pc_onlynew')||{}).checked };
+}
+function pcQuick(k){
+  var f = document.getElementById('pc_from'), t = document.getElementById('pc_to');
+  var d = new Date();
+  if(k === 'today'){ f.value = pcIso(d); t.value = pcIso(d); }
+  else if(k === '7d'  || k === '30d'){
+    var n = new Date(d.getTime() - (k === '7d' ? 6 : 29) * 86400000);
+    f.value = pcIso(n); t.value = pcIso(d);
+  } else if(k === 'all'){
+    f.value = ''; t.value = ''; document.getElementById('pc_onlynew').checked = true;
+  }
+  pcPreview();
+}
+function pcPreview(){
+  fetch('/api/pdf_cloud/preview', { method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify(pcRange()) })
+    .then(function(r){ return r.json(); }).then(function(j){
+      pcSet('pc_preview', j.ok ? ('命中 ' + j.count + ' 份，待传 ' + j.not_uploaded + ' 份')
+                               : ('预览失败：' + (j.error || '')));
+    });
+}
+var pcTimer = null;
+function pcUpload(){
+  document.getElementById('pc_prog').style.display = 'block';
+  pcSet('pc_prog_txt', '正在启动…');
+  fetch('/api/pdf_cloud/upload', { method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify(pcRange()) })
+    .then(function(r){ return r.json(); }).then(function(j){
+      if(!j.ok){ pcSet('pc_prog_txt', '启动失败：' + (j.error || '')); return; }
+      if(pcTimer) clearInterval(pcTimer);
+      pcTimer = setInterval(function(){ pcPoll(j.task_id); }, 1000);
+    });
+}
+function pcPoll(tid){
+  fetch('/api/pdf_cloud/upload/status?task_id=' + encodeURIComponent(tid))
+    .then(function(r){ return r.json(); }).then(function(j){
+      var t = j.task || {};
+      var done = t.done || 0, total = t.total || 1;
+      var bar = document.getElementById('pc_bar');
+      if(bar) bar.style.width = Math.round(done / total * 100) + '%';
+      pcSet('pc_prog_txt', '进度 ' + done + '/' + total + '（成功 ' + (t.ok||0) + ' / 失败 ' + (t.fail||0) + '）'
+            + (t.current ? (' · 当前 ' + t.current) : ''));
+      if(t.state === 'done' || t.state === 'error'){
+        clearInterval(pcTimer); pcTimer = null;
+        var extra = t.pushed ? (' · 回推线上：' + (t.pushed.ok ? ('成功 ' + t.pushed.sent + ' 条') : '失败')) : '';
+        pcSet('pc_prog_txt', '完成：成功 ' + (t.ok||0) + ' / 失败 ' + (t.fail||0) + extra);
+        pcLoad();
+      }
+    });
+}
+function pcResign(){
+  document.getElementById('pc_prog').style.display = 'block';
+  pcSet('pc_prog_txt', '正在重签（续期）…');
+  fetch('/api/pdf_cloud/resign', { method:'POST' })
+    .then(function(r){ return r.json(); }).then(function(j){
+      pcSet('pc_prog_txt', j.ok ? ('重签 ' + j.resigned + ' 条（共 ' + j.checked + ' 条在册）')
+                                : ('重签失败：' + (j.msg || j.error || '')));
+      pcLoad();
+    });
+}
+pcLoad();
 </script>
 {% endblock %}
