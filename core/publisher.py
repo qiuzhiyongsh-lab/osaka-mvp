@@ -590,14 +590,15 @@ class PublishLoop:
             except Exception as e:                                # noqa: BLE001
                 self.last_error = "%s: %s" % (type(e).__name__, e)
                 self._log("☁ 上传定时器异常：" + self.last_error)
-            # v1.9.28：同一个心跳顺手做一次**账号种子兜底推送**（非强制）。
-            #   平时管理员一改账号就即时推了，这里只为兜两种意外：
-            #   ① 那次即时推送恰好网络失败；② 线上容器被重建，库回落成发布包里的旧种子。
-            #   内容指纹与上次一致时 push_seed 内部**直接返回、零网络请求**，所以挂着不花钱。
+            # v1.9.56：同一个心跳做一次**账号双向同步**（先拉回流、再推种子）。
+            #   原实现只 push → 线上「员工自设的密码」永远回流不回本地，seed 长期停在
+            #   cleared=0，每次发版重建容器就把密码打回随机码（员工反复报「密码错误」）。
+            #   现在 sync_now 会 ① pull 回流（adopted 非空时自动重写并镜像种子）
+            #   ② push（种子指纹未变则内部直接返回、零请求）。
             #   不传 force_users：保护员工在线上自设的密码不被旧种子回退。
             try:
                 from core import account_sync as _accsync         # noqa: PLC0415（避免循环导入）
-                _accsync.push_seed(self.cfg, log=self._log, timeout=8)
+                _accsync.sync_now(self.cfg, log=self._log, timeout=8)
             except Exception as e:                                # noqa: BLE001
-                self._log("☁ 账号种子兜底推送异常（不影响上传）：%s: %s" % (type(e).__name__, e))
+                self._log("☁ 账号双向同步异常（不影响上传）：%s: %s" % (type(e).__name__, e))
         self._log("☁ 上传定时器线程已退出")

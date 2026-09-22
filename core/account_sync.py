@@ -49,6 +49,30 @@ def seed_path(cfg: dict) -> pathlib.Path:
     return pathlib.Path(str(cfgmod.paths(cfg)["root"])) / "accounts.seed.json"
 
 
+def _publish_seed_path(cfg: dict) -> pathlib.Path | None:
+    """发布工程的种子路径（osaka-house-publish 与 osaka-mvp 是兄弟目录）；不存在返回 None。"""
+    try:
+        root = pathlib.Path(str(cfgmod.paths(cfg)["root"]))      # …/<work>/osaka-mvp/data
+        pub = root.parent.parent / "osaka-house-publish" / "app_local" / "data"
+        return (pub / "accounts.seed.json") if pub.is_dir() else None
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
+def _mirror_seed(cfg: dict) -> None:
+    """导出种子到本地 data/，并**镜像到发布工程**（v1.9.56）。
+
+    ⚠ 为什么必须镜像：发版打包/线上灌库用的是 `osaka-house-publish/app_local/data/
+    accounts.seed.json`。若回流只写本地种子而漏了发布工程那一份，发版时就会拿**旧的**
+    （cleared=0）种子去重建线上容器 → 员工自设的密码被打回随机码 → 报「密码错误」。
+    这正是 2026-09-22 多人登录故障的关键一环（本地 seed 已 cleared=1、发布工程仍 cleared=0）。
+    """
+    acc_mod.export_seed(str(seed_path(cfg)))
+    pub = _publish_seed_path(cfg)
+    if pub is not None:
+        acc_mod.export_seed(str(pub))
+
+
 def _post(url: str, token: str, payload: dict, timeout: int = 10) -> dict:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
@@ -168,7 +192,7 @@ def pull_and_adopt(cfg: dict, log=None, timeout: int = 10) -> dict:
     rep = acc_mod.adopt_remote(remote, acc_mod.sync_state().get("last_push_at"))
     if rep.get("adopted"):
         try:
-            acc_mod.export_seed(str(seed_path(cfg)))          # 回流后立刻重写种子（发布包也跟上）
+            _mirror_seed(cfg)          # 回流后立刻重写本地种子 + 镜像发布工程（v1.9.56）
         except Exception as e:                               # noqa: BLE001
             say("⚠ 回流后重写种子失败：" + str(e))
         say("☁ 线上自设密码已回流本地：%s（/staff 状态随之变为「正常」）" % ",".join(rep["adopted"]))
@@ -183,9 +207,16 @@ def pull_and_adopt(cfg: dict, log=None, timeout: int = 10) -> dict:
 # 一把梭：推 + 拉（/staff「立即同步」按钮、本地启动时各调一次）
 # ---------------------------------------------------------------------------
 def sync_now(cfg: dict, log=None, force_users=None, timeout: int = 10) -> dict:
+    """一把梭：**先拉后推**（v1.9.56 修正顺序）。
+
+    原实现是「先推后拉」，于是本轮 adopt 到的「员工在线上自设的密码」要等**下一轮**
+    才会进种子 / 上云 —— 中间这段时间若发版（容器重建），新密码就白白丢了。
+    改成先 pull（回流本地 + 重写并镜像种子）再 push（把含回流结果的最新种子推上线），
+    一次调用即闭环。force_users 语义不变（只影响 push 的定向强制覆盖）。
+    """
     say = log or (lambda *_a, **_k: None)
-    up = push_seed(cfg, log=say, force_users=force_users, timeout=timeout)
     down = pull_and_adopt(cfg, log=say, timeout=timeout)
+    up = push_seed(cfg, log=say, force_users=force_users, timeout=timeout)
     return {"ok": bool(up.get("ok")) and bool(down.get("ok")),
             "push": up, "pull": down}
 

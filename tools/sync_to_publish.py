@@ -267,6 +267,23 @@ def main() -> int:
         (TARGET / "config.yaml").write_text(
             yaml.safe_dump(safe, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
+    # ── ③a 发版前账号回流（v1.9.56 · 2026-09-22 多人登录故障的根治点）──
+    #   线上 ≥ v1.9.28 时员工可在线上自设密码，但若从未回流/漏镜像，本包就带**旧种子**
+    #   （cleared=0）。线上容器每次重建（每次发版都重建）都按本包种子灌库
+    #   → 员工自设的密码被打回随机码 → 报「密码错误」（这就是 09-22 反复发生的闭环）。
+    #   发版前先 pull 一次：把线上自设密码救回本地，并重写+镜像种子，随后 ③b 打包即为最新。
+    #   尽力而为：网络不通只警告，绝不阻塞发版。
+    try:
+        if str(MVP) not in sys.path:
+            sys.path.insert(0, str(MVP))
+        from core import account_sync as _accsync          # noqa: PLC0415
+        _rr = _accsync.pull_and_adopt(cfg, log=lambda m: print("     " + m))
+        _ad = list((_rr or {}).get("adopted") or [])
+        print("③a 账号回流：%s" % (("已采纳线上自设密码 → " + ",".join(_ad)) if _ad else "无变化"))
+    except Exception as _e:                                # noqa: BLE001
+        print("③a 账号回流跳过（%s: %s）—— ⚠ 若线上有人自设过密码，本包可能带旧种子"
+              % (type(_e).__name__, _e))
+
     # ── ③b 账户种子（PRD-19 §17 · 线下建号 → 同步上云）──
     # 例外说明：本脚本从不整体上传 data/，但账户种子是**唯一特例** —— 它只含 pbkdf2
     # 哈希、不含任何明文口令；线上要靠它拿到初始账户，否则无账可登。

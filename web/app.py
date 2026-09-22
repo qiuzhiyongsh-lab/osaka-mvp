@@ -210,12 +210,22 @@ AUTH_ENABLED = bool((CFG.get("accounts") or {}).get("auth_enabled"))
 #     ① 读 data/accounts.seed.json（只含 pbkdf2 哈希）→ UPSERT 进 accounts 表
 #     ② 鉴权已开但账户表仍无可用账户 → **自动降级开放态**，绝不把自己锁在门外
 # ============================================================
-try:
-    _seed_stat = acc_mod.import_seed_file(str(PATHS["root"] / "accounts.seed.json"),
-                                          actor="system(seed)")
-except Exception as _e:                      # 种子缺失/损坏绝不能让站点起不来
+# v1.9.56（2026-09-22 登录故障根因）：**仅线上站**才从种子播种。
+#   本地主库（osaka-mvp/data/jproperty.db）才是账号的权威来源，种子本就是它导出的
+#   —— "导回本地"是同值自我覆盖，看似无害，却会把每一行的 updated_at 刷成 now。
+#   而 core/accounts.adopt_remote() 的回流水位判断正是 local.updated_at < last_push_at：
+#   一旦被刷新，线上自设的密码就**永远回流不到本地** → seed 里永远是 cleared=0
+#   → 每次发版重建容器都被灌回随机码 → 员工反复报「密码错误」。
+#   故本地（非 PUBLIC）直接跳过，只有线上容器启动时才需要它。
+if os.environ.get("OSAKA_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        _seed_stat = acc_mod.import_seed_file(str(PATHS["root"] / "accounts.seed.json"),
+                                              actor="system(seed)")
+    except Exception as _e:                  # 种子缺失/损坏绝不能让站点起不来
+        _seed_stat = None
+        print(f"[PRD-19] 账户种子导入失败（已忽略，站点继续启动）：{_e}", flush=True)
+else:
     _seed_stat = None
-    print(f"[PRD-19] 账户种子导入失败（已忽略，站点继续启动）：{_e}", flush=True)
 if _seed_stat:
     print(f"[PRD-19] 账户种子：新建 {_seed_stat['inserted']} / 更新 {_seed_stat['updated']} "
           f"（改码 {_seed_stat['pwd_reset']} · 保留已改密码 {_seed_stat['pwd_kept']}）", flush=True)

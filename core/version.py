@@ -7,8 +7,26 @@
 """
 from __future__ import annotations
 
-VERSION = "1.9.55"
-BUILD_AT = "2026-09-22 10:50"
+VERSION = "1.9.56"
+BUILD_AT = "2026-09-22 15:00"
+# ============================================================================
+# v1.9.56（2026-09-22 15:00 · 🔴修复「多人反复登录不上/提示密码错误」根因链）：
+#   现象：员工在线上登不进，提示「密码错误」；昨天、今天反复出现，且是多人。
+#   根因（5WHY 落到第 4-5 层）：
+#     ① 线上→本地回流（pull_and_adopt）**从不自动跑** —— publisher 每 10 分钟兜底只 push 不 pull。
+#     ② sync_now 是「先推后拉」→ 本轮 adopt 结果要等下一轮才进种子/上云。
+#     ③ web/app.py 模块级 import_seed_file 在**本地**也执行 → 把每行 updated_at 刷成 now
+#        → adopt_remote 的「local.updated_at < last_push_at」守卫被污染 → 回流永远 skip。
+#     ④ pull 回流后的 export_seed **只写本地种子、没镜像发布工程**
+#        → 发版打包的是旧种子（cleared=0）→ 线上容器重建即把员工自设密码打回随机码。
+#     叠加：这两天发版频繁（v1.9.52→55），每次发版=一次「账号回落」→ 形成闭环。
+#   修法：
+#     · web/app.py：种子导入**仅在 PUBLIC（线上）**执行；本地主库是权威源，不再自我覆盖。
+#     · core/account_sync.py：sync_now 改「先拉后推」；新增 _mirror_seed()（本地+发布工程双写），
+#       pull_and_adopt 回流后改调它。
+#     · core/publisher.py：每 10 分钟兜底由 push_seed 改 sync_now（双向）。
+#     · tools/sync_to_publish.py：新增 ③a 步骤 —— **发版前先 pull 一次**再打包种子。
+#   现场止血：本地已回流 Hayden 自设密码（cleared 0→1）并 push 固化；发布工程种子已重镜像。
 # ============================================================================
 # v1.9.55（2026-09-22 10:50 · 🔌AI 解读暂时改走「线下」（勇哥 2026-09-22）：把 local_extract.fallback_model 当云端兜底总闸 —— 关闭时详情页「重新生成」无论本地是否抽满都只落本地结果并直接返回（不再弹「是否走云端」、不再报「没配 API Key」400 红框），force_cloud/allow_cloud 一律忽略；夜间自动生成/批量同样不调云端。设置页「AI 读取范围」卡片新增「允许云端 AI 兜底」开关（默认关，随时可切回云端）。改动文件：config.yaml（fallback_model: true→false）、web/app.py（/api/ai/<no>/run 走线下分支 + /api/ai/settings 收 cloud_fallback）、web/templates/collect.html（开关+回显+保存）、web/templates/detail.html（partial 提示）、web/static/i18n.js（detail.ai_interpret_local_partial 四语）、core/version.py）
 # ============================================================================
