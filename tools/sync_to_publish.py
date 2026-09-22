@@ -69,7 +69,9 @@ SECRET_KEY_PARTS = ("password", "passwd", "secret", "token", "cookie", "cred",
 #   它是 32 位随机数（每次重装可再生成），不是 REINS 账号密码。
 KEEP_KEYS = {"ingest_token"}
 SKIP_DIRS = {"__pycache__", ".git", ".backups", "_e2e_tmp", "probe", "backups"}
-PDF_KEYS = {"pdf_path", "pdf_url", "pdf_local", "pdf_rel", "pdf"}
+# v1.9.60：pdf_url 已**移出**本集合 —— 线上 PDF 展示需要它（值 = COS 私有读桶的
+#   预签名直链，不含本机路径）。本机路径类键（pdf_path/pdf_local/pdf_rel/pdf）仍严禁外传。
+PDF_KEYS = {"pdf_path", "pdf_local", "pdf_rel", "pdf"}
 
 
 def _sanitize(obj, path=""):

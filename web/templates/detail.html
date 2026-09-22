@@ -55,9 +55,11 @@
     {% endif %}
   </div>
   <div class="row" style="margin-top:10px">
-    {% if row.pdf_path %}
-    <a class="btn" href="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
-       target="_blank" data-i18n="detail.openpdf">打开本地 PDF</a>
+    {% set _pdf_url_b = (row['pdf_url'] if 'pdf_url' in row.keys() else None) %}
+    {% set _pdf_link_b = _pdf_url_b or (url_for('download', dir='attachments', name=row.property_no + '.pdf') if row.pdf_path else '') %}
+    {% if _pdf_link_b %}
+    <a class="btn" href="{{ _pdf_link_b }}"
+       target="_blank" data-i18n="detail.openpdf">打开 PDF</a>
     {% else %}<span class="muted">这条没有抓 PDF。</span>{% endif %}
     {% if row.property_no %}
     <!-- v1.7.4 R2（PRD 11 §5.3-2a）：按钮**在物件番号之后**。
@@ -115,13 +117,18 @@
    ① 宽度 = 网页内容宽度（100%）  ② 高度随窗口自适应（78vh，内部可滚动翻页）
    ③ 位置 = 详细信息**下方** / AI 解读**上方**（R-UI-1 顺序：详细信息 → 房源図面 PDF → AI 解读 → 变更历史）
    实现：浏览器内置 PDF 查看器（iframe，零依赖），可翻页 / 缩放 / 打印。
-   ⚠ PDF 只存在本机，线上站不传 PDF，所以这块线上不会出现。 #}
-{% if row.pdf_path %}
+   ⚠ v1.9.60 起：**两个通道** —— 线上跑 COS 私有读桶 + 本地预签名直链（row.pdf_url），
+   本地 8765 仍走 /download 路由（row.pdf_path）。线上用 row.keys() 判存在，
+   避免 sqlite3.Row 对未取到的列抛 IndexError。 #}
+{% set _pdf_url = (row['pdf_url'] if 'pdf_url' in row.keys() else None) %}
+{% set _pdf_link = _pdf_url or (url_for('download', dir='attachments', name=row.property_no + '.pdf') if row.pdf_path else '') %}
+{% if _pdf_link %}
 <div class="card sec" id="pdfCard">
   <h2><span data-i18n="detail.pdf_h">房源図面 PDF</span>
-    <span class="hint" data-i18n="detail.pdf_hint">本机 PDF 原件（不会上传到线上）</span></h2>
+    {% if _pdf_url %}<span class="hint">云端 PDF 原件（COS 直链，7 天有效）</span>
+    {% else %}<span class="hint" data-i18n="detail.pdf_hint">本机 PDF 原件（不会上传到线上）</span>{% endif %}</h2>
   <iframe class="pdf-frame"
-          src="{{ url_for('download', dir='attachments', name=row.property_no + '.pdf') }}"
+          src="{{ _pdf_link }}"
           title="物件図面 PDF"></iframe>
 </div>
 {% endif %}
@@ -187,7 +194,7 @@ var CUR_NAME  = {{ (row.building_name or '')|tojson }};
 var CUR_WARD  = {{ (row.ward or '')|tojson }};
 var CUR_AREA  = {{ _area|tojson }};
 var CUR_PRICE = {{ (row.price or 0)|int }};
-var CUR_PDF   = {{ 'true' if row.pdf_path else 'false' }};
+var CUR_PDF   = {{ 'true' if (row.pdf_path or (row['pdf_url'] if 'pdf_url' in row.keys() else None)) else 'false' }};
 
 function refreshCmp(){
   var n  = CompareBox.count();

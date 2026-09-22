@@ -69,10 +69,15 @@ FIELD_MAP = [
     ("has_floorplan", "has_floorplan"),
     ("has_map", "has_map"),
     ("detail_json", "detail_json"),
+    # v1.9.60：放行 pdf_url（值 = COS 预签名直链，7 天有效）——线上 PDF 展示需要它。
+    #   ⚠ 只放 pdf_url；pdf_path（本机绝对/相对路径）仍永不外传（见下方 NEVER_UPLOAD）。
+    ("pdf_url", "pdf_url"),
 ]
 
-# 明确**不传**的列：PDF（勇哥：不需要 PDF）、以及本机专用的下架计数
-NEVER_UPLOAD = {"pdf_path", "pdf_url", "absent_runs"}
+# 明确**不传**的列：本机 PDF 路径（勇哥口径：路径不出门），以及本机专用的下架计数。
+#   v1.9.60：pdf_url 已移出本集合（线上 PDF 展示依赖它；指向 COS 私有读桶的预签名直链，
+#   不含任何本机路径信息，不违反「路径不出门」）。
+NEVER_UPLOAD = {"pdf_path", "absent_runs"}
 
 BATCH = 200
 
