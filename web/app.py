@@ -271,6 +271,10 @@ PUBLIC_HIDDEN_APIS = (
     # v1.9.61：PDF 上云（COS）是**本机专属**能力 —— 线上没有 COS 密钥、也没有
     #   data/attachments 目录，且这些接口会触发真实上传动作 → 对外站一律 403。
     "/api/pdf_cloud",
+    # ⚠🚨 严禁把 `/api/emp/**` 加进来（v1.9.69 · β 拓扑铁律）：
+    #   勇哥 2026-09-23 拍板「员工主 workspace = 线上站」→ 收藏/标签/客户的**写接口
+    #   必须在线上可用**。一旦误加，线上全部 403，整个客户管理模块直接废掉。
+    #   （本列表只收"只有本机才有意义"的能力：采集/凭据/本机文件/COS 密钥等。）
 )
 
 
@@ -323,6 +327,14 @@ def _access_guard():
     #   豁免理由与 /api/ingest 完全一致：本地 worker 没有也不该有浏览器会话；
     #   没带对令牌时接口自己就 401，等于多一层锁；且这里**不放开任何页面**。
     if path in ("/api/ai/relay/claim", "/api/ai/relay/result"):
+        return None
+    # v1.9.69：员工业务数据回流（线上 → 本地 8765）同样是机器对机器通道，
+    #   凭 X-Publish-Token 校验（_relay_token_ok，与 /api/ingest 同款）。
+    #   ⚠ **只豁免 export 这一个只读导出端点**；/api/emp 下的员工端写接口
+    #      （fav / tags / customers）**一律不豁免**，必须登录态 ——
+    #      否则等于任何人都能改别人的收藏和客户（直接击穿 W6 隔离）。
+    #   见 web/employee_api.py 顶部「隔离契约」。
+    if path == "/api/emp/export":
         return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
@@ -3417,6 +3429,20 @@ try:
            _emp_info["tables_created"] or "无", _emp_info["columns_added"] or "无"))
 except Exception as _e:                                            # noqa: BLE001
     log("[员工库] 建表自检失败（不阻断启动）：%s: %s" % (type(_e).__name__, _e))
+
+
+# ------------------------------------------------------------------
+# v1.9.69（PRD v2.0.1 §14 步骤 0「接口隔离设计」）
+# 挂载员工业务 API：/api/emp/{fav,tags,customers}/*（员工端·登录守卫）
+#                 + /api/emp/export（机器端·X-Publish-Token）。
+# ⚠ 同样挂在**模块导入**：线上/本地两侧都要有这些路由。
+# ⚠ 这些前缀**绝不可**加进 PUBLIC_HIDDEN_APIS —— β 拓扑下线上就是员工主 workspace。
+# ------------------------------------------------------------------
+try:
+    from web import employee_api as _emp_api
+    _emp_api.register(app)
+except Exception as _e:                                            # noqa: BLE001
+    log("[员工API] 挂载失败（不阻断启动）：%s: %s" % (type(_e).__name__, _e))
 
 
 if __name__ == "__main__":

@@ -115,9 +115,23 @@ INDEXES: list[tuple[str, str]] = [
 
 # ---- 列增补迁移：{表名: [(列名, 类型)]} ----
 # 老库缺列时补齐；已存在则跳过（幂等，绝不 DROP）。
+#
+# v1.9.69（步骤0 接口隔离）补两类列，都是**同步与软删**的刚需：
+#   ① `updated_at`：增量同步（/api/emp/export?since=）需要统一水位线。
+#      T1/T2/T3/T5 建表时只有 created_at，改标签名/改客户备注这类更新无法被增量捕获
+#      → 统一补 updated_at，写入时与 created_at 同值，更新时刷新。
+#      ⚠ 不加 NOT NULL/DEFAULT：SQLite 的 ALTER ADD COLUMN 带 NOT NULL 必须有 DEFAULT，
+#        历史行会拿到默认值导致水位线错乱；这里让旧行保持 NULL，查询用
+#        `COALESCE(updated_at, created_at)` 兜底（见 employee_api._ts_of）。
+#   ② `deleted` / `deleted_at`（仅 customers）：R-5 缓解措施——客户删除必须**软删**
+#      （CRM 场景"删不掉/删错"都致命），删除只打标记，保留对账轨迹。
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
-    "customers": [("note", "TEXT"), ("phone_norm", "TEXT")],
-    "customer_properties": [("intent", "INTEGER"), ("created_by", "TEXT")],
+    "favorites": [("updated_at", "TEXT")],
+    "tags": [("updated_at", "TEXT")],
+    "property_tags": [("updated_at", "TEXT")],
+    "customer_properties": [("intent", "INTEGER"), ("created_by", "TEXT"), ("updated_at", "TEXT")],
+    "customers": [("note", "TEXT"), ("phone_norm", "TEXT"), ("updated_at", "TEXT"),
+                  ("deleted", "INTEGER NOT NULL DEFAULT 0"), ("deleted_at", "TEXT")],
 }
 
 

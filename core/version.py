@@ -9,8 +9,24 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.68"
-BUILD_AT = "2026-09-24 00:06"
+VERSION = "1.9.69"
+BUILD_AT = "2026-09-24 00:40"
+# ============================================================================
+# v1.9.69（2026-09-24 00:40 · 收藏/标签/客户管理 v2.0.1 步骤 0「接口隔离设计」）：
+#   · 新增 web/employee_api.py —— 员工业务 API，路由前缀统一 `/api/emp/`，
+#     与 /api/ingest（财产数据写通道）**彻底分离**（R-1）。
+#   · 两条隔离铁律，代码与注释双重固化：
+#     ① 🚨 **绝不**把 /api/emp/** 加进 PUBLIC_HIDDEN_APIS —— β 拓扑下线上就是员工
+#        主 workspace，加了就全线 403、模块报废（已在 app.py 该列表内写警示注释）。
+#     ② 两类端点两套鉴权：员工端（fav/tags/customers）走 _access_guard 登录守卫；
+#        机器端仅 `/api/emp/export` 在守卫里豁免 + 接口内 _relay_token_ok() 校验
+#        X-Publish-Token（R-6：不隔离 = 全员收藏/客户裸奔公网）。
+#   · W6 落地：写接口一律校验 owner == 当前登录用户名，**管理员也不可改他人客户**；
+#     管理员可 ?scope=all 只读查看；「转移归属」属管理动作，单独授权给 admin + T6 留痕。
+#   · R-5 缓解：客户删除改**软删**（deleted/deleted_at），保留对账轨迹。
+#   · 表结构补列（幂等迁移，绝不 DROP）：T1/T2/T3/T5 补 updated_at —— 增量导出需要
+#     统一水位线；老行 NULL 由 COALESCE(updated_at, created_at) 兜底。
+#   · 未做 UI（属后续步骤），本步只有后端接口 + 隔离。
 # ============================================================================
 # v1.9.68（2026-09-24 00:06 · 收藏/标签/客户管理 v2.0.1 · β 线上优先 研发启动）：
 #   · 步骤 1：新增 core/employee_schema.py —— 员工业务库 data/employee.db 的 T1–T6
