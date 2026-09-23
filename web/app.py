@@ -18,8 +18,9 @@ import json
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+import sqlite3
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
@@ -34,7 +35,8 @@ from core.auth import Auth, friendly_error            # noqa: E402
 from core.crawler import probe_query, reins_bukken_search   # noqa: E402
 from core import store as store_mod                   # noqa: E402
 from core.scheduler import Scheduler                  # noqa: E402
-from core.publisher import PublishLoop                 # noqa: E402
+from core.publisher import PublishLoop
+from core import publisher as publisher_mod               # noqa: E402  (v1.9.63 AI 接力回推)                 # noqa: E402
 from core.store import Store                          # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
@@ -315,6 +317,12 @@ def _access_guard():
     #   豁免理由与 /api/ingest 完全一致：上传器没有、也不该有浏览器账户会话；
     #   没带对令牌时接口自己就 401，等于多一层锁；且这里**不放开任何页面**。
     if path in ("/api/accounts/seed-sync", "/api/accounts/state"):
+        return None
+    # v1.9.63：AI 接力同样是**机器对机器**通道（本地 8765 → 线上领任务 / 回写结果），
+    #   凭 X-Publish-Token 校验（_relay_token_ok，与 /api/ingest 同款）。
+    #   豁免理由与 /api/ingest 完全一致：本地 worker 没有也不该有浏览器会话；
+    #   没带对令牌时接口自己就 401，等于多一层锁；且这里**不放开任何页面**。
+    if path in ("/api/ai/relay/claim", "/api/ai/relay/result"):
         return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
@@ -1266,6 +1274,279 @@ def api_ai_generate():
 def api_ai_generate_status():
     """轮询手动「正式生成」进度。"""
     return jsonify({"ok": True, "job": AI_GEN_JOB})
+
+
+# ============================================================
+# v1.9.63：AI 解读「线上点击 → 本地代跑 → 回推」接力（勇哥 2026-09-23 需求）
+#   线上详情页点「重新生成」不再 403，而是把任务派发回本地 8765（本地才有
+#   PDF 附件 + 抽取模型），本地跑完回推线上，当次可见。目标 5–10 秒。
+#   任务表放在**主库**（线上同库）：ai_relay_tasks，生命周期由 _relay_sweep 清理。
+# ============================================================
+_RELAY_PENDING_TTL_MIN = 30     # pending 超过 30 分钟没人领 → 判失败（本地不在线）
+_RELAY_RUNNING_TTL_MIN = 10     # running 超过 10 分钟 → 判失败（抽取卡死/进程被杀）
+_RELAY_DONE_TTL_H = 24          # 终态任务保留 24h 后清理，防表膨胀
+
+_AI_RELAY_COLS = ["property_no", "structure_json", "radar_json", "conclusion",
+                  "anomaly_json", "overall", "edited", "source_file", "source_row",
+                  "extracted_at", "created_at", "updated_at"]
+
+
+def _relay_ensure_table() -> None:
+    STORE.conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_relay_tasks ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " property_no TEXT NOT NULL,"
+        " status TEXT NOT NULL DEFAULT 'pending',"   # pending/running/done/fail
+        " requested_by TEXT,"
+        " fields INTEGER,"
+        " error TEXT,"
+        " created_at TEXT NOT NULL,"
+        " picked_at TEXT,"
+        " finished_at TEXT)")
+    STORE.conn.commit()
+
+
+def _relay_token_ok() -> bool:
+    """与 /api/ingest 同款令牌校验（publish.ingest_token vs X-Publish-Token）。"""
+    want = str(((CFG.get("publish") or {}).get("ingest_token") or "")).strip()
+    got = str(request.headers.get("X-Publish-Token") or "").strip()
+    return bool(want) and got == want
+
+
+def _relay_sweep() -> None:
+    """过期任务清理：pending/running 超时判失败；终态超 24h 删除（防膨胀）。"""
+    now = datetime.now()
+    c = STORE.conn
+    pend_cut = (now - timedelta(minutes=_RELAY_PENDING_TTL_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+    run_cut = (now - timedelta(minutes=_RELAY_RUNNING_TTL_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+    done_cut = (now - timedelta(hours=_RELAY_DONE_TTL_H)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("UPDATE ai_relay_tasks SET status='fail',"
+              " error='本地服务未领取任务（超 30 分钟，可能本地 8765 未启动）', finished_at=?"
+              " WHERE status='pending' AND created_at < ?", (now.strftime("%Y-%m-%d %H:%M:%S"), pend_cut))
+    c.execute("UPDATE ai_relay_tasks SET status='fail',"
+              " error='本地处理超时（超 10 分钟未回写）', finished_at=?"
+              " WHERE status='running' AND picked_at < ?", (now.strftime("%Y-%m-%d %H:%M:%S"), run_cut))
+    c.execute("DELETE FROM ai_relay_tasks WHERE status IN ('done','fail') AND finished_at < ?",
+              (done_cut,))
+    c.commit()
+
+
+@app.post("/api/ai/relay/request")
+def api_ai_relay_request():
+    """线上详情页「重新生成」→ 派发任务到本地（登录用户可调）。
+
+    幂等：同房源已有 pending/running 任务时直接复用，不重复排队。
+    """
+    _refresh_cfg()
+    if not PUBLIC:
+        return jsonify({"ok": False, "error": "本机就是执行端，请直接使用「重新生成」"}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    no = str(body.get("property_no") or "").strip()
+    prop = STORE.get_property(no) if no else None
+    if prop is None:
+        return jsonify({"ok": False, "error": f"物件 {no or '?'} 不在线上库"}), 404
+    if not dict(prop).get("pdf_url"):
+        return jsonify({"ok": False, "error": "本房源 PDF 未上云，无法派发本地读取"}), 400
+    _relay_ensure_table()
+    _relay_sweep()
+    me = _current_user() or {}
+    who = str(me.get("username") or me.get("display_name") or "?")
+    row = STORE.conn.execute(
+        "SELECT id FROM ai_relay_tasks WHERE property_no=? AND status IN ('pending','running')"
+        " ORDER BY id DESC LIMIT 1", (no,)).fetchone()
+    if row:
+        return jsonify({"ok": True, "task_id": row["id"], "status": "pending"})
+    cur = STORE.conn.execute(
+        "INSERT INTO ai_relay_tasks(property_no,status,requested_by,created_at)"
+        " VALUES(?,?,?,?)",
+        (no, "pending", who, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    STORE.conn.commit()
+    log(f"☁ [AI接力] {no} 线上派发任务 #{cur.lastrowid}（{who}）")
+    return jsonify({"ok": True, "task_id": cur.lastrowid, "status": "pending"})
+
+
+@app.get("/api/ai/relay/status")
+def api_ai_relay_status():
+    """线上前端轮询任务状态（登录用户可调）。done 后前端 loadAI() 刷新卡片。"""
+    _refresh_cfg()
+    _relay_ensure_table()
+    _relay_sweep()
+    try:
+        task_id = int(request.args.get("task_id") or 0)
+    except ValueError:
+        return jsonify({"ok": False, "error": "task_id 不合法"}), 400
+    row = STORE.conn.execute("SELECT * FROM ai_relay_tasks WHERE id=?",
+                             (task_id,)).fetchone()
+    if row is None:
+        return jsonify({"ok": False, "error": "任务不存在（可能已被清理）"}), 404
+    queue = STORE.conn.execute(
+        "SELECT COUNT(*) c FROM ai_relay_tasks WHERE status='pending' AND id<?",
+        (task_id,)).fetchone()["c"]
+    return jsonify({"ok": True, "status": row["status"], "fields": row["fields"],
+                    "error": row["error"], "queue": queue,
+                    "created_at": row["created_at"], "finished_at": row["finished_at"]})
+
+
+@app.get("/api/ai/relay/claim")
+def api_ai_relay_claim():
+    """本地 worker 领取最老 pending 任务（X-Publish-Token 机器通道）。"""
+    _refresh_cfg()
+    if not _relay_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    _relay_ensure_table()
+    _relay_sweep()
+    row = STORE.conn.execute(
+        "SELECT id, property_no FROM ai_relay_tasks WHERE status='pending'"
+        " ORDER BY id LIMIT 1").fetchone()
+    if row is None:
+        return jsonify({"ok": True, "task": None})
+    cur = STORE.conn.execute(
+        "UPDATE ai_relay_tasks SET status='running', picked_at=? WHERE id=? AND status='pending'",
+        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]))
+    STORE.conn.commit()
+    if cur.rowcount != 1:                      # 被并发抢走 → 下轮再来
+        return jsonify({"ok": True, "task": None})
+    log(f"☁ [AI接力] 本地领取任务 #{row['id']}（{row['property_no']}）")
+    return jsonify({"ok": True, "task": {"id": row["id"],
+                                         "property_no": row["property_no"]}})
+
+
+@app.post("/api/ai/relay/result")
+def api_ai_relay_result():
+    """本地 worker 回写任务结局（X-Publish-Token 机器通道）。
+
+    注意：AI 数据本体走既有 /api/ingest 的 ai_structure 通道（单一职责），
+    这里只负责把任务置 done/fail，让线上前端感知「跑完了」。
+    """
+    _refresh_cfg()
+    if not _relay_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    _relay_ensure_table()
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        task_id = int(body.get("task_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "task_id 不合法"}), 400
+    ok = bool(body.get("ok"))
+    try:
+        fields = int(body.get("fields") or 0)
+    except (TypeError, ValueError):
+        fields = 0
+    err = str(body.get("error") or "")[:500]
+    STORE.conn.execute(
+        "UPDATE ai_relay_tasks SET status=?, fields=?, error=?, finished_at=? WHERE id=?",
+        ("done" if ok else "fail", fields if ok else None, err,
+         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), task_id))
+    STORE.conn.commit()
+    if ok:
+        log(f"☁ [AI接力] 任务 #{task_id} 完成（{fields} 项）")
+    else:
+        log(f"☁ [AI接力] 任务 #{task_id} 失败：{err}")
+    return jsonify({"ok": True})
+
+
+def _start_ai_relay_loop(poll_seconds: int = 2):
+    """v1.9.63：本地常驻「AI 接力」轮询线程（勇哥 2026-09-23 需求）。
+
+    每 2s 向线上领任务（claim）→ 本地抽取（**只走线下**，v1.9.55 总闸，绝不烧钱）
+    → save_fields 落本地 AI 库 → 该行 ai_structure POST /api/ingest（复用既有
+    回推链路，**无需发版**）→ relay/result 置 done。线上没配 publish.endpoint
+    时静默待机（每 60s 重查一次配置，配置热重载后自动生效）。
+    """
+    import time as _t
+    import urllib.request
+    import urllib.error
+
+    def _claim(base: str, token: str):
+        req = urllib.request.Request(base + "/api/ai/relay/claim",
+                                     headers={"X-Publish-Token": token})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+
+    def _post_json(base: str, token: str, path: str, payload: dict):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(base + path, data=body, method="POST",
+                                     headers={"Content-Type": "application/json; charset=utf-8",
+                                              "X-Publish-Token": token})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+
+    def _run_task(task: dict) -> None:
+        tid, no = task["id"], task["property_no"]
+        pub = (CFG.get("publish") or {})
+        base = str(pub.get("endpoint") or "").rstrip("/")
+        token = str(pub.get("token") or pub.get("ingest_token") or "").strip()
+        pdf = PATHS["attachments"] / f"{no}.pdf"
+        if not pdf.exists():
+            _post_json(base, token, "/api/ai/relay/result",
+                       {"task_id": tid, "ok": False,
+                        "error": f"本机没有该房源 PDF（{no}.pdf 未落盘）"})
+            return
+        import importlib
+        ai_pipeline = importlib.import_module("core.ai_pipeline")
+        le = CFG.get("local_extract") or {}
+        cfg = dict(le)
+        cfg["ai"] = CFG.get("ai") or {}
+        cfg["prefer_local"] = True
+        cfg["key_gate"] = True                 # 与本机详情页同款：关键字段缺失即强制 OCR
+        try:
+            t0 = _t.monotonic()
+            # force=True：用户在线上明确点了「重新生成」；allow_cloud=False：守 v1.9.55 线下总闸
+            res = ai_pipeline.run_one(no, PATHS, cfg, AI_STORE,
+                                      force=True, allow_cloud=False, main_store=STORE)
+            if not res.get("ok"):
+                raise RuntimeError(res.get("error") or "本地抽取失败")
+            if not res.get("skipped"):
+                ai_pipeline.save_fields(AI_STORE, no, res)
+            fields = len(res.get("fields") or {})
+            # 结果行回推线上（复用 publisher → /api/ingest ai_structure 通道）
+            con = sqlite3.connect(str(AI_STORE.db_path), timeout=20)
+            con.row_factory = sqlite3.Row
+            row = con.execute(
+                "SELECT %s FROM ai_structure WHERE property_no=?" % ",".join(_AI_RELAY_COLS),
+                (no,)).fetchone()
+            con.close()
+            pushed = False
+            if row is not None:
+                r = publisher_mod.post_ai(CFG, [dict(row)])
+                pushed = bool(r.get("ok"))
+            _post_json(base, token, "/api/ai/relay/result",
+                       {"task_id": tid, "ok": True, "fields": fields})
+            log(f"☁ [AI接力] 任务 #{tid} {no} 完成：{fields} 项，"
+                f"用时 {_t.monotonic()-t0:.1f}s，回推{'成功' if pushed else '失败'}")
+        except Exception as e:                                  # noqa: BLE001
+            try:
+                _post_json(base, token, "/api/ai/relay/result",
+                           {"task_id": tid, "ok": False,
+                            "error": f"{type(e).__name__}: {e}"})
+            except Exception:                                    # noqa: BLE001
+                pass
+            log(f"☁ [AI接力] 任务 #{tid} {no} 失败：{type(e).__name__}: {e}")
+
+    def _loop():
+        _t.sleep(15)                       # 启动后先让开，避免与启动自检抢资源
+        while True:
+            try:
+                pub = (CFG.get("publish") or {})
+                base = str(pub.get("endpoint") or "").strip().rstrip("/")
+                token = str(pub.get("token") or pub.get("ingest_token") or "").strip()
+                if not base or not token:
+                    _t.sleep(60)           # 没配线上地址 → 静默待机
+                    continue
+                r = _claim(base, token)
+                task = r.get("task") if isinstance(r, dict) else None
+                if task:
+                    _run_task(task)
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403):
+                    log(f"☁ [AI接力] 领取任务被拒（HTTP {e.code}，令牌不对？）")
+                _t.sleep(poll_seconds)
+            except Exception:                                        # noqa: BLE001
+                _t.sleep(poll_seconds)     # 网络抖动静默重试，不打爆日志
+            _t.sleep(poll_seconds)
+
+    threading.Thread(target=_loop, daemon=True, name="ai-relay").start()
+    log("[AI接力] 本地轮询线程已启动（每 %ds 向线上领任务）" % poll_seconds)
 
 
 @app.get("/compare")
@@ -3099,6 +3380,8 @@ if __name__ == "__main__":
             AI_SCHED.start()
         # v1.9.61：PDF 预签名自动续期（本地常驻即生效；COS 直链 7 天过期问题的根治手段）
         _start_pdf_resign_loop()
+        # v1.9.63：AI 接力轮询（线上详情页「重新生成」→ 派回本地跑 → 回推线上）
+        _start_ai_relay_loop()
     else:
         log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),

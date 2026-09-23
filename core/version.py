@@ -9,8 +9,30 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.62"
-BUILD_AT = "2026-09-23 06:58"
+VERSION = "1.9.63"
+BUILD_AT = "2026-09-23 09:55"
+# ============================================================================
+# v1.9.63（2026-09-23 09:55 · 🔗 AI 解读「线上点击 → 本地代跑 → 回推」接力链路）：
+#   勇哥 2026-09-23 需求：线上详情页点「重新生成」不再 403 红字，而是把任务**派发回
+#   本地 8765**（本地才有 PDF 附件 + 抽取模型），本地跑完把结果回推线上，当次可见，
+#   目标 5–10 秒（文字层 PDF 实测本地抽取常 <1s，接力预算 ≈4–6s；扫描件 OCR 会更久，
+#   前端全程秒数进度 + 排队提示）。
+#   链路：线上 POST /api/ai/relay/request（登录用户，写 ai_relay_tasks 表）
+#     → 本地 8765 新常驻线程每 2s GET /api/ai/relay/claim（X-Publish-Token 机器通道）
+#     → ai_pipeline.run_one(force=True, allow_cloud=False)（守 v1.9.55 线下总闸，绝不烧钱）
+#     → save_fields 落本地 AI 库 → 该行 ai_structure POST /api/ingest（复用既有回推链）
+#     → POST /api/ai/relay/result 置 done → 线上前端轮询 /status 感知后 loadAI() 刷新卡片。
+#   安全：claim/result 走 /api/ingest 同款令牌自校验（_access_guard 豁免同款理由）；
+#     request/status 默认要登录；任务表幂等（同房源 pending 直接复用）；running>10min
+#     或 pending>30min 自动判失败；done 任务留 24h 后清理。
+#   影响文件：web/app.py（relay 端点 + 本地 worker）、web/templates/detail.html
+#     （IS_PUBLIC 分支轮询）、web/static/i18n.js（4 语新增 relay 文案）。
+# ============================================================================
+# v1.9.62（2026-09-23 06:58 · 🔴修复「批量上传 3636 份 PDF 回推成功、线上却不显示」）：
+#   根因：pdf_url 放行三处只改了 sync_to_publish.py / core/publisher.py，漏改第③处
+#   web/app.py NEVER_UPLOAD_KEYS（线上 /api/ingest 收数过滤）→ 发版灌库能显示，
+#   但增量回推被静默丢弃（HTTP 200 但字段没了）。补：①移出 pdf_url ②上传/回推
+#   过程写 server.log ③设置页「重新回推线上」一键 POST /api/pdf_cloud/repush。
 # ============================================================================
 # v1.9.57（2026-09-22 15:55 · 🛡️发版稳健性加固：tools/sync_to_publish.py ③a「发版前账号回流」改为失败即中止）：
 #   根因：原 ③a「尽力而为：网络不通只警告，绝不阻塞发版」注释与 PRD §7 铁律（「若③a报跳过必须先排查再发」）直接矛盾。

@@ -195,6 +195,7 @@ var CUR_WARD  = {{ (row.ward or '')|tojson }};
 var CUR_AREA  = {{ _area|tojson }};
 var CUR_PRICE = {{ (row.price or 0)|int }};
 var CUR_PDF   = {{ 'true' if (row.pdf_path or (row['pdf_url'] if 'pdf_url' in row.keys() else None)) else 'false' }};
+var IS_PUBLIC = {{ 'true' if public else 'false' }};  {# v1.9.63：线上站 AI 生成走「本地接力」 #}
 
 function refreshCmp(){
   var n  = CompareBox.count();
@@ -501,6 +502,9 @@ function aiMsg(el, msg, bad){
   el.className = bad ? 'muted ai-warn' : 'muted';
 }
 function runAI(opts){
+  /* v1.9.63：线上站 → 走「本地接力」（派发回本地 8765 代跑，回推后刷新）；
+     本机 → 原地直跑。两个入口共用 aiRunning 互斥与按钮/提示状态。 */
+  if(IS_PUBLIC){ runAIRelay(); return; }
   opts = opts || {};
   if(aiRunning) return;
   var meta = document.getElementById('aiMeta');
@@ -560,6 +564,77 @@ function runAI(opts){
     aiRunning = false; aiStopWait();
     aiSetBtn(t('detail.ai_interpret_regen'), false);
     aiMsg(meta, t('detail.ai_interpret_fail'), true);
+  });
+}
+/* v1.9.63（勇哥 2026-09-23）：线上站「重新生成」→ 派发回本地 8765 代跑。
+   链路：POST /api/ai/relay/request → 每 2s 轮询 /api/ai/relay/status
+   → done（本地已回推 ai_structure）→ loadAI() 刷新卡片。目标 5–10 秒；
+   扫描件 OCR 会更久，全程秒数进度 + 排队提示，绝不静默。 */
+function runAIRelay(){
+  if(aiRunning) return;
+  var meta = document.getElementById('aiMeta');
+  aiRunning = true;
+  aiSetBtn(t('detail.ai_interpret_regen_running'), true);
+  var sec = 0, last = null;
+  aiMsg(meta, tf('detail.ai_relay_dispatch', {n: sec}), false);
+  var timer = setInterval(function(){
+    sec++;
+    if(last && last.status === 'pending' && last.queue > 0){
+      aiMsg(meta, tf('detail.ai_relay_queue', {n: last.queue, s: sec}), false);
+    }else if(sec > 30 && last && last.status === 'pending'){
+      aiMsg(meta, tf('detail.ai_relay_offline', {n: sec}), true);
+    }else{
+      aiMsg(meta, tf('detail.ai_relay_dispatch', {n: sec}), false);
+    }
+  }, 1000);
+  function stop(){ if(timer){ clearInterval(timer); timer = null; } }
+  function poll(){
+    fetch('/api/ai/relay/status?task_id=' + encodeURIComponent(taskId))
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if(!(j && j.ok)){ throw new Error((j && j.error) || 'status'); }
+        last = j;
+        if(j.status === 'done'){
+          stop();
+          aiRunning = false;
+          aiSetBtn(t('detail.ai_interpret_regen'), false);
+          aiMsg(meta, tf('detail.ai_relay_done', {n: j.fields || 0, s: sec}), false);
+          loadAI();
+          return;
+        }
+        if(j.status === 'fail'){
+          stop();
+          aiRunning = false;
+          aiSetBtn(t('detail.ai_interpret_regen'), false);
+          aiMsg(meta, tf('detail.ai_relay_fail', {err: j.error || t('detail.ai_interpret_fail')}), true);
+          return;
+        }
+        setTimeout(poll, 2000);
+      })
+      .catch(function(){
+        stop();
+        aiRunning = false;
+        aiSetBtn(t('detail.ai_interpret_regen'), false);
+        aiMsg(meta, t('detail.ai_interpret_fail'), true);
+      });
+  }
+  var taskId = null;
+  fetch('/api/ai/relay/request', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({property_no: CUR_NO})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(j){
+    if(!(j && j.ok)){ throw new Error((j && j.error) || 'request'); }
+    taskId = j.task_id;
+    poll();
+  })
+  .catch(function(e){
+    stop();
+    aiRunning = false;
+    aiSetBtn(t('detail.ai_interpret_regen'), false);
+    aiMsg(meta, (e && e.message) || t('detail.ai_interpret_fail'), true);
   });
 }
 aiSetBtn(t('detail.ai_interpret_regen'), false);
