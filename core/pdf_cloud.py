@@ -338,6 +338,105 @@ def _auto_worker():
                 % (type(e).__name__, e))
 
 
+# ------------------------------------------------- 欠账巡检（v1.9.67 兜底自愈）
+# 为什么要巡检：PDF 落库有**多条写入路径**——`pipeline.ingest` 整行 upsert、
+#   `store.set_pdf`、手工补抓…。v1.9.66 把自动上云钩子只挂在 `store.set_pdf`
+#   上，而主路径其实走 `pipeline.ingest` → 钩子从未触发（09-23 实测 4 份新 PDF
+#   没上云、全日志 0 条自动上云记录）。巡检以「库 + 盘」为准，天然覆盖所有写入
+#   路径，并顺带自愈历史欠账与上传失败。
+_SWEEP_STARTED = [False]
+_SWEEP_INTERVAL_MIN = 10      # 巡检间隔（分钟）
+_SWEEP_FIRST_DELAY_S = 20     # 启动后第一次巡检延迟（等服务起稳、不抢启动资源）
+_SWEEP_BATCH = 500            # 单轮最多补多少份
+
+
+def pending_nos() -> list:
+    """本地库中「有 PDF 落盘、但还没上云」的番号（文件必须在盘上才算欠账）。
+
+    `pdf_path` 存的是**相对工程根**的路径（如 `data/attachments/xxx.pdf`），
+    绝对路径也兼容；两者都不在时再按标准命名 `attachments/<番号>.pdf` 兜底。
+    """
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT property_no, pdf_path FROM properties "
+            "WHERE pdf_path IS NOT NULL AND (pdf_url IS NULL OR pdf_url NOT LIKE 'http%')"
+        ).fetchall()
+    finally:
+        con.close()
+    out = []
+    for no, p in rows:
+        cand = Path(str(p or ""))
+        if not cand.is_absolute():
+            cand = ROOT / cand
+        if not cand.exists():
+            cand = attachments_dir() / ("%s.pdf" % no)
+        if cand.exists():
+            out.append(str(no))
+    return out
+
+
+def _has_running_upload() -> bool:
+    with _TASKS_LOCK:
+        return any(t.get("state") == "running" for t in _TASKS.values())
+
+
+def sweep_pending(push_online: bool = True, log=None, cap: int = _SWEEP_BATCH) -> dict:
+    """补齐「本地有 PDF 但未上云」的欠账（幂等，可反复跑；上传中则不抢跑）。"""
+    say = log or (lambda *_a, **_k: None)
+    if log is not None:
+        _AUTO_LOG[0] = log
+    nos = pending_nos()[:cap]
+    if not nos:
+        return {"ok": True, "pending": 0, "task": None}
+    if _has_running_upload():
+        return {"ok": True, "pending": len(nos), "task": None,
+                "skipped": "upload_running"}
+    say("[PDF云·巡检] 发现 %d 份本地有 PDF 但未上云 → 自动上传" % len(nos))
+    tid = start_upload(nos, push_online=push_online, log=say)
+    return {"ok": True, "pending": len(nos), "task": tid}
+
+
+def _sweep_worker(interval_min: int, log=None):
+    time.sleep(_SWEEP_FIRST_DELAY_S)
+    first = True
+    while True:
+        try:
+            res = sweep_pending(push_online=True, log=log)
+            if first and not res.get("pending"):
+                cb = _AUTO_LOG[0]
+                if cb:
+                    try:
+                        cb("[PDF云·巡检] 首检完成：无欠账")
+                    except Exception:                         # noqa: BLE001
+                        pass
+        except Exception as e:                                # noqa: BLE001
+            cb = _AUTO_LOG[0]
+            if cb:
+                try:
+                    cb("[PDF云·巡检] 异常（下轮重试）：%s: %s"
+                       % (type(e).__name__, e))
+                except Exception:                             # noqa: BLE001
+                    pass
+        first = False
+        time.sleep(max(60, int(interval_min) * 60))
+
+
+def _start_auto_sweep_loop(interval_min: int = _SWEEP_INTERVAL_MIN, log=None) -> None:
+    """常驻「PDF 上云巡检」线程（幂等，本地启动时由启动器拉起；线上绝不调用）。"""
+    if _SWEEP_STARTED[0]:
+        return
+    _SWEEP_STARTED[0] = True
+    if log is not None:
+        _AUTO_LOG[0] = log
+    threading.Thread(target=_sweep_worker,
+                     kwargs={"interval_min": interval_min, "log": log},
+                     daemon=True, name="pdf-cloud-sweep").start()
+    if log:
+        log("[PDF云·巡检] 线程已启动（每 %d 分钟扫一次「本地有 PDF 未上云」）"
+            % interval_min)
+
+
 # ---------------------------------------------------------------- 自动重签
 def resign_due(threshold: int = RESIGN_THRESHOLD, push_online: bool = True,
                log=None) -> dict:

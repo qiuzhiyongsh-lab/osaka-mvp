@@ -1458,6 +1458,18 @@ def _enable_pdf_cloud_auto():
         lambda no, _path: pdf_cloud.kick_auto_upload([no], log=log))
 
 
+def _start_pdf_sweep_loop(interval_min: int = 10):
+    """v1.9.67：PDF 上云「欠账巡检」常驻线程（兜底自愈，本地启动器拉起）。
+
+    为什么需要它：PDF 落库有多条写入路径（ingest 整行 upsert / set_pdf / 手工补抓），
+    钩子容易漏（v1.9.66 的教训）。巡检按「库 + 盘」为准，每 interval_min 分钟扫一次
+    「本地有 PDF 但未上云」的欠账 → 自动上传 + 回推线上，天然覆盖所有写入路径，
+    并自愈历史欠账与上传失败。线上（OSAKA_PUBLIC=1）绝不调用。
+    """
+    from core import pdf_cloud
+    pdf_cloud._start_auto_sweep_loop(interval_min=interval_min, log=log)
+
+
 def _start_ai_relay_loop(poll_seconds: int = 2):
     """v1.9.63：本地常驻「AI 接力」轮询线程（勇哥 2026-09-23 需求）。
 
@@ -3413,6 +3425,8 @@ if __name__ == "__main__":
         _start_ai_relay_loop()
         # v1.9.65：下载轮新 PDF 自动上云（取到数据 → PDF 同时上云 → 回推线上）
         _enable_pdf_cloud_auto()
+        # v1.9.67：上云「欠账巡检」兜底线程（每 10 分钟扫「本地有 PDF 未上云」→ 自动补齐）
+        _start_pdf_sweep_loop()
     else:
         log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),

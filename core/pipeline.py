@@ -91,6 +91,17 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
                 rec.pop("image_count", None)
             if pdf_path:
                 rec["pdf_path"] = pdf_path
+                # v1.9.67（09-23 血案）：本函数是**整行 upsert**写库，不走
+                #   `store.set_pdf`。v1.9.66 把「PDF 自动上云」钩子只挂在 set_pdf 上
+                #   → 而详情主路径恰恰走这里 → 钩子从未触发（实测 4 份新 PDF 未上云、
+                #   全日志 0 条自动上云记录）。这里补挂同一个钩子（快速通道）；
+                #   另有 `pdf_cloud` 的「欠账巡检」常驻线程兜底，双保险。
+                _hook = getattr(store, "on_pdf_downloaded", None)
+                if _hook is not None:
+                    try:
+                        _hook(no, str(pdf_path))
+                    except Exception:                             # noqa: BLE001
+                        pass      # 钩子失败绝不影响主写入流程
 
             fp = differ.fingerprint(rec)
             if lo:
