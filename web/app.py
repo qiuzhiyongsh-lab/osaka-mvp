@@ -1286,6 +1286,10 @@ _RELAY_PENDING_TTL_MIN = 30     # pending 超过 30 分钟没人领 → 判失�
 _RELAY_RUNNING_TTL_MIN = 10     # running 超过 10 分钟 → 判失败（抽取卡死/进程被杀）
 _RELAY_DONE_TTL_H = 24          # 终态任务保留 24h 后清理，防表膨胀
 
+# v1.9.64：常驻线程幂等守卫（serve.py 与 __main__ 两条启动路径谁先到谁生效）
+_RESIGN_LOOP_STARTED = False
+_AI_RELAY_STARTED = False
+
 _AI_RELAY_COLS = ["property_no", "structure_json", "radar_json", "conclusion",
                   "anomaly_json", "overall", "edited", "source_file", "source_row",
                   "extracted_at", "created_at", "updated_at"]
@@ -1452,7 +1456,14 @@ def _start_ai_relay_loop(poll_seconds: int = 2):
     → save_fields 落本地 AI 库 → 该行 ai_structure POST /api/ingest（复用既有
     回推链路，**无需发版**）→ relay/result 置 done。线上没配 publish.endpoint
     时静默待机（每 60s 重查一次配置，配置热重载后自动生效）。
+
+    ⚠ v1.9.64：start_mvp.bat 走 serve.py，`__main__` 块不执行 → 本线程改由
+    serve.py 统一拉起（幂等守卫防双跑，见 _start_pdf_resign_loop 同款注释）。
     """
+    global _AI_RELAY_STARTED
+    if _AI_RELAY_STARTED:
+        return
+    _AI_RELAY_STARTED = True
     import time as _t
     import urllib.request
     import urllib.error
@@ -3342,7 +3353,16 @@ def _start_pdf_resign_loop(interval_hours: int = 6):
     会加载失败，而**刷新页面没用**（pdf_url 是库里存的静态串，只有重签 + 回推才更新）。
     这里每 6 小时扫一次，把「剩余 < 2 天」的重签，并**增量回推线上**（走 /api/ingest，
     **不需要发版**）。
+
+    ⚠ v1.9.64（2026-09-23 日志复核发现）：start_mvp.bat 走 **serve.py** 启动，
+    web/app.py 的 `__main__` 块根本不执行 → 此线程在 v1.9.61/62/63 **从未运行过**
+    （07:21 启动的日志里没有「自动重签线程已启动」行）。现改为 serve.py 启动器统一
+    拉起；本函数加幂等守卫，两条启动路径谁先到谁生效，绝不双跑。
     """
+    global _RESIGN_LOOP_STARTED
+    if _RESIGN_LOOP_STARTED:
+        return
+    _RESIGN_LOOP_STARTED = True
     import time
 
     def _loop():

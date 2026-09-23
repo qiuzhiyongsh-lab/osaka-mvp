@@ -9,8 +9,22 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.63"
-BUILD_AT = "2026-09-23 09:55"
+VERSION = "1.9.64"
+BUILD_AT = "2026-09-23 12:05"
+# ============================================================================
+# v1.9.64（2026-09-23 12:05 · 🔴P0：本地常驻线程从未随 start_mvp.bat 启动）：
+#   勇哥 09-23 要求复盘 PDF 上云日志 → 复核 07:21 启动日志发现：全文件无
+#   「[PDF云] 自动重签线程已启动」行 → 追根：start_mvp.bat 跑的是 **serve.py**，
+#   serve.py import web.app 后自己拉服务，web/app.py 的 `__main__` 块根本不执行。
+#   后果：① v1.9.61 的 PDF 自动重签线程**从未运行过**（7 天过期自动续期是空的，
+#   幸好 COS 链接 9-23 才签发、尚未到期）；② v1.9.63 的 AI 接力轮询线程同样会
+#   落空（线上点「重新生成」将永远无人领取）。修法：
+#     · serve.py serve_once() 在 `not PUBLIC` 下统一拉起 _start_pdf_resign_loop()
+#       与 _start_ai_relay_loop()；
+#     · 两个 start 函数加幂等守卫（_RESIGN_LOOP_STARTED/_AI_RELAY_STARTED），
+#       serve.py 与 __main__ 直跑谁先到谁生效，绝不双跑。
+#   影响文件：web/app.py（守卫+注释）、serve.py（启动器拉起）。线上无需重发
+#   （线上入口 serve_public.py 不走 __main__、也不该跑这些线程；接口层无变化）。
 # ============================================================================
 # v1.9.63（2026-09-23 09:55 · 🔗 AI 解读「线上点击 → 本地代跑 → 回推」接力链路）：
 #   勇哥 2026-09-23 需求：线上详情页点「重新生成」不再 403 红字，而是把任务**派发回

@@ -161,6 +161,18 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
     threading.Thread(target=_boot_account_sync, daemon=True,
                      name="account-sync-boot").start()
 
+    # v1.9.64（2026-09-23 日志复核发现的 P0）：本地常驻线程必须由**启动器**拉起。
+    #   原因：start_mvp.bat 走本文件（serve.py → import web.app），web/app.py 的
+    #   `if __name__ == "__main__"` 块在这条启动路径下**根本不执行**——
+    #   v1.9.61 的「PDF 自动重签」线程因此从未运行过（07:21 启动日志无
+    #   「自动重签线程已启动」行实锤），v1.9.63 的「AI 接力」线程也会同样落空。
+    #   两个 start 函数都带幂等守卫（_RESIGN_LOOP_STARTED / _AI_RELAY_STARTED），
+    #   与 __main__ 直跑路径谁先到谁生效，绝不双跑。
+    import web.app as _W
+    if not _W.PUBLIC:
+        _W._start_pdf_resign_loop()
+        _W._start_ai_relay_loop()
+
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。
     app.jinja_env.auto_reload = True
