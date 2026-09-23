@@ -194,7 +194,38 @@ try:
 except Exception as _e:                                            # noqa: BLE001
     print("[线路字典] 刷新失败（不影响启动，退化为含『線』判定）：%s" % _e, flush=True)
 
-from web.app import create_app                                     # noqa: E402
+# v1.9.65：AI 结构库自愈 —— 容器 data/ 盘持久化，**发版不会重置它**：
+#   若库文件损坏（database disk image is malformed，09-23 实案），重新发版
+#   也治不好（坏文件一直在）。启动时 quick_check，不 ok 就把坏库改名隔离
+#   （.corrupt-<时间戳>，不删，留取证），让 web/app 重建空库；随后由本地
+#   把全量 ai_structure 重新推上来（/api/ingest）。
+import sqlite3 as _sq3                                            # noqa: E402
+import time as _time                                              # noqa: E402
+
+_ai_db = Path(PATHS["db"]).parent / "ai_pdf_store.db"
+try:
+    if _ai_db.exists():
+        _c = _sq3.connect(str(_ai_db), timeout=20)
+        try:
+            _chk = str((_c.execute("PRAGMA quick_check").fetchone() or [""])[0])
+        finally:
+            _c.close()
+        if _chk != "ok":
+            _bad = _ai_db.with_name("ai_pdf_store.db.corrupt-%d" % int(_time.time()))
+            _ai_db.rename(_bad)
+            for _suf in ("-wal", "-shm"):
+                _side = Path(str(_ai_db) + _suf)
+                if _side.exists():
+                    _side.rename(Path(str(_bad) + _suf))
+            print("[AI库自愈] quick_check=%s → 坏库已隔离为 %s，将重建空库"
+                  % (_chk, _bad.name), flush=True)
+        else:
+            print("[AI库自愈] quick_check ok，跳过", flush=True)
+except Exception as _e:                                           # noqa: BLE001
+    print("[AI库自愈] 检查失败（不阻断启动）：%s: %s"
+          % (type(_e).__name__, _e), flush=True)
+
+from web.app import create_app                                    # noqa: E402
 
 app = create_app()
 '''
