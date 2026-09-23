@@ -1673,9 +1673,10 @@ function renderFullItem(r, i){
     +     (r.layout         ? '<span class="k">' + esc(r.layout) + '</span>' : '')
     +     (r.line_station   ? '<span class="k">' + esc(r.line_station) + '</span>' : '')
     +     (r.ward           ? '<span class="k">' + esc(r.ward) + '</span>' : '')
+    // v1.9.71（勇哥 2026-09-24 要求）：㎡単価 / 坪単価 **并入本行**（原先单独占第 3 行）
+    //   —— 卡片省去一行、信息更紧凑。空值不再渲染占位「—」（在密集行里是噪音）。
+    +     unitPriceInline(r)
     +   '</div>'
-    // R1（PRD-20）：㎡単価 / 坪単価 一行（面积行下方）
-    +   unitPriceHtml(r)
     // 第 3 行起：次要属性（可自动换到多行，窄屏也不硬挤）
     +   '<div class="qsub">'
     +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
@@ -1693,15 +1694,16 @@ function renderFullItem(r, i){
 
 /* R1（PRD-20）：列表卡片直接显示 ㎡単価 / 坪単価。
    数据已在库（PROPERTY_COLUMNS 已含 unit_price_sqm/tsubo，/api/query 已返回），前端只上屏、不重算。
-   空值 / ≤0 → 显示「—」（search.na）；不参与计算、不报错。 */
-function unitPriceHtml(r){
+   v1.9.71（勇哥要求）：由「独占一行」改为**返回行内 span**，并入 .qcore（専有/間取り/駅/区）——
+     .qcore 是 flex+wrap 且 `span+span` 自带竖分隔线，所以直接追加即可获得一致的分隔与窄屏换行。
+   空值 / ≤0 → 不渲染（密集行里「—」是噪音；不再输出 qunit-empty 占位）。 */
+function unitPriceInline(r){
   var sqm   = (r.unit_price_sqm   && Number(r.unit_price_sqm)   > 0) ? (Number(r.unit_price_sqm)/10000).toFixed(1)   + ' 万円' : '';
   var tsubo = (r.unit_price_tsubo && Number(r.unit_price_tsubo) > 0) ? (Number(r.unit_price_tsubo)/10000).toFixed(1) + ' 万円' : '';
-  if(!sqm && !tsubo) return '<div class="qunit qunit-empty">' + t('search.na') + '</div>';
-  var h = '<div class="qunit">';
+  var h = '';
   if(sqm)   h += '<span class="k">' + t('search.unit_price_sqm')   + ' ' + sqm   + '</span>';
-  if(tsubo) h += '<span class="qsep">｜</span><span class="k">' + t('search.unit_price_tsubo') + ' ' + tsubo + '</span>';
-  return h + '</div>';
+  if(tsubo) h += '<span class="k">' + t('search.unit_price_tsubo') + ' ' + tsubo + '</span>';
+  return h;
 }
 
 /* 单行重设计（UI 经理主导，R-UI-3 / PRD-24）：
