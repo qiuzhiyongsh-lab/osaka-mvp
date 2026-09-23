@@ -9,8 +9,18 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.65"
-BUILD_AT = "2026-09-23 18:05"
+VERSION = "1.9.66"
+BUILD_AT = "2026-09-23 18:20"
+# ============================================================================
+# v1.9.66（2026-09-23 18:20 · ☁️ 下载轮新 PDF 自动上云，勇哥拍板落地）：
+#   「只要我们这边能正常取得数据，这个 PDF 文件同时也会上传到线上」。
+#   实现：core/store.py set_pdf 落库后调 on_pdf_downloaded 钩子（getattr 默认
+#   None，线上零开销）→ core/pdf_cloud.kick_auto_upload 合并队列（30s 攒批、
+#   单例 worker、已上云跳过）→ start_upload（日志/进度/回推线上全复用）。
+#   web/app._enable_pdf_cloud_auto() 本地注入钩子（serve.py + __main__ 两处）。
+#   ⚠ 仅本地生效：重启 8765 即生效，**不需要发版**（线上行为无变化）。
+#   已知缺口（另案）：PDF 下载失败无重试（300140678627 has_floorplan=1 但
+#   8 天无 PDF），待做「欠账补抓」。
 # ============================================================================
 # v1.9.65（2026-09-23 18:05 · 🔴P0：线上 AI 库损坏不随发版自愈）：
 #   09-23 实测：post_ai 回推持续 HTTP 500「database disk image is malformed」，

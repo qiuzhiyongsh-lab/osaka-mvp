@@ -712,6 +712,14 @@ class Store:
         self.conn.execute("UPDATE properties SET pdf_path=? WHERE property_no=?",
                           (str(pdf_path), property_no))
         self.conn.commit()
+        # v1.9.65：PDF 下载落库钩子（本地启动时由 web/app 注入 → PDF 自动上云）。
+        # 属性不存在时 getattr 返回 None，线上（OSAKA_PUBLIC=1）永不注入 → 零开销。
+        _hook = getattr(self, "on_pdf_downloaded", None)
+        if _hook is not None:
+            try:
+                _hook(property_no, str(pdf_path))
+            except Exception:                                     # noqa: BLE001
+                pass          # 钩子失败绝不影响主下载流程
 
     # ---------------- 普通读写 ----------------
     def get_property(self, property_no: str) -> sqlite3.Row | None:

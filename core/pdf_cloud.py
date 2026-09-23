@@ -273,6 +273,71 @@ def task_status(tid: str) -> dict:
         return dict(_TASKS.get(tid) or {"state": "unknown"})
 
 
+# ---------------------------------------------------------------- 下载轮自动上云
+# v1.9.65（勇哥 2026-09-23：「只要我们这边能正常取得数据，这个 PDF 文件同时也会
+# 上传到线上」）—— 下载轮每落一份 PDF（Store.set_pdf 回写时）就 kick 进待传队列，
+# 单例 worker 每 30s 把积累的番号批量交给 start_upload（自带日志/进度/回推线上）。
+_AUTO_PENDING: set = set()
+_AUTO_LOCK = threading.Lock()
+_AUTO_WORKER_STARTED = [False]
+_AUTO_LOG = [None]           # 由 web/app.log 注入（写 server.log + 设置页实时日志）
+_AUTO_BATCH = 500            # 单批最多传多少份（避免一轮抓 1000 份时任务过大）
+_AUTO_DELAY_S = 30           # 攒批间隔：下载完等 30s 再传，减少碎片任务
+
+
+def kick_auto_upload(nos, log=None) -> None:
+    """把「本轮新下载」的 PDF 番号踢进自动上云队列（幂等合并，绝不阻塞下载线程）。"""
+    nos = [str(n) for n in (nos or []) if n]
+    if not nos:
+        return
+    if log is not None:
+        _AUTO_LOG[0] = log
+    with _AUTO_LOCK:
+        _AUTO_PENDING.update(nos)
+        if not _AUTO_WORKER_STARTED[0]:
+            _AUTO_WORKER_STARTED[0] = True
+            threading.Thread(target=_auto_worker, daemon=True,
+                             name="pdf-cloud-auto").start()
+
+
+def _auto_worker():
+    def say(*a, **_k):
+        cb = _AUTO_LOG[0]
+        if cb:
+            try:
+                cb(*a)
+            except Exception:                                 # noqa: BLE001
+                pass
+        else:
+            print("[PDF云·自动]", *a, flush=True)
+    while True:
+        time.sleep(_AUTO_DELAY_S)
+        try:
+            with _AUTO_LOCK:
+                batch = sorted(_AUTO_PENDING)[:_AUTO_BATCH]
+            if not batch:
+                continue
+            # 幂等：库里已有 pdf_url 的跳过（续期归自动重签线程管）
+            con = _connect()
+            try:
+                ph = ",".join("?" * len(batch))
+                have = {r[0] for r in con.execute(
+                    "SELECT property_no FROM properties WHERE property_no IN (%s) "
+                    "AND pdf_url LIKE 'http%%'" % ph, batch)}
+            finally:
+                con.close()
+            todo = [n for n in batch if n not in have]
+            if todo:
+                say("[PDF云·自动] 检测到 %d 份新 PDF（已上云跳过 %d）→ 自动上传"
+                    % (len(todo), len(batch) - len(todo)))
+                start_upload(todo, push_online=True, log=say)
+            with _AUTO_LOCK:
+                _AUTO_PENDING.difference_update(batch)
+        except Exception as e:                                # noqa: BLE001
+            say("[PDF云·自动] 队列处理异常（番号保留重试）：%s: %s"
+                % (type(e).__name__, e))
+
+
 # ---------------------------------------------------------------- 自动重签
 def resign_due(threshold: int = RESIGN_THRESHOLD, push_online: bool = True,
                log=None) -> dict:

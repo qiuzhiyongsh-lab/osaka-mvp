@@ -172,6 +172,8 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
     if not _W.PUBLIC:
         _W._start_pdf_resign_loop()
         _W._start_ai_relay_loop()
+        # v1.9.65：下载轮新 PDF 自动上云（取到数据 → PDF 同时上云 → 回推线上）
+        _W._enable_pdf_cloud_auto()
 
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。

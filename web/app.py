@@ -1449,6 +1449,15 @@ def api_ai_relay_result():
     return jsonify({"ok": True})
 
 
+def _enable_pdf_cloud_auto():
+    """v1.9.65：本地把「PDF 下载落库」接到「自动上云」队列（勇哥拍板：
+    只要取到数据，PDF 同时也上传到线上）。线上（OSAKA_PUBLIC=1）绝不调用。
+    幂等：重复调用只是重设同一个 lambda，队列 worker 全局单例。"""
+    from core import pdf_cloud
+    STORE.on_pdf_downloaded = (
+        lambda no, _path: pdf_cloud.kick_auto_upload([no], log=log))
+
+
 def _start_ai_relay_loop(poll_seconds: int = 2):
     """v1.9.63：本地常驻「AI 接力」轮询线程（勇哥 2026-09-23 需求）。
 
@@ -3402,6 +3411,8 @@ if __name__ == "__main__":
         _start_pdf_resign_loop()
         # v1.9.63：AI 接力轮询（线上详情页「重新生成」→ 派回本地跑 → 回推线上）
         _start_ai_relay_loop()
+        # v1.9.65：下载轮新 PDF 自动上云（取到数据 → PDF 同时上云 → 回推线上）
+        _enable_pdf_cloud_auto()
     else:
         log("☁ 线上展示版：不启动本地抓取与上传定时器（只读）")
     app.run(host=CFG["web"]["host"], port=int(CFG["web"]["port"]),
