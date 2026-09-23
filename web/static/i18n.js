@@ -1714,6 +1714,14 @@
     applyI18n();
   }
 
+  /* v1.9.72（勇哥 2026-09-24）：**谷歌地图查询**按钮文案。
+     ⚠ 必须同时补 ZH（简体走 ZH 字典；缺 key 会在界面上显示裸 key）与三个目标语言——
+        这是 v1.8.2 那次的教训（只写繁体、简体裸 key）。发布前跑 tools/verify_i18n_keys.py。*/
+  ZH['detail.gmap_search'] = '谷歌地图查询';
+  DICT['zh-TW']['detail.gmap_search'] = '谷歌地圖查詢';
+  DICT['en']['detail.gmap_search'] = 'Google Maps';
+  DICT['ja']['detail.gmap_search'] = 'Googleマップで見る';
+
   function init() {
     buildSwitcher();
     applyI18n();

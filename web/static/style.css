@@ -285,6 +285,16 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .qrow1{display:flex;align-items:baseline;gap:10px;justify-content:space-between}
 .qt{font-weight:700;font-size:13.5px;flex:1 1 auto;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* v1.9.72（勇哥 2026-09-24）：① 卡片地址 = 谷歌地图入口（悬停提示可点，虚线暗示链接）
+   ② 详情页「谷歌地图查询」小按钮。事件委托见 static/fieldmap.js（捕获阶段拦下，
+      所以点地址不会连带展开卡片）。 */
+.qt-gmap{cursor:pointer;border-bottom:1px dashed rgba(52,119,214,.55);border-radius:2px;
+  padding:0 1px;transition:background .12s,color .12s,border-color .12s}
+.qt-gmap:hover{color:#1d4ed8;background:rgba(52,119,214,.12);border-bottom-color:#1d4ed8}
+.qt-gmap:active{background:rgba(52,119,214,.22)}
+.qc-loc .qt-gmap{border-bottom-style:dotted}
+.qbtn.qbtn-gmap{color:#1d4ed8;border-color:#b9cdf0;background:#f2f7ff}
+.qbtn.qbtn-gmap:hover{background:#e3edff;border-color:#8fb4e8;color:#1a45c0}
 .qprice{display:flex;align-items:center;gap:7px;flex:0 0 auto}
 .qprice .price{font-size:15px;font-weight:800;color:var(--accent);
   font-variant-numeric:tabular-nums;white-space:nowrap}

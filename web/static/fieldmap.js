@@ -277,6 +277,39 @@
     window.openBukkenSearch(el.getAttribute('data-bukken'));
   }, true);
 
+  /* v1.9.72（勇哥 2026-09-24 需求）：**谷歌地图查询** —— 与上面「REINS 物件番号検索」
+     完全同款做法：统一 HTML 生成器 + document 捕获阶段事件委托。
+     用在哪：① 详情页「详细信息」里「所在地」「建物名」值后
+             ② 「PDF 文件生成出来的内容」里「地址/物业名称」值后
+             ③ 查询页卡片的地址位置（点地址直接看地图）
+     ⚠ 查询一律用【地址】：建物名不是地址，拿去查谷歌毫无意义 ——
+        所以「建物名」旁边的按钮也是拿**该房源的地址**去查。 */
+  window.gmapBtn = function (addr) {
+    addr = String(addr == null ? '' : addr).trim();
+    if (!addr) return '';        // 勇哥要求：地址为空则不显示（不渲染按钮）
+    var label = (typeof window.t === 'function') ? window.t('detail.gmap_search') : '谷歌地图查询';
+    return '<a class="qbtn qbtn-gmap" href="javascript:void(0)" data-gmap="'
+         + htmlEscape(addr) + '" title="' + htmlEscape(label) + '：' + htmlEscape(addr) + '">'
+         + htmlEscape(label) + '</a>';
+  };
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest && e.target.closest('[data-gmap]');
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();          // 捕获阶段拦下：不再触发外层的 toggleDetail / 卡片展开
+    window.openGoogleMap(el.getAttribute('data-gmap'));
+  }, true);
+  /* 打开方式（勇哥要求）：**新标签页** + 谷歌地图按地址查询。
+     用 maps/search 的通用链（无需 API Key、不依赖 JS SDK）。
+     日本地址 Google 本身可识别；追加「日本」提升都道府県缺失时的命中率。 */
+  window.openGoogleMap = function (addr) {
+    addr = String(addr == null ? '' : addr).trim();
+    if (!addr) return;
+    var q = (addr.indexOf('日本') >= 0) ? addr : (addr + ' 日本');
+    window.open('https://www.google.com/maps/search/?api=1&query='
+                + encodeURIComponent(q), '_blank');
+  };
+
   /* v1.9.22（勇哥 2026-09-19 反馈）—— 番号検索【统一行为】：
      线上站与本地站完全一致：点击后在【你当前浏览器的同一个窗口里再开一个标签页】
      打开 REINS 物件番号検索页，并同步把编号复制到剪贴板；随后本页弹窗明确告知

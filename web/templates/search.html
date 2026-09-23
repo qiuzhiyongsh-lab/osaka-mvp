@@ -1595,6 +1595,27 @@ function renderRows(rows){
 }
 
 /* 详细模式：三层信息（对比/地址/价格 → 核心指标 → 次要属性），与历史版一致。 */
+/* v1.9.72（勇哥 2026-09-24）：卡片标题行的「地址」改成**可点击的谷歌地图入口**。
+   勇哥原话的 4 条要求：
+     ① 悬停有特殊显示效果，提示可点（.qt-gmap 的 hover 样式，见 style.css）
+     ② 点击 → **新标签页**打开谷歌地图，按该地址查询（fieldmap.js::openGoogleMap）
+     ③ 卡片**其他位置**的点击行为不变（仍展开行内详情）—— 靠事件委托在**捕获阶段**
+        e.stopPropagation() 拦下，外层 toggleDetail 收不到点击
+     ④ 地址为空 → **不显示**该入口（不渲染 span，避免点了个空链接）
+   所以这里只输出 data-gmap 属性，不写 inline onclick（外部数据不进 JS 字符串）。 */
+function qtHtml(r){
+  var out = '';
+  if(r.address){
+    out += '<span class="qt-gmap" data-gmap="' + esc(r.address) + '"'
+         + ' title="' + esc(t('detail.gmap_search')) + '：' + esc(r.address) + '">'
+         + esc(r.address) + '</span>';
+  }
+  if(r.building_name){
+    out += (r.address ? ' · ' : '') + esc(r.building_name);
+  }
+  return out;
+}
+
 function renderFullItem(r, i){
   var id = 'd' + i;
   var no = r.property_no || '';
@@ -1652,7 +1673,7 @@ function renderFullItem(r, i){
     +               esc(t('row.detail_pending')) + '</span>' : '')
     +     badge
     +     ttBadge
-    +     '<div class="qt">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '') + '</div>'
+    +     '<div class="qt">' + qtHtml(r) + '</div>'   /* v1.9.72：地址可点 → 谷歌地图 */
     +     '<div class="qprice">'
     +       drop
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
@@ -1770,7 +1791,8 @@ function renderCompactItem(r, i){
     +   '</div>';
   // ② 位置与价格（点击展开）
   h +=   '<div class="qc-click" onclick="toggleDetail(\'' + id + '\')">'
-    +     '<span class="qc-loc">' + esc(r.address) + (r.building_name ? ' · ' + esc(r.building_name) : '')
+    /* v1.9.72：简洁视图的地址同样可点（与详细视图行为一致） */
+    +     '<span class="qc-loc">' + qtHtml(r)
     +       (r.ward ? ' <span class="qc-ward">' + esc(r.ward) + '</span>' : '') + '</span>'
     +     '<span class="qc-pricebox">'
     +       drop
