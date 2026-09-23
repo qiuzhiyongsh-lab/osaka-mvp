@@ -282,14 +282,16 @@
      用在哪：① 详情页「详细信息」里「所在地」「建物名」值后
              ② 「PDF 文件生成出来的内容」里「地址/物业名称」值后
              ③ 查询页卡片的地址位置（点地址直接看地图）
-     ⚠ 查询一律用【地址】：建物名不是地址，拿去查谷歌毫无意义 ——
-        所以「建物名」旁边的按钮也是拿**该房源的地址**去查。 */
-  window.gmapBtn = function (addr) {
-    addr = String(addr == null ? '' : addr).trim();
-    if (!addr) return '';        // 勇哥要求：地址为空则不显示（不渲染按钮）
+     ⚠ v1.9.75（勇哥 2026-09-24 纠正）口径＝**所见即所搜**：按钮拿它【旁边那一行显示的值】
+        去查 —— 地址位置查地址、**物业名称位置查楼名**。
+        （v1.9.72 曾写成「查询一律用地址：建物名不是地址，拿去查谷歌毫无意义」，
+          导致勇哥点「建物名」旁的按钮跳出的是地址查询 → 语义错位，已纠正。） */
+  window.gmapBtn = function (q) {
+    q = String(q == null ? '' : q).trim();
+    if (!q) return '';           // 勇哥要求：查询词为空则不渲染按钮
     var label = (typeof window.t === 'function') ? window.t('detail.gmap_search') : '谷歌地图查询';
     return '<a class="qbtn qbtn-gmap" href="javascript:void(0)" data-gmap="'
-         + htmlEscape(addr) + '" title="' + htmlEscape(label) + '：' + htmlEscape(addr) + '">'
+         + htmlEscape(q) + '" title="' + htmlEscape(label) + '：' + htmlEscape(q) + '">'
          + htmlEscape(label) + '</a>';
   };
   document.addEventListener('click', function (e) {
@@ -299,9 +301,9 @@
     e.stopPropagation();          // 捕获阶段拦下：不再触发外层的 toggleDetail / 卡片展开
     window.openGoogleMap(el.getAttribute('data-gmap'));
   }, true);
-  /* 打开方式（勇哥要求）：**新标签页** + 谷歌地图按地址查询。
+  /* 打开方式（勇哥要求）：**新标签页** + 谷歌地图按【查询词】查询（地址 or 物业名称）。
      用 maps/search 的通用链（无需 API Key、不依赖 JS SDK）。
-     ⚠ v1.9.73（勇哥 2026-09-24 语言顾虑）：尽量不去动地址的「原始情况」。
+     ⚠ v1.9.73（勇哥 2026-09-24 语言顾虑）：尽量不去动查询词的「原始情况」。
        · 不再追加任何区域词（去掉旧版 `地址 + ' 日本'` 的后缀）——地址本身含
          「大阪府/大阪市」已足够谷歌定位；追加属「我们动了原始情况」，与勇哥意图冲突。
        · 绝不传 hl= 语言参数：谷歌界面语言由【对方浏览器/账号】决定，
@@ -310,11 +312,11 @@
          故不存在「我们系统简中 → 对方看到日」的错配；对方看到的语言差异
          仅限谷歌自身菜单/按钮文字，地址标注是同一个日语地址，不影响定位。
        · 这就是勇哥要的「用谷歌现有的方式显示、别去管对方用啥语言/地图」。 */
-  window.openGoogleMap = function (addr) {
-    addr = String(addr == null ? '' : addr).trim();
-    if (!addr) return;
+  window.openGoogleMap = function (q) {
+    q = String(q == null ? '' : q).trim();
+    if (!q) return;
     window.open('https://www.google.com/maps/search/?api=1&query='
-                + encodeURIComponent(addr), '_blank');
+                + encodeURIComponent(q), '_blank');
   };
 
   /* v1.9.22（勇哥 2026-09-19 反馈）—— 番号検索【统一行为】：
