@@ -3402,6 +3402,23 @@ def _start_pdf_resign_loop(interval_hours: int = 6):
     log("[PDF云] 自动重签线程已启动（每 %d 小时检查一次）" % interval_hours)
 
 
+# ------------------------------------------------------------------
+# v1.9.68（PRD · 收藏/标签/客户管理 v2.0.1 §14 步骤 1）
+# 员工业务库 employee.db 建表自检（幂等）：T1–T6 六张表 + 索引 + 列增补迁移。
+# 挂在**模块导入**而非 __main__ —— 线上 serve_public.py 只 create_app()，
+# 本地 serve.py 也只 import web.app，两者都不执行 __main__（v1.9.64 血训）。
+# 幂等 + try/except：建表失败只记日志，绝不阻断启动（R-4：绝禁 DROP/重建）。
+# ------------------------------------------------------------------
+try:
+    from core import employee_schema as _emp_schema
+    _emp_info = _emp_schema.ensure_employee_tables()
+    log("[员工库] 建表自检 ok：%s（表 %d/6，新建 %s，补列 %s）"
+        % (_emp_info["db"], _emp_info["tables_found"],
+           _emp_info["tables_created"] or "无", _emp_info["columns_added"] or "无"))
+except Exception as _e:                                            # noqa: BLE001
+    log("[员工库] 建表自检失败（不阻断启动）：%s: %s" % (type(_e).__name__, _e))
+
+
 if __name__ == "__main__":
     log(f"本地站点启动：http://{CFG['web']['host']}:{CFG['web']['port']}")
     log(f"数据落盘目录：{PATHS['root']}")

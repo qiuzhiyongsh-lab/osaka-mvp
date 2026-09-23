@@ -9,8 +9,18 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.67"
-BUILD_AT = "2026-09-23 20:05"
+VERSION = "1.9.68"
+BUILD_AT = "2026-09-24 00:06"
+# ============================================================================
+# v1.9.68（2026-09-24 00:06 · 收藏/标签/客户管理 v2.0.1 · β 线上优先 研发启动）：
+#   · 步骤 1：新增 core/employee_schema.py —— 员工业务库 data/employee.db 的 T1–T6
+#     六张表（favorites / tags / property_tags / customers / customer_properties /
+#     customer_owner_log）+ 3 个索引 + 列增补迁移，**全幂等**（IF NOT EXISTS ＋
+#     PRAGMA table_info 判断后才 ALTER），禁 DROP/重建（R-4：线上 data 盘持久化）。
+#   · 独立库而不塞主库：主库线上由 site_data.json 按 stamp 重灌，混进去会被冲掉。
+#   · 挂钩在 web/app.py **模块导入**处（非 __main__）——线上 serve_public 只
+#     create_app()、本地 serve.py 只 import web.app，都不跑 __main__（v1.9.64 血训）。
+#   · W3 已定：customers 仅 created_at（登记日期），无 owner_since / 有效期窗口。
 # ============================================================================
 # v1.9.67（2026-09-23 20:05 · 🔴P0：v1.9.66 的自动上云钩子挂错位置 → 从未触发）：
 #   勇哥反馈「本地 127.0.0.1 能看到 PDF，线上却没有」→ 实测 09-23 有 5 份本地
