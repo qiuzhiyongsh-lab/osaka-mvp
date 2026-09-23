@@ -281,12 +281,28 @@ def main() -> int:
     n1 = copy_tree(MVP / "core", TARGET / "core", exts={".py"}, dry=dry)
     n2 = copy_tree(MVP / "web" / "templates", TARGET / "web" / "templates", dry=dry)
     n3 = copy_tree(MVP / "web" / "static", TARGET / "web" / "static", dry=dry)
+    # 🔴 v1.9.69 P0 修复：web/ 根目录下的 **所有 .py 模块** 都要上云，不能只拷 app.py。
+    #   血案背景：v1.9.69 新增 web/employee_api.py（员工业务 API —— β 拓扑下员工在线上
+    #   写收藏/标签/客户的**唯一入口**），而这里原先只 shutil.copy2 了 web/app.py
+    #   → 线上 `from web import employee_api` 直接 ImportError，/api/emp/* 全部不存在，
+    #   **发版白发**（core/ 是整目录 copy_tree 所以 employee_schema.py 侥幸没事，
+    #   web/ 根目录是唯一的例外，极易再踩）。
+    #   → 改为整目录 glob 复制（跳过 `_` 开头的本地临时脚本，与 copy_tree 同规则），
+    #     以后新增 web/*.py 模块自动带上，杜绝同类遗漏。
+    n_web = 0
     if not dry:
         (TARGET / "web").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(MVP / "web" / "app.py", TARGET / "web" / "app.py")
+    for f in sorted((MVP / "web").glob("*.py")):
+        if f.name.startswith("_"):
+            continue                       # 本地临时脚本不上云
+        if not dry:
+            shutil.copy2(f, TARGET / "web" / f.name)
+        n_web += 1
+    if not dry:
         (TARGET / "web" / "__init__.py").write_text("", encoding="utf-8")
         (TARGET / "__init__.py").write_text("", encoding="utf-8")
-    print(f"② 代码：core {n1} 个 .py / 模板 {n2} 个 / 静态 {n3} 个 / app.py 1（PDF 与 data/ 不复制）")
+    print(f"② 代码：core {n1} 个 .py / 模板 {n2} 个 / 静态 {n3} 个 / web 根 {n_web} 个 .py"
+          f"（PDF 与 data/ 不复制）")
 
     # ── ③ 配置：剔除凭据后写入 ──
     safe, dropped = _sanitize(cfg or {})
