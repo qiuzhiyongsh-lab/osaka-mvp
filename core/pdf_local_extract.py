@@ -53,13 +53,21 @@ RULES: dict[str, list[str]] = {
     "E-MAIL": [r"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"],
     "注意事項": [r"((?:本書と現況[^\n]{0,40}|図面と現状[^\n]{0,40}|現況優先[^\n]{0,20}))"],
     # v1.9.34（PRD-25 扩字段）：勇哥点名要的「具体地址+区」「更详细的地铁站」「会所」
-    "所在地": [r"所在[地等：:\s]*\n?\s*((?:大阪府|大阪市|兵庫|神戸|東京都|京都府)[^\n]{4,40})"],
+    # v1.9.74（勇哥 2026-09-24 反馈「五处地图按钮都没有」）：实测 300 份样本后放宽锚点——
+    #   ① 允许多一个「〒534-0024」前缀（原规则遇邮编直接失配）；
+    #   ② 允许标签同行带前缀（「●物件所在地　大阪市…」）。
+    #   命中 18.0%→21.5%，精度 73.5%→78.0%（闸门 _valid_addr 见下）。
+    "所在地": [r"所在[地等]?[：:\s]*\n?\s*(?:〒\s*\d{3}-?\d{4}\s*)?"
+               r"((?:大阪府|大阪市|兵庫県|兵庫|神戸市|東京都|京都府)[^\n]{4,40})",
+               r"所在[地等]?[^\n]{0,10}?((?:大阪府|大阪市)[^\n]{4,40})"],
     # v1.9.72（勇哥 2026-09-24）：「物业名称」=物件名/建物名，**必须从 PDF 抓取**。
-    # 标签锚定型（仅当 PDF 显式出现「物件名：/建物名：」才命中）→ 误报近零；
-    # REINS 概要書头部建筑名无统一标签 → 抓不到稳定锚点的房源留空（符合用户「空值不显示」要求）。
-    # 覆盖率待实机补测（本机沙箱拦 pymupdf 程序化读 PDF + 云端抽取限流）。
-    "物件名": [r"物件名[：:\s]*\n?\s*([^\n()]{2,40})",
-               r"建物名[：:\s]*\n?\s*([^\n()]{2,40})"],
+    # v1.9.74 实测修正：原来的「物件名:/建物名:」两式只命中 9.5%，且**精度仅 50%**——
+    #   这批概要書常见「标签与值被版式拉平、不相邻」，于是正则吃到下一行的**别的标签**
+    #   （販売価格 / 物件種別 / 所在階）。改为：① 标签变体（含「建物名称」这种带「称」的）
+    #   ② 兜底「楼名 + 下一行 xxx号室」；两道都过 _valid_name 闸门。
+    #   → 命中 13~14.5%，精度 50%→84.6%。
+    "物件名": [r"(?:物件名称|物件名|建物名称|建物名|マンション名)[：:\s]*\n?\s*([^\n（）()]{2,40})",
+               r"([^\n]{3,40})\n\s*\d{2,4}\s*号室"],
     # 最寄駅1：① 交通 必须在行首（避开「国土交通大臣」误命中）② 兜底抓「铁路公司+駅+徒歩/バス」
     "最寄駅1": [r"(?:^|\n)[^\S\n]*交通[：:\s]*([^\n]{4,50})",
                r"([^\n]{0,24}?(?:ＪＲ|ＪＲ東|地下鉄|大阪メトロ|阪急|阪神|京阪|近鉄|南海|泉北|西日本|線)[^\n]{0,18}?駅[^\n]{0,10}?(?:徒歩|バス)[^\n]{0,6})"],
@@ -81,8 +89,32 @@ RULES: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------- 文本读取
+#: v1.9.74 血训：这批 REINS 概要書的文字层里混着 **康熙部首**（U+2F00-U+2FDF）
+#: 和 CJK 部首补充（U+2E80-U+2EFF）字符 —— 看上去和汉字一样，码位却不是汉字。
+#: 实测 `300140844388.pdf` 里写的是「⼤阪市淀川区東三国6丁⽬22-13」（⼤=U+2F24、⽬=U+2F6C），
+#: 于是所有以正常汉字书写的规则（大阪市 / 用途地域 / 専有面積 / 管理費 …）**全部失配**。
+#: 归一化只动这两个部首区（NFKC 还原成对应汉字），其余字符（㎡、全角括号…）一律不碰
+#: → 对既有规则零副作用（实测 250 份：字段总产出 +0.6%，但个别房源由「全空」变「可抽」）。
+_RAD_LO, _RAD_HI = 0x2E80, 0x2FDF
+
+
+def normalize_radicals(text: str) -> str:
+    """把文字层里的「部首形汉字」还原成正常汉字（逐字符、最小侵入）。"""
+    if not text:
+        return text
+    import unicodedata                       # noqa: PLC0415
+    out: list[str] = []
+    for ch in text:
+        if _RAD_LO <= ord(ch) <= _RAD_HI:
+            nf = unicodedata.normalize("NFKC", ch)
+            out.append(nf if nf != ch else ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def text_of(pdf_path: str | Path) -> str:
-    """读 PDF 文字层全文并做轻清洗（横向空白折叠）。扫描件返回 ''（交给 L2 OCR）。"""
+    """读 PDF 文字层全文并做轻清洗（横向空白折叠 + 部首归一）。扫描件返回 ''（交给 L2 OCR）。"""
     try:
         import pymupdf                       # noqa: PLC0415
     except ImportError as e:                 # pragma: no cover
@@ -92,7 +124,7 @@ def text_of(pdf_path: str | Path) -> str:
         parts = [page.get_text("text") or "" for page in doc]
     finally:
         doc.close()
-    return re.sub(r"[ \t]+", " ", "\n".join(parts)).strip()
+    return normalize_radicals(re.sub(r"[ \t]+", " ", "\n".join(parts)).strip())
 
 
 # ---------------------------------------------------------------- 模糊认定（勇哥拍板口径）
@@ -182,21 +214,91 @@ SPECIAL_VALUES: dict[str, set[str]] = {
 }
 
 
+# ---------------------------------------------------------------- 取值闸门（v1.9.74）
+#: REINS 概要書的字段名清单（用来挡掉「正则吃到了下一行的标签」这类错值）。
+_LABELS: frozenset[str] = frozenset("""
+物件番号 物件種目 物件種別 物件種別補足 物件名 物件名称 建物名 建物名称 所在地 物件所在地 区 公開状況
+価格 販売価格 単価 最寄駅 間取り 専有面積 土地面積 建物面積 バルコニー 所在階 地上階数 築年月 築年
+構造 総戸数 用途地域 管理費 積立金 その他 管理組合 管理体制 現況 現況詳細 契約形態 建物引渡 駐車場
+設備 設備・条件 取引形態 報酬形態 手数料 広告 担当者 担当者連絡先 会社住所 登録日 変更日 初回確認日
+最終確認日 写真有無 間取図有無 地図有無 物件コメント 注意事項 共用施設 権利形態 前面道路 セキュリティ
+エレベーター 建蔽率 容積率 地目 名称 交通 沿線 賃料 敷金 礼金 管理費等 修繕積立金 引渡 権利 土地権利
+価 格 販売 万円 円 専有面積（㎡） バルコニー方向 リフォーム履歴
+""".split())
+
+_RE_ADDR_NUM = r"[\d０-９一二三四五六七八九十]"
+_RE_ADDR_UNIT = r"丁目|番|号|[\d０-９][\-－]|[\d０-９]－"
+_RE_ADDR_SENTENCE = r"です|ます|でした|の物件|掲載|おすすめ|位置する|利便性|備え|周辺|アクセス|から徒歩|駅より"
+_RE_NAME_SENTENCE = r"です|ます|掲載|おります|となります|ください|について|に関して|記載|案内日時"
+
+
+def _norm_gate(v: str) -> str:
+    import unicodedata                       # noqa: PLC0415
+    return unicodedata.normalize("NFKC", v or "").replace(" ", "").replace("　", "")
+
+
+def valid_addr(v: str) -> bool:
+    """地址闸门：必须含「区」、含门牌数字/丁目/番/号，且不是散文句/金额。"""
+    s = _norm_gate(v).strip("：:・●○■□")
+    if "区" not in s or not re.search(_RE_ADDR_NUM, s):
+        return False
+    if not re.search(_RE_ADDR_UNIT, s):
+        return False
+    if re.search(_RE_ADDR_SENTENCE, s) or "㎡" in s or "万円" in s:
+        return False
+    return 5 <= len(s) <= 40
+
+
+def valid_name(v: str) -> bool:
+    """物业名称闸门：挡掉「别的字段名」「散文句」「纯数字」「带号室」等明显错值。"""
+    s = _norm_gate(v).strip("：:・●○■□")
+    if not s or s in _LABELS or s in ("-", "－", "なし"):
+        return False
+    if not (3 <= len(s) <= 40):
+        return False
+    if re.search(_RE_NAME_SENTENCE, s) or re.search(r"万円|円/|㎡|%|徒歩", s):
+        return False
+    if re.fullmatch(r"[\d\-\s/.,]+", s):
+        return False
+    if re.search(r"号室|\d{3,}号$", s):
+        return False
+    if "区" in s and re.search(r"丁目|番地|号室", s):      # 那是地址不是楼名
+        return False
+    return True
+
+
+#: 逐列取值闸门：命中后还要过闸门才算数（没有登记的列 = 保持原「首个匹配即取」行为）
+VALIDATORS: dict[str, Any] = {"所在地": valid_addr, "物件名": valid_name}
+
+
 # ---------------------------------------------------------------- 主入口
 def extract(text: str) -> dict[str, str]:
-    """规则提取：返回 {列名: 原始值}（**未校验**，校验交给 core.ai_quality）。"""
+    """规则提取：返回 {列名: 原始值}（**未校验**，校验交给 core.ai_quality）。
+
+    v1.9.74：新增逐列「取值闸门」（VALIDATORS）——同一正则的多次命中里，
+    取第一个过闸门的；全不过则视为没抽到（宁缺勿错，配合页面「空值不显示」）。
+    """
     out: dict[str, str] = {}
     if not text or len(text) < 40:          # 太薄 = 扫描件，走 OCR 更有效
         return out
+    text = normalize_radicals(text)         # 双保险：调用方直接传原始文字层也能吃到归一
     for col, pats in RULES.items():
+        gate = VALIDATORS.get(col)
+        got = ""
         for p in pats:
-            m = re.search(p, text)
-            if m:
+            for m in re.finditer(p, text):
                 v = m.group(1).strip(" 　:：・")
                 v = re.sub(r"\s+", " ", v)
-                if v and len(v) <= 120:
-                    out[col] = v
-                    break
+                if not v or len(v) > 120:
+                    continue
+                if gate is not None and not gate(v):
+                    continue
+                got = v
+                break
+            if got:
+                break
+        if got:
+            out[col] = got
     return out
 
 

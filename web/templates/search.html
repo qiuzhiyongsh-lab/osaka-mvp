@@ -1604,14 +1604,22 @@ function renderRows(rows){
      ④ 地址为空 → **不显示**该入口（不渲染 span，避免点了个空链接）
    所以这里只输出 data-gmap 属性，不写 inline onclick（外部数据不进 JS 字符串）。 */
 function qtHtml(r){
+  /* v1.9.74（勇哥 2026-09-24 反馈「五处都没有」）：地址缺失时用**物业名称**兜底做地图入口。
+     实测根因：勇哥点的那条 300140844388 正好是「有建物名、无所在地」的房源（主库 address 为空，
+     约占 4.6%），旧逻辑对空地址整条不渲染 → 在他眼里就是"全都没了"。
+     现在：有地址 → 地址可点；无地址但有楼名 → 楼名可点（拿楼名查）；两者都无才不渲染
+     （保住勇哥第④条「空值不显示」的本意：不留一个点了没反应的死链）。 */
+  function mapSpan(v){
+    return '<span class="qt-gmap" data-gmap="' + esc(v) + '"'
+         + ' title="' + esc(t('detail.gmap_search')) + '：' + esc(v) + '">'
+         + esc(v) + '</span>';
+  }
   var out = '';
   if(r.address){
-    out += '<span class="qt-gmap" data-gmap="' + esc(r.address) + '"'
-         + ' title="' + esc(t('detail.gmap_search')) + '：' + esc(r.address) + '">'
-         + esc(r.address) + '</span>';
-  }
-  if(r.building_name){
-    out += (r.address ? ' · ' : '') + esc(r.building_name);
+    out += mapSpan(r.address);
+    if(r.building_name){ out += ' · ' + esc(r.building_name); }
+  } else if(r.building_name){
+    out += mapSpan(r.building_name);
   }
   return out;
 }
