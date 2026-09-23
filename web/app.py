@@ -713,6 +713,37 @@ def _is_agency(k):
     return bool(_re.search(r"取扱|担当|仲介|電話|メール|取引", k or ""))
 
 
+def _pdf_addr_name(property_no) -> tuple[str, str]:
+    """从 AI 解读独立库取这一条的「所在地 / 物件名」，**仅供空值兜底**（v1.9.74）。
+
+    为什么需要：勇哥口径「PDF 里抽出来的名称与地址比详情页准」；而实测主库 address 为 NULL
+    的房源占 4.6%（约 222 条，其中 178 条有建物名），详情页连「所在地」这一行都不显示，
+    连带着谷歌地图按钮也一起消失（2026-09-24 勇哥截图：「五处都没有」）。
+
+    策略：调用方**只在主库值为空时**采用；主库有值绝不动（对 95% 的房源零影响）。
+    只读单行、异常一律吞掉返回空串 —— 详情页绝不能因为读 AI 库失败而 500。
+    """
+    if not property_no:
+        return "", ""
+    try:
+        rec = AI_STORE.get(property_no) or {}
+        st = rec.get("structure") or {}
+    except Exception:
+        return "", ""
+    addr = name = ""
+    for g in (st.get("groups") or []):
+        for f in (g.get("fields") or []):
+            col = f.get("col")
+            val = str(f.get("value") or "").strip()
+            if not val:
+                continue
+            if col == "所在地" and not addr:
+                addr = val
+            elif col == "物件名" and not name:
+                name = val
+    return addr, name
+
+
 def _detail_pairs(row) -> list[tuple[str, str, bool]]:
     """把一条房源整理成「标签 → 值」列表，给详情页的密集网格用（空的直接丢掉）。"""
     r = dict(row)
@@ -737,10 +768,14 @@ def _detail_pairs(row) -> list[tuple[str, str, bool]]:
         return (f"{n:,} 円/{per}" if n < 10000
                 else f"{n / 10000:,.1f} 万円/{per}")
 
+    # v1.9.74（勇哥 2026-09-24）：主库 address / building_name 为空 → 用 PDF 抽取结果兜底。
+    # 「所在地」这一行因此不再是"空地址就整行消失"，地图按钮也就不会再丢。
+    _pdf_addr, _pdf_name = _pdf_addr_name(r.get("property_no"))
     pairs = [
         ("物件番号", r.get("property_no"), False), ("種別", r.get("kind"), False),
         ("物件種目", r.get("property_subtype"), False), ("所在区", r.get("ward"), False),
-        ("所在地", r.get("address"), False), ("建物名", r.get("building_name"), False),
+        ("所在地", r.get("address") or _pdf_addr, False),
+        ("建物名", r.get("building_name") or _pdf_name, False),
         ("沿線・駅", r.get("line_station"), False),
         ("価格", wan(r.get("price")), False), ("前回価格", wan(r.get("previous_price")), False),
         ("㎡単価", unit(r.get("unit_price_sqm")), False),

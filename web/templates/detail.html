@@ -10,9 +10,19 @@
 <!-- ① 顶部：一行看完的关键信息 + 操作（v1.2.0：核心四项＝位置 / 名称 / 价格 / 面积） -->
 {% set _a = row.exclusive_area or row.land_area or row.building_area %}
 {% set _area = (_a ~ ' ㎡') if _a else '' %}
+{# v1.9.74（勇哥 2026-09-24 截图反馈）：页头出现字面量「None · エンゼルハイム東三国」。
+   原因：`{{ row.address }}` 在 address 为 NULL 时被 Jinja 渲染成字符串 "None"。
+   统一改为**从 pairs 取有效值**（pairs 里 所在地/建物名 已含 PDF 空值兜底，见 app.py::_detail_pairs），
+   标题与下方地图按钮共用同一份，只扫一遍 pairs。地址与楼名都取不到才回落到物件番号。 #}
+{% set _gmap = namespace(addr='', name='', q='') %}
+{% for _gl, _gv, _ga in pairs %}
+  {% if _gl in ('所在地', '住所') and _gv and not _gmap.addr %}{% set _gmap.addr = _gv %}{% endif %}
+  {% if _gl in ('建物名', '物件名') and _gv and not _gmap.name %}{% set _gmap.name = _gv %}{% endif %}
+{% endfor %}
+{% set _gmap.q = _gmap.addr or _gmap.name %}
 <div class="card">
   <div class="dpage-head">
-    <h2>{{ row.address }}{% if row.building_name %} · {{ row.building_name }}{% endif %}</h2>
+    <h2>{{ (_gmap.addr ~ (' · ' if (_gmap.addr and _gmap.name) else '') ~ _gmap.name) or row.property_no }}</h2>
     {% if row.previous_price and row.price and row.previous_price != row.price %}
       {% set _up = row.price > row.previous_price %}
       {% set _arrow = '↑' if _up else '↓' %}
@@ -104,18 +114,16 @@
      为什么必须兜底：实测勇哥点的那条 300140844388 主库 address 为空（_detail_pairs 会把空值整行丢掉
      → 页面上**没有「所在地」这一行**），而「建物名」有值。旧条件要求地址非空 → 两个按钮都不渲染。
      现在：有地址用地址、没地址用建物名，两者都无才不渲染（保住「空值不显示」的本意）。 #}
-  {% set _gmap = namespace(q='') %}
-  {% for _gl, _gv, _ga in pairs %}
-    {% if _gl in ('所在地', '住所') and _gv and not _gmap.q %}{% set _gmap.q = _gv %}{% endif %}
-    {% if _gl == '建物名' and _gv and not _gmap.q %}{% set _gmap.q = _gv %}{% endif %}
-  {% endfor %}
+  {# v1.9.74：`_gmap`（addr / name / q）已上移到页头处统一计算，页头标题与这里的地图按钮共用，
+     避免同一份逻辑写两遍出现口径漂移。 #}
   <div class="dinfo">
     {% for label, value, agency in pairs %}
     <!-- v1.9.0：物件番号位置 ③ —— 「详细信息」表里的 物件番号 行，值后面紧跟番号検索按钮。
          判定用「值 == 本页番号」而不是比中文标签，换语言也不会失效。 -->
     {# v1.9.72（勇哥 2026-09-24）：「所在地」「建物名」的值后面也挂一个「谷歌地图查询」，
        样式与上面物件番号的 REINS 検索按钮同款（.qbtn.qbtn-gmap，事件委托见 fieldmap.js）。
-       ⚠ 两个按钮**都用该房源的地址**去查 —— 建物名不是地址，拿去查谷歌地图毫无意义。 #}
+       查询词优先用**地址**（含 PDF 兜底）；地址完全取不到时才退到建物名
+       —— 拿楼名查地图不精确，但总比一个按钮都不显示强（勇哥 2026-09-24「五处都没有」）。 #}
     <div class="df"{% if agency %} data-agency="1"{% endif %}><span class="dk">{{ label }}</span><span class="dv">{{ value }}{% if row.property_no and value and value == row.property_no %} <a class="qbtn qbtn-reins" href="javascript:void(0)" data-bukken="{{ row.property_no }}" data-i18n="detail.reins_search">REINS 物件番号検索</a>{% endif %}{% if label in ('所在地', '建物名') and _gmap.q %}<a class="qbtn qbtn-gmap" href="javascript:void(0)" data-gmap="{{ _gmap.q }}" data-i18n="detail.gmap_search">谷歌地图查询</a>{% endif %}</span></div>
     {% endfor %}
   </div>
@@ -204,8 +212,11 @@
      ② 「去对比」等凑够 2 套再进对比页。按钮上永远写着当前已选几套。
    ------------------------------------------------------------------ */
 var CUR_NO    = {{ row.property_no|tojson }};
-var CUR_ADDR  = {{ row.address|tojson }};
-var CUR_NAME  = {{ (row.building_name or '')|tojson }};
+/* v1.9.74：改用**页面有效值**（已含 PDF 空值兜底），不再直读 row.address
+   —— 旧写法在 address 为 NULL 时会把 null 带进对比篮，且 PDF 区按钮拿不到地址。
+   地址栏、对比篮、PDF 区「建物名」列的查询词三处共用，口径一致。 */
+var CUR_ADDR  = {{ _gmap.addr|tojson }};
+var CUR_NAME  = {{ _gmap.name|tojson }};
 var CUR_WARD  = {{ (row.ward or '')|tojson }};
 var CUR_AREA  = {{ _area|tojson }};
 var CUR_PRICE = {{ (row.price or 0)|int }};
