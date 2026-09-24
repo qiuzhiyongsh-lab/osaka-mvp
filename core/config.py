@@ -23,7 +23,7 @@ _DEFAULTS: dict[str, Any] = {
         "enabled": False, "mode": "interval", "interval_hours": 2,
         "random_min_hours": 1, "random_max_hours": 3,
         "timezone": "Asia/Tokyo",
-        "window": {"start": "07:00", "end": "22:00"}, "run_on_start": False,
+        "window": {"start": "07:00", "end": "23:00"}, "run_on_start": False,
     },
     # v1.9.26 · PRD 25：两节**带默认值** → 老机器升级后不用手改 config.yaml 也能跑
     "local_extract": {

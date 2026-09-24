@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""导出：① 当天 Excel ② 当天 HTML 页（可离线看，解决 22:00 后 REINS 打不开）"""
+"""导出：① 当天 Excel ② 当天 HTML 页（可离线看，解决 23:00 后 REINS 打不开）"""
 from __future__ import annotations
 
 import html

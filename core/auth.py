@@ -45,7 +45,7 @@ def friendly_error(e: BaseException) -> str:
         return "登录域名解析失败（DNS）。请检查网络后重试。"
     if "Timeout" in msg or "timeout" in msg:
         return ("页面加载超时——可能是网络慢，或站点正在维护"
-                "（REINS 维护时段：日本时间 22:00–次日 07:00）。")
+                "（REINS 维护时段：日本时间 23:00–次日 07:00）。")
     if "net::ERR" in msg:
         code = msg.split("net::", 1)[-1].strip()
         return f"浏览器打开登录页失败（{code}）。请检查网络后重试。"

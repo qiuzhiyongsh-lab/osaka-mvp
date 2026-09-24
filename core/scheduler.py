@@ -7,7 +7,7 @@
 
 三种方式跑的是**同一套抓取管道**，只是"什么时候触发"不同。
 只在 schedule.window 内执行；window 与维护时段一律以**日本时间**为准（schedule.timezone，默认 Asia/Tokyo）。
-REINS 日本时间 22:00–次日 07:00 是维护时段（非运行时段），故默认运行窗口为白天 07:00–22:00。
+REINS 日本时间 23:00–次日 07:00 是维护时段（非运行时段），故默认运行窗口为白天 07:00–23:00。
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _tz_offset_hours(cfg: dict) -> int:
     """schedule.timezone 解析：默认日本时间(UTC+9)。
 
     本机若在中国时间(UTC+8)而配置写的是日本时间，曾经会差 1 小时，
-    导致 22:00 维护被当成 23:00、白天窗口被整体平移。统一从这里取偏移。
+    导致 23:00 维护被当成次日 00:00、白天窗口被整体平移 1 小时。统一从这里取偏移。
     """
     tz = (cfg.get("schedule", {}) or {}).get("timezone", "Asia/Tokyo")
     if isinstance(tz, (int, float)):
@@ -135,7 +135,7 @@ class Scheduler:
         lo, hi = self._rand_minutes()
         core = f"随机间隔 {_fmt_min(lo)}–{_fmt_min(hi)} 分钟"
         w = s.get("window", {}) or {}
-        return f"{core}（日本时间 {w.get('start','07:00')}–{w.get('end','22:00')} 内）"
+        return f"{core}（日本时间 {w.get('start','07:00')}–{w.get('end','23:00')} 内）"
 
     @property
     def paused(self) -> bool:

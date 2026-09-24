@@ -11,7 +11,7 @@ schedule:
   timezone: Asia/Tokyo
   window:
     start: 07:00
-    end: '22:00'
+    end: '23:00'
   run_on_start: false
   random_min_minutes: 55.0
   random_max_minutes: 70.0

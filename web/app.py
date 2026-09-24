@@ -2776,7 +2776,7 @@ def api_schedule():
                 pass
     if "window" in body and isinstance(body["window"], dict):
         s["window"] = {"start": body["window"].get("start", "07:00"),
-                       "end": body["window"].get("end", "22:00")}
+                       "end": body["window"].get("end", "23:00")}
     if "enabled" in body:
         s["enabled"] = bool(body["enabled"])
     cfgmod.save(cfg)
