@@ -119,6 +119,32 @@ def _ensure_state(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE publish_state ADD COLUMN last_ai_error TEXT")
     except Exception:
         pass
+    # v1.9.78 F1：推送审计表 —— 每批推送落一条，可反推任一批次推了哪些、漏了哪些。
+    #   纯新增写，不改现有 SELECT/POST 逻辑；回滚不影响旧数据。
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS publish_audit ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  started_at TEXT,"
+        "  finished_at TEXT,"
+        "  mode TEXT,"
+        "  watermark_before TEXT,"
+        "  watermark_after TEXT,"
+        "  selected_count INTEGER DEFAULT 0,"
+        "  sent_count INTEGER DEFAULT 0,"
+        "  confirmed_count INTEGER DEFAULT 0,"
+        "  missing_count INTEGER DEFAULT 0,"
+        "  missing_nos TEXT,"
+        "  endpoint TEXT,"
+        "  ok INTEGER DEFAULT 0,"
+        "  errors TEXT,"
+        "  elapsed_s REAL"
+        ")"
+    )
+    # v1.9.78 F2：待补推的缺口号（下一批增量 UNION 强制补推），逗号分隔。
+    try:
+        con.execute("ALTER TABLE publish_state ADD COLUMN pending_nos TEXT")
+    except Exception:
+        pass
     con.commit()
 
 
@@ -142,22 +168,24 @@ def get_state(con: sqlite3.Connection) -> dict:
 
 def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
               last_mode=None, last_endpoint=None, last_error=None,
-              last_ai_at=None, last_ai_error=None) -> None:
+              last_ai_at=None, last_ai_error=None, pending_nos=None) -> None:
     _ensure_state(con)
     cur = get_state(con)
     # last_error=None 即「清空」（所有调用方：成功/无行传 None 清、失败传字符串设）；
     #   ⚠ 旧实现用 `last_error if not None else cur["last_error"]` 把 None 当「保留」，
     #   导致成功分支永远清不掉错误 → 陈旧 502 赖在 last_error 不走的真 bug，已修正。
     # 失败(resolved last_error 非 None)→记当前时间；成功/清空→置 None（与 last_error 同生命周期）
+    #   v1.9.78 F2：pending_nos 同理 —— None=保留当前值，传 "" 显式清空，传非空串=覆盖。
     _error_at = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                  ) if last_error else None
     con.execute(
-        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at,last_ai_at,last_ai_error)"
-        " VALUES (1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+        "INSERT INTO publish_state (id,last_at,last_count,last_mode,last_endpoint,last_error,last_error_at,last_ai_at,last_ai_error,pending_nos)"
+        " VALUES (1,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
         " last_at=excluded.last_at, last_count=excluded.last_count,"
         " last_mode=excluded.last_mode, last_endpoint=excluded.last_endpoint,"
         " last_error=excluded.last_error, last_error_at=excluded.last_error_at,"
-        " last_ai_at=excluded.last_ai_at, last_ai_error=excluded.last_ai_error",
+        " last_ai_at=excluded.last_ai_at, last_ai_error=excluded.last_ai_error,"
+        " pending_nos=excluded.pending_nos",
         (last_at if last_at is not None else cur["last_at"],
          last_count if last_count is not None else cur["last_count"],
          last_mode if last_mode is not None else cur["last_mode"],
@@ -165,7 +193,8 @@ def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
          last_error,
          _error_at,
          last_ai_at if last_ai_at is not None else cur["last_ai_at"],
-         last_ai_error if last_ai_error is not None else cur["last_ai_error"]),
+         last_ai_error if last_ai_error is not None else cur["last_ai_error"],
+         pending_nos if pending_nos is not None else (cur.get("pending_nos"))),
     )
     con.commit()
 
@@ -173,7 +202,7 @@ def set_state(con: sqlite3.Connection, *, last_at=None, last_count=None,
 # --------------------------------------------------------------------------
 # 取数据
 # --------------------------------------------------------------------------
-def _scope_where(cfg: dict, mode: str, watermark: str | None):
+def _scope_where(cfg: dict, mode: str, watermark: str | None, pending_nos=None):
     """返回 (where_sql, args)。mode='full' 取全范围；mode='incr' 只取水位线之后的。
 
     v1.9.9 新增：date_from / date_to（日期段筛选，替代/补充旧的 month_scope）。
@@ -181,6 +210,8 @@ def _scope_where(cfg: dict, mode: str, watermark: str | None):
         · download —— COALESCE(last_seen_at, first_seen_at)（本地下载日）
         · platform —— COALESCE(chg_date_iso, reg_date_iso)（平台登録/変更日）
       date_to 若只给日期(YYYY-MM-DD) 自动补到当天 23:59:59，闭区间更直观。
+    v1.9.78 F2：incr 模式额外 UNION `pending_nos`（上批缺口，强制补推），
+      故增量部分用 `(col>wm OR no IN (...))` 而非 AND。
     """
     pub = (cfg.get("publish") or {})
     month = str(pub.get("month_scope") or "").strip()      # 例：2026-09（旧，兼容）
@@ -209,24 +240,42 @@ def _scope_where(cfg: dict, mode: str, watermark: str | None):
             dt = date_to + " 23:59:59"
         where.append(col + " <= ?")
         args.append(dt)
+    # 增量部分：水位线之后「又被看到过」的行，或上批待补推的缺口号（F2 强制补推）。
+    #   用括号 OR 包住，避免与上面的月份/日期段 AND 关系错误。
+    incr_parts = []
     if mode == "incr" and watermark:
-        # 水位线之后「又被看到过」的行 → 增量
-        where.append("COALESCE(last_seen_at,first_seen_at) > ?")
+        incr_parts.append("COALESCE(last_seen_at,first_seen_at) > ?")
         args.append(watermark)
+    if pending_nos:
+        ph = ",".join("?" for _ in pending_nos)
+        incr_parts.append("property_no IN (%s)" % ph)
+        args += list(pending_nos)
+    if incr_parts:
+        where.append("(" + " OR ".join(incr_parts) + ")")
     return (" AND ".join(where) if where else "1=1"), args
 
 
 def build_rows(con: sqlite3.Connection, cfg: dict, mode: str = "full",
-               log=None) -> tuple[list[dict], str | None]:
-    """从本地库取出要上传的行（已映射成线上列名）。返回 (rows, 本次水位线)。"""
+               log=None) -> tuple[list[dict], str | None, str | None]:
+    """从本地库取出要上传的行（已映射成线上列名）。
+
+    v1.9.78 返回三元组 (rows, wall_wm, data_wm)：
+      · wall_wm = 进入发布时的墙钟时间（仅日志/兼容用，不再作水位线）
+      · data_wm = 选中行 max(COALESCE(last_seen_at, first_seen_at))，即「本批数据水位线」，
+        供 F2 对账窗口与 F3 水位线前进使用。
+    """
     say = log or (lambda *_a, **_k: None)
     state = get_state(con)
-    where, args = _scope_where(cfg, mode, state.get("last_at"))
+    # v1.9.78 F2：读取上批遗留的待补推缺口号（逗号分隔），本批强制 UNION 进增量。
+    pending_raw = (state.get("pending_nos") or "").strip()
+    pending_nos = [p for p in pending_raw.split(",") if p] if pending_raw else []
+    where, args = _scope_where(cfg, mode, state.get("last_at"), pending_nos=pending_nos)
     # v1.9.77 F6：价格异常熔断 —— 被挂起（price_hold=1）的房源不自动推送，
     #   等勇哥在 pending_decisions 裁决后解除。COALESCE 兼容老库无此列的情况。
     where = "(" + where + ") AND COALESCE(price_hold,0)=0"
     cols = [c for c, _ in FIELD_MAP]
-    sql = ("SELECT " + ",".join(cols) + " FROM properties WHERE " + where +
+    # v1.9.78 F3：额外取 first_seen_at（别名 _fs）仅用于计算数据水位线，不进上传 payload。
+    sql = ("SELECT " + ",".join(cols) + ", first_seen_at AS _fs FROM properties WHERE " + where +
            " ORDER BY COALESCE(last_seen_at,first_seen_at)")
     con.row_factory = sqlite3.Row
     raw = list(con.execute(sql, args))
@@ -246,11 +295,20 @@ def build_rows(con: sqlite3.Connection, cfg: dict, mode: str = "full",
         for _k in NEVER_UPLOAD:
             out.pop(_k, None)
         rows.append(out)
-    watermark = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    say("· 待上传 %d 行（口径：%s月份=%s / 模式=%s）"
+    # v1.9.78 F3：数据水位线 = 选中行 max(COALESCE(last_seen_at, first_seen_at))。
+    #   竞态下某行 last_seen 落在 (wm_before, data_wm] 却未进本次 SELECT 快照时，
+    #   也会被 F2 的窗口重查捕获并补推；data_wm 取代墙钟，从根上避免水位线前移吞数据。
+    data_wm = None
+    for r in raw:
+        v = r["last_seen_at"] or r["_fs"]
+        if v and (data_wm is None or v > data_wm):
+            data_wm = v
+    wall_wm = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    say("· 待上传 %d 行（口径：%s月份=%s / 模式=%s%s）"
         % (len(rows), (cfg.get("publish") or {}).get("scope_caliber", "download"),
-           (cfg.get("publish") or {}).get("month_scope") or "全部", mode))
-    return rows, watermark
+           (cfg.get("publish") or {}).get("month_scope") or "全部", mode,
+           (" / 含补推 %d" % len(pending_nos)) if pending_nos else ""))
+    return rows, wall_wm, data_wm
 
 
 # --------------------------------------------------------------------------
@@ -285,6 +343,8 @@ def post_rows(cfg: dict, rows: list[dict], log=None) -> dict:
         return {"ok": False, "errors": ["没有配置线上地址（publish.endpoint）"]}
     url = endpoint.rstrip("/") + "/api/ingest"
     sent, upserted, errors = 0, 0, []
+    sent_nos: list = []          # v1.9.78 F2：本地已发送 property_no（降级确认集合）
+    confirmed_list: list = []    # v1.9.78 F2：线上真实确认 property_no（协同升级后）
     total = len(rows)
     for i in range(0, total, BATCH):
         chunk = rows[i:i + BATCH]
@@ -300,10 +360,19 @@ def post_rows(cfg: dict, rows: list[dict], log=None) -> dict:
             errors.append(str(res.get("error") or res)[:200])
             break
         sent += len(chunk)
+        sent_nos += [r.get("property_no") for r in chunk]
         upserted += int(res.get("upserted") or 0)
+        # v1.9.78 R1：线上若协同升级返回 `upserted_nos`（实际落库的号），
+        #   则采信线上真实确认集合；否则保持空，最后降级用本地 sent_nos
+        #   （足以发现 SELECT→POST 中断、批次 break 等真问题，但发现不了「线上收了没落库」）。
+        if res.get("upserted_nos"):
+            confirmed_list += list(res.get("upserted_nos"))
         say("  ↑ 已推送 %d/%d（线上确认 %s）" % (sent, total, res.get("upserted")))
+    # v1.9.78 F2：confirmed_nos 优先用线上真实确认（协同后），否则用本地已发送（降级）。
+    confirmed_nos = confirmed_list if confirmed_list else sent_nos
     return {"ok": not errors and sent == total, "sent": sent,
-            "upserted": upserted, "total": total, "errors": errors, "url": url}
+            "upserted": upserted, "total": total, "errors": errors, "url": url,
+            "sent_nos": sent_nos, "confirmed_nos": confirmed_nos}
 
 
 # --------------------------------------------------------------------------
@@ -431,8 +500,11 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
     """
     say = log or (lambda *_a, **_k: None)
     t0 = datetime.now()
+    # v1.9.78 F2/F3：进入前水位线（窗口对账下界 & 失败回退基线）
+    wm_before = get_state(con).get("last_at")
+    started_at = t0.strftime("%Y-%m-%d %H:%M:%S")
     say("▶ 开始上传到线上（%s）…" % ("增量" if mode == "incr" else "全量重传"))
-    rows, watermark = build_rows(con, cfg, mode, log=say)
+    rows, wall_wm, data_wm = build_rows(con, cfg, mode, log=say)
     if not rows:
         say("· 没有需要上传的房源主数据（增量模式下很正常：这轮没有新变化）")
         set_state(con, last_error=None, last_mode=mode)
@@ -444,7 +516,9 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
         except Exception as e:                                 # noqa: BLE001
             say("⚠ 兜底数据包生成失败（不影响在线推送）：" + str(e))
         if res.get("ok"):
-            set_state(con, last_at=watermark, last_count=res["sent"],
+            # v1.9.78 F3：水位线取「本批已确认行 data_wm」，非墙钟 —— 消除竞态跳过。
+            #   R2：全部失败(sent==0)时 data_wm 可能为空，不前进水位（保持旧 last_at）。
+            set_state(con, last_at=data_wm, last_count=res["sent"],
                       last_mode=mode,
                       last_endpoint=str((cfg.get("publish") or {}).get("endpoint") or ""),
                       last_error=None)
@@ -455,11 +529,86 @@ def publish(cfg: dict, con: sqlite3.Connection, mode: str = "incr",
             set_state(con, last_error="; ".join(_errs)[:500], last_mode=mode)
             say("✗ 上传失败：" + ("; ".join(_errs) or "未知原因"))
 
+    # v1.9.78 F1+F2：审计 + 对账（无论成功/失败都落审计，不可观测是根因）
+    elapsed = round((datetime.now() - t0).total_seconds(), 1)
+    _reconcile_and_audit(con, cfg, say, mode=mode, wm_before=wm_before,
+                         rows=rows, res=res, data_wm=data_wm,
+                         started_at=started_at, elapsed=elapsed)
+
     # v1.9.38：AI 结构自动上线（独立于房源主数据分支，增量推、失败不阻断主数据）
     ai_res = _push_ai(cfg, con, log=say, force=force_ai)
-    res["elapsed_s"] = round((datetime.now() - t0).total_seconds(), 1)
+    res["elapsed_s"] = elapsed
     res["ai"] = ai_res
     return res
+
+
+# --------------------------------------------------------------------------
+# v1.9.78 F1+F2：审计 + 对账（选中 vs 确认）
+# --------------------------------------------------------------------------
+def _reconcile_and_audit(con, cfg, say, *, mode, wm_before, rows, res, data_wm,
+                         started_at, elapsed):
+    """每批推送后落 publish_audit，并做「窗口内本应覆盖 vs 线上确认」对账。
+
+    对账窗口（仅 incr 且 wm_before/data_wm 均非空）：
+      本地重查 COALESCE(last_seen_at,first_seen_at) ∈ (wm_before, data_wm] 的 property_no，
+      与 confirmed_nos（线上真实确认 / 本地已发送降级）比对；差额 = 静默缺口。
+    缺口 → 🔴 RED 告警 + 合并进 publish_state.pending_nos（下批 UNION 强制补推）。
+    不抛异常，绝不阻断主推送链路。
+    """
+    confirmed_nos = set(res.get("confirmed_nos") or [])
+    sent = int(res.get("sent") or 0)
+    selected_nos = {r.get("property_no") for r in rows if r.get("property_no")}
+    selected_count = len(rows)
+    # v1.9.78 F2：缺口 =（本批选中号 ∪ 窗口号）− 线上确认号。
+    #   ① selected_nos 差集：捕获 SELECT→POST 中断、批次 break 等「选中却没确认」的真问题，
+    #      首次推送（wm_before 为空）也能抓到；
+    #   ② win_nos 差集：额外捕获竞态下未进 SELECT 快照、但 last_seen 落在
+    #      (wm_before, data_wm] 的静默跳过行（09-24 那 32 条的同类）。
+    #   两者取并集，确保「靠 pending_nos 强制补推的行」即便 last_seen 不在窗口内也被核对。
+    missing_nos: list = sorted(selected_nos - confirmed_nos)
+    if mode == "incr" and wm_before and data_wm:
+        try:
+            win_rows = con.execute(
+                "SELECT property_no FROM properties"
+                " WHERE COALESCE(last_seen_at,first_seen_at) > ?"
+                "   AND COALESCE(last_seen_at,first_seen_at) <= ?",
+                (wm_before, data_wm)).fetchall()
+            win_nos = {r[0] for r in win_rows}
+        except Exception:                                       # noqa: BLE001
+            win_nos = set()
+        missing_nos = sorted(set(missing_nos) | (win_nos - confirmed_nos))
+    missing_count = len(missing_nos)
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # F2：缺口告警 + 写 pending_nos（仅 incr；full 下批再 full 即可，不需 pending）
+    if missing_nos and mode == "incr":
+        say("🔴 静默丢推送告警：本批窗口内 %d 条选中但未确认：%s"
+            % (missing_count, ",".join(missing_nos[:20])))
+        old = set(p for p in (get_state(con).get("pending_nos") or "").split(",") if p)
+        new_pending = sorted(old | set(missing_nos))
+        set_state(con, pending_nos=",".join(new_pending))
+    elif res.get("ok") and sent > 0 and mode == "incr":
+        # 本批成功且无缺口：清空历史 pending（说明缺口已补推完，避免无限堆积）
+        if get_state(con).get("pending_nos"):
+            set_state(con, pending_nos="")
+
+    # F1：落审计行（整批一条，可追溯选中/发送/确认/缺口）
+    try:
+        con.execute(
+            "INSERT INTO publish_audit"
+            " (started_at, finished_at, mode, watermark_before, watermark_after,"
+            "  selected_count, sent_count, confirmed_count, missing_count, missing_nos,"
+            "  endpoint, ok, errors, elapsed_s)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (started_at, now_str, mode, wm_before, data_wm,
+             selected_count, sent, len(confirmed_nos), missing_count,
+             ",".join(missing_nos) if missing_nos else None,
+             str((cfg.get("publish") or {}).get("endpoint") or ""),
+             1 if res.get("ok") else 0,
+             "; ".join(res.get("errors") or [])[:500] or None, elapsed))
+        con.commit()
+    except Exception as e:                                       # noqa: BLE001
+        say("⚠ publish_audit 写入失败（不影响推送）：%s" % e)
 
 
 def preview_scope(cfg: dict, con: sqlite3.Connection, limit: int = 5, log=None) -> dict:

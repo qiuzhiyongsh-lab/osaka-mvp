@@ -574,10 +574,18 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
         # 如实记录才不会让人误以为这轮白跑了。
         stats["scanned"] = st.get("scanned", 0)
         stats["pdf_saved"] = st.get("pdf_saved", 0)
+        # v1.9.78 F4：main_round 关（当前默认，v1.8.4 勇哥拍板）的降级分支 items 为空
+        #   → st 全 0，但本轮实际跑了「当日日期同步」（列表壳）与「阶段B 补详情」。
+        #   必须把这些真实数量回填进 stats，禁止全 0 掩盖真实抓取（PRD F4：
+        #   random 轮 scanned/fetched/new/change 全 0 即属此类）。
+        if not stats["scanned"] and date_sync_nos:
+            stats["scanned"] = len(date_sync_nos)
+        if not stats.get("fetched") and stats.get("detail_backfilled"):
+            stats["fetched"] = stats["detail_backfilled"]
         if st["fetched"]:
             stats.update({k: st[k] for k in ("fetched", "new", "changed")})
-            log(f"✓ 已入库：扫描 {st['scanned']} 条 / 落库 {st['fetched']} 条 "
-                f"/ 新盘 {st['new']} 条 / 变更 {st['changed']} 条 / PDF {st['pdf_saved']} 份")
+            log(f"✓ 已入库：扫描 {stats['scanned']} 条 / 落库 {stats['fetched']} 条 "
+                f"/ 新盘 {stats['new']} 条 / 变更 {stats['changed']} 条 / PDF {stats['pdf_saved']} 份")
         else:
             log("· 本轮没有需要新增/更新的房源（全部已在本地）")
         stats["errors"] += st["errors"]

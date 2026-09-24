@@ -9,8 +9,17 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.77"
-BUILD_AT = "2026-09-24 11:00"
+VERSION = "1.9.78"
+BUILD_AT = "2026-09-24 15:42"
+# ============================================================================
+# v1.9.78（2026-09-24 15:42 · 静默丢推送修复（F1–F4）· 写码未发布）：
+#   整合 PRD osaka_mvp_silent_push_loss_prd.md（勇哥 09-24 拍板「写代码修复，等喊发版」）：
+#   · F1 新增 publish_audit 审计表（每批落水印前/后、选中/发送/确认/缺口数、missing_nos、endpoint、ok、errors、elapsed_s）
+#   · F2 推送后「窗口内本应覆盖 vs 确认」对账，缺口打 🔴 静默丢推送告警并写 publish_state.pending_nos，下批 UNION 强制补推
+#   · F3 水位线语义修正：set_state(last_at) 取「本批已确认行 max(COALESCE(last_seen_at,first_seen_at))」而非墙钟 datetime.now()，消除并发竞态跳过
+#   · F4 runs 表进度回填：main_round 关（当前默认）的降级分支把「当日日期同步」列表数回填 scanned、「阶段B 补详情」数回填 fetched，禁止全 0 掩盖抓取
+#   · 风险 R1 协同项：线上 api_ingest 返回 upserted_nos 后 F2 升级为「线上真实确认」对账（未协同前降级用本地已发送集合，仍能捕获 SELECT→POST 中断与竞态漏选）
+#   · 本地 8765 重启后生效；全程未发布（等勇哥喊「去整合发版」）。
 # ============================================================================
 # v1.9.77（2026-09-24 11:00 · PDF 串号污染修复（F1–F7）· 写码未发布）：
 #   整合 PRD osaka_mvp_pdf_mismatch_prd.md 的 F1–F7 闸门与工具（勇哥拍板「写代码修复」）：
