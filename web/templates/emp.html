@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}员工业务 · 大阪房源查询系统{% endblock %}
+{% block body %}
+<style>
+.emp-wrap{padding:16px;max-width:1080px;margin:0 auto}
+.emp-card{background:#fff;border:1px solid #e3e9f5;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(40,60,100,.04)}
+.emp-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.emp-tabs button{padding:8px 16px;border:1px solid #d4dcea;background:#f7f9fd;border-radius:8px;cursor:pointer;font-size:14px;color:#33425f}
+.emp-tabs button.on{background:#3b6fd4;color:#fff;border-color:#3b6fd4}
+.emp-panel{display:none}
+.emp-panel.on{display:block}
+.emp-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.emp-row input,.emp-row select{padding:6px 10px;border:1px solid #cfd8e8;border-radius:7px;font-size:13px}
+.emp-row .grow{flex:1;min-width:160px}
+.emp-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.emp-table th,.emp-table td{border-bottom:1px solid #eef1f6;padding:8px 10px;text-align:left;vertical-align:middle}
+.emp-table th{color:#33425f;font-weight:700;background:#f7f9fd;white-space:nowrap}
+.emp-mini{font-size:12px;color:#7a8aa5}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.tagdot{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-right:6px;border:1px solid #ccc}
+.btn.sm{padding:3px 10px;font-size:12px}
+.hint{color:#7a8aa5;font-size:13px;margin:4px 0 10px}
+.danger{color:#c0392b}
+.ok{color:#1e7e34}
+.emp-status{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:4px}
+</style>
+
+<div class="emp-wrap">
+  <div class="emp-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0" data-i18n="emp.title">员工业务</h2>
+      <div class="emp-status">
+        <span class="mini" data-i18n="emp.login_as">当前登录</span>：<b>{{ me.username }}</b>
+        {% if is_admin %}<span class="tag admin" data-i18n="emp.role_admin">管理员</span>{% endif %}
+        <span id="syncTip" class="emp-mini">…</span>
+      </div>
+    </div>
+    <p class="hint" data-i18n="emp.tip">β 线上优先：本地 8765 是离线副本，数据由线上每 60 秒自动回流（收藏 / 标签 / 客户）。</p>
+  </div>
+
+  <div class="emp-tabs">
+    <button id="tabFav" class="on" onclick="switchTab('Fav')"><span data-i18n="emp.tab_fav">收藏</span></button>
+    <button id="tabTag" onclick="switchTab('Tag')"><span data-i18n="emp.tab_tag">标签</span></button>
+    <button id="tabCust" onclick="switchTab('Cust')"><span data-i18n="emp.tab_cust">客户</span></button>
+  </div>
+
+  <!-- ===================== 收藏 ===================== -->
+  <div class="emp-panel emp-card on" id="panelFav">
+    <h3 style="margin:0 0 10px" data-i18n="emp.fav.title">我的收藏</h3>
+    <div class="emp-row">
+      <input id="favNo" class="grow" placeholder="物件番号（如 300139241123）" data-i18n-ph="emp.fav.no_ph">
+      <button class="btn primary" onclick="favAdd()"><span data-i18n="emp.fav.add">添加收藏</span></button>
+    </div>
+    <table class="emp-table">
+      <thead><tr><th data-i18n="emp.fav.no">物件番号</th><th data-i18n="emp.fav.at">收藏时间</th><th></th></tr></thead>
+      <tbody id="favBody"><tr><td colspan="3" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ===================== 标签 ===================== -->
+  <div class="emp-panel emp-card" id="panelTag">
+    <h3 style="margin:0 0 10px" data-i18n="emp.tag.title">我的标签</h3>
+    <div class="emp-row">
+      <input id="tagName" class="grow" placeholder="标签名（如 重点跟进）" data-i18n-ph="emp.tag.name_ph">
+      <input id="tagColor" type="color" value="#3b6fd4" title="颜色">
+      <button class="btn primary" onclick="tagCreate()"><span data-i18n="emp.tag.create">新建标签</span></button>
+    </div>
+    <table class="emp-table">
+      <thead><tr><th data-i18n="emp.tag.name">标签名</th><th data-i18n="emp.tag.color">颜色</th><th></th></tr></thead>
+      <tbody id="tagBody"><tr><td colspan="3" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
+    </table>
+    <hr style="margin:16px 0;border:none;border-top:1px dashed #e3e9f5">
+    <h4 style="margin:0 0 8px" data-i18n="emp.tag.bind_title">房源 ⇄ 标签</h4>
+    <div class="emp-row">
+      <input id="bindNo" class="grow" placeholder="物件番号" data-i18n-ph="emp.fav.no_ph">
+      <select id="bindTag"></select>
+      <button class="btn" onclick="tagBind(false)"><span data-i18n="emp.tag.bind">绑定</span></button>
+      <button class="btn sm" onclick="tagBind(true)"><span data-i18n="emp.tag.unbind">解绑</span></button>
+      <button class="btn sm" onclick="tagsOf()"><span data-i18n="emp.tag.of">查该房源标签</span></button>
+    </div>
+    <div id="bindResult" class="hint"></div>
+  </div>
+
+  <!-- ===================== 客户 ===================== -->
+  <div class="emp-panel emp-card" id="panelCust">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <h3 style="margin:0" data-i18n="emp.cust.title">客户管理</h3>
+      {% if is_admin %}<label class="emp-mini"><input type="checkbox" id="custAll" onchange="custLoad()"> <span data-i18n="emp.cust.scope_all">看全部（管理员）</span></label>{% endif %}
+    </div>
+    <div class="emp-row">
+      <input id="custName" class="grow" placeholder="客户名称" data-i18n-ph="emp.cust.name_ph">
+      <input id="custPhone" placeholder="手机号" data-i18n-ph="emp.cust.phone_ph">
+      <input id="custNote" class="grow" placeholder="备注" data-i18n-ph="emp.cust.note_ph">
+      <button class="btn primary" onclick="custCreate()"><span data-i18n="emp.cust.create">新建客户</span></button>
+    </div>
+    <table class="emp-table">
+      <thead><tr>
+        <th data-i18n="emp.cust.name">名称</th><th data-i18n="emp.cust.phone">手机号</th>
+        <th data-i18n="emp.cust.note">备注</th><th data-i18n="emp.cust.owner">归属</th>
+        <th data-i18n="emp.cust.at">登记时间</th><th></th>
+      </tr></thead>
+      <tbody id="custBody"><tr><td colspan="6" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="empMsg" class="hint"></div>
+</div>
+
+<script>
+function $(id){ return document.getElementById(id); }
+function msg(s, ok){ var m=$('empMsg'); m.textContent=s; m.className='hint '+(ok?'ok':'danger'); }
+function api(method, path, body){
+  return fetch(path, {method:method, credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined})
+    .then(function(r){ return r.json().catch(function(){ return {ok:false,error:'bad json'}; }); })
+    .then(function(j){ if(j && j.ok===false && j.error) msg('⚠ '+j.error, false); return j; });
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+function switchTab(name){
+  ['Fav','Tag','Cust'].forEach(function(n){
+    $('tab'+n).className = (n===name?'on':'');
+    $('panel'+n).className = 'emp-panel emp-card'+(n===name?' on':'');
+  });
+  if(name==='Fav') favLoad();
+  if(name==='Tag') tagLoad();
+  if(name==='Cust') custLoad();
+}
+
+/* ---------- 回流状态 ---------- */
+(function(){
+  var st = {{ emp_sync|tojson }};
+  var tip = $('syncTip');
+  if(!st) { tip.textContent='（状态未知）'; return; }
+  if(st.public){ tip.textContent='线上模式：本地不回流'; return; }
+  if(!st.configured){ tip.textContent='未配置 publish.endpoint/token：回流待机'; return; }
+  var s = st.state||{};
+  tip.textContent = '最后同步 '+(s.last_sync_at||'尚未')+(s.last_full_at?(' · 全量 '+s.last_full_at):'');
+})();
+
+/* ---------- 收藏 ---------- */
+function favLoad(){
+  api('GET','/api/emp/fav').then(function(j){
+    var b=$('favBody'); if(!j.ok){ b.innerHTML='<tr><td colspan="3" class="emp-mini">加载失败</td></tr>'; return; }
+    if(!j.items.length){ b.innerHTML='<tr><td colspan="3" class="emp-mini">暂无收藏</td></tr>'; return; }
+    b.innerHTML = j.items.map(function(r){
+      return '<tr><td><a class="mono" href="/p/'+encodeURIComponent(r.property_no)+'" target="_blank">'+esc(r.property_no)+'</a></td>'
+        +'<td class="emp-mini">'+esc(r.created_at||'')+'</td>'
+        +'<td><button class="btn sm" onclick="favToggle(\''+esc(r.property_no)+'\')">取消</button></td></tr>';
+    }).join('');
+  });
+}
+function favAdd(){ var no=($('favNo').value||'').trim(); if(!no){ msg('请输入物件番号',false); return; } favToggle(no, true); }
+function favToggle(no, added){
+  api('POST','/api/emp/fav/toggle',{property_no:no}).then(function(j){
+    if(j.ok){ msg(added?'已收藏':'已取消收藏', true); $('favNo').value=''; favLoad(); }
+  });
+}
+
+/* ---------- 标签 ---------- */
+function tagLoad(){
+  api('GET','/api/emp/tags').then(function(j){
+    var b=$('tagBody'); var sel=$('bindTag');
+    if(!j.ok){ b.innerHTML='<tr><td colspan="3" class="emp-mini">加载失败</td></tr>'; return; }
+    sel.innerHTML = j.items.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>'; }).join('');
+    if(!j.items.length){ b.innerHTML='<tr><td colspan="3" class="emp-mini">暂无标签</td></tr>'; return; }
+    b.innerHTML = j.items.map(function(t){
+      return '<tr><td><span class="tagdot" style="background:'+esc(t.color||'#ccc')+'"></span>'+esc(t.name)+'</td>'
+        +'<td class="mono">'+esc(t.color||'')+'</td>'
+        +'<td><button class="btn sm danger" onclick="tagDelete('+t.id+')">删除</button></td></tr>';
+    }).join('');
+  });
+}
+function tagCreate(){
+  var name=($('tagName').value||'').trim(); if(!name){ msg('请输入标签名',false); return; }
+  api('POST','/api/emp/tags',{name:name, color:$('tagColor').value}).then(function(j){
+    if(j.ok){ msg('标签已建', true); $('tagName').value=''; tagLoad(); }
+  });
+}
+function tagDelete(id){ api('DELETE','/api/emp/tags/'+id).then(function(j){ if(j.ok){ msg('已删除',true); tagLoad(); } }); }
+function tagBind(unbind){
+  var no=($('bindNo').value||'').trim(); var tid=$('bindTag').value;
+  if(!no){ msg('请输入物件番号',false); return; }
+  api('POST','/api/emp/tags/bind',{property_no:no, tag_id:parseInt(tid,10), unbind:unbind}).then(function(j){
+    if(j.ok){ msg(unbind?'已解绑':'已绑定', true); }
+  });
+}
+function tagsOf(){
+  var no=($('bindNo').value||'').trim(); if(!no){ msg('请输入物件番号',false); return; }
+  api('GET','/api/emp/tags/of?property_no='+encodeURIComponent(no)).then(function(j){
+    if(!j.ok){ $('bindResult').textContent='查询失败'; return; }
+    var names=j.items.map(function(t){ return t.name; });
+    $('bindResult').textContent = names.length ? ('该房源标签：'+names.join('、')) : '该房源暂无标签';
+  });
+}
+
+/* ---------- 客户 ---------- */
+function custLoad(){
+  var url='/api/emp/customers'+($('custAll') && $('custAll').checked?'?scope=all':'');
+  api('GET',url).then(function(j){
+    var b=$('custBody'); if(!j.ok){ b.innerHTML='<tr><td colspan="6" class="emp-mini">加载失败</td></tr>'; return; }
+    if(!j.items.length){ b.innerHTML='<tr><td colspan="6" class="emp-mini">暂无客户</td></tr>'; return; }
+    b.innerHTML = j.items.map(function(c){
+      var own = {% if is_admin %}true{% else %}(c.owner_username===undefined?true:true){% endif %};
+      var editBtns = '<button class="btn sm" onclick="custEdit('+c.id+')">编辑</button>'
+        +'<button class="btn sm danger" onclick="custDelete('+c.id+')">删除</button>'
+        +'<button class="btn sm" onclick="custBind('+c.id+')">绑房源</button>';
+      {% if is_admin %}editBtns += ' <button class="btn sm" onclick="custTransfer('+c.id+')">转移</button>';{% endif %}
+      return '<tr><td>'+esc(c.name)+'</td><td class="mono">'+esc(c.phone||'')+'</td>'
+        +'<td class="emp-mini">'+esc(c.note||'')+'</td><td class="emp-mini">'+esc(c.owner_username||'')+'</td>'
+        +'<td class="emp-mini">'+esc((c.updated_at||c.created_at||'')+'')+'</td>'
+        +'<td>'+editBtns+'</td></tr>';
+    }).join('');
+  });
+}
+function custCreate(){
+  var name=($('custName').value||'').trim(); if(!name){ msg('请输入客户名称',false); return; }
+  api('POST','/api/emp/customers',{name:name, phone:($('custPhone').value||'').trim(), note:($('custNote').value||'').trim()})
+    .then(function(j){ if(j.ok){ msg('客户已建档', true); $('custName').value=''; $('custPhone').value=''; $('custNote').value=''; custLoad(); } });
+}
+function custEdit(id){
+  var name=prompt('客户名称'); if(name===null) return;
+  var note=prompt('备注'); if(note===null) return;
+  api('PATCH','/api/emp/customers/'+id,{name:name, note:note}).then(function(j){ if(j.ok){ msg('已更新',true); custLoad(); } });
+}
+function custDelete(id){ if(!confirm('确认删除该客户（软删）？')) return;
+  api('DELETE','/api/emp/customers/'+id).then(function(j){ if(j.ok){ msg('已删除',true); custLoad(); } }); }
+function custBind(id){
+  var no=prompt('绑定物件番号'); if(!no) return;
+  api('POST','/api/emp/customers/'+id+'/bind',{property_no:no}).then(function(j){ if(j.ok){ msg('已绑定房源',true); } });
+}
+{% if is_admin %}
+function custTransfer(id){
+  var to=prompt('转移到用户名'); if(!to) return;
+  api('POST','/api/emp/customers/'+id+'/transfer',{to_username:to}).then(function(j){ if(j.ok){ msg('已转移',true); custLoad(); } });
+}
+{% endif %}
+
+/* 初次进入默认加载收藏 */
+favLoad();
+</script>
+{% endblock %}

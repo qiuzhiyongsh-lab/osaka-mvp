@@ -180,6 +180,9 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
         #   勇哥 09-25 定：每次启动后开始做，限工作时段，并在日志说明。
         #   同款幂等守卫（_RESUME_CHECKED），绝不双跑。
         _W._start_resume_check()
+        # v1.9.82 v2.0 F-4：员工业务数据回流调度线程（60s）→ 线上→本地单向回流自动跑。
+        #   此前 F-1/F-2/F-3 已上线但只能手动 API 触发；本线程把它变成常驻自动。
+        _W._start_employee_sync_loop()
 
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。

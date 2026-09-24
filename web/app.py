@@ -1338,6 +1338,8 @@ _RESIGN_LOOP_STARTED = False
 _AI_RELAY_STARTED = False
 # v1.9.82 N1：启动断点续跑自检幂等守卫（同上，绝不双跑）
 _RESUME_CHECKED = False
+# v1.9.82 v2.0 F-4：员工业务数据回流调度线程幂等守卫（同上，绝不双跑）
+_EMP_SYNC_STARTED = False
 
 _AI_RELAY_COLS = ["property_no", "structure_json", "radar_json", "conclusion",
                   "anomaly_json", "overall", "edited", "source_file", "source_row",
@@ -1570,6 +1572,57 @@ def _start_resume_check():
     threading.Thread(target=lambda: (time.sleep(3), _run()),
                      daemon=True, name="resume-check").start()
     log("[断点续跑] 启动自检已挂起（后台线程，检测到中断轮次且在工作时段内将自动续跑）")
+
+
+def _start_employee_sync_loop(poll_seconds: int = 60):
+    """v1.9.82 v2.0 · F-4：员工业务数据回流调度线程（60s 轮询）。
+
+    调用 core.employee_data_sync.sync_once（线上→本地**单向**回流内核）。
+    β 拓扑（勇哥 09-23 拍板）：员工主 workspace = 线上站，本地 8765 是离线副本，
+    所以这里**只拉不推**；sync_once 内部已处理「增量/全量对账 + 差量删除 + 回溯窗口」。
+
+    F-1 接口隔离 / F-2 幂等 DDL / F-3 回流内核 已上线（v1.9.69/70），
+    **本线程是把"内核"真正按节奏跑起来的最后一公里**——此前员工数据只能手动 API 触发回流，
+    员工在线上产生的收藏/标签/客户不会自动落到本地 8765。
+
+    ⚠ 设计要点（与既有常驻线程同款纪律）：
+      · 后台 daemon 线程，绝不阻塞 Flask 启动（否则 start_mvp 后打不开页面）。
+      · 幂等守卫 _EMP_SYNC_STARTED：serve.py 与 __main__ 两条启动路径谁先到谁生效，绝不双跑。
+      · 线上（OSAKA_PUBLIC=1）绝不启动（serve.py 已用 `if not _W.PUBLIC` 包住；
+        sync_once 内部 is_public() 也再挡一道）。
+      · 未配置 publish.endpoint / ingest_token 时静默待机，每 ~10 分钟提示一次（不刷屏）；
+        sync_once 自身对"实际发生同步"已打明细日志。
+    """
+    global _EMP_SYNC_STARTED
+    if _EMP_SYNC_STARTED:
+        return
+    _EMP_SYNC_STARTED = True
+
+    def _run() -> None:
+        import time as _t
+        try:
+            import core.employee_data_sync as emp_sync
+        except Exception as e:                                # noqa: BLE001
+            log(f"· 员工回流线程跳过（import employee_data_sync 失败）：{type(e).__name__}: {e}")
+            return
+        _t.sleep(5)                                            # 让开几秒，等服务与账号同步先跑
+        _last_cfg_log = 0.0
+        while True:
+            try:
+                res = emp_sync.sync_once(log=log)
+                _reason = str(res.get("reason") or "")
+                if res.get("skipped") and "未配置" in _reason:
+                    # 未配置 → 静默待机，每 ~10 分钟提示一次，避免刷屏。
+                    _now_ts = _t.time()
+                    if _now_ts - _last_cfg_log > 600:
+                        log("[员工回流] 未配置 publish.endpoint/token，回流线程待机（配置后自动生效）")
+                        _last_cfg_log = _now_ts
+            except Exception as e:                            # noqa: BLE001
+                log(f"✗ 员工回流线程异常：{type(e).__name__}: {e}")
+            _t.sleep(poll_seconds)
+
+    threading.Thread(target=_run, daemon=True, name="emp-sync").start()
+    log("[员工回流] 60s 回流调度线程已启动（线上→本地单向；v1.9.82 v2.0 F-4）")
 
 
 def _start_ai_relay_loop(poll_seconds: int = 2):
@@ -3175,9 +3228,27 @@ def staff_page():
     return render_template("staff.html", me=me, sync=acc_sync.status(CFG))
 
 
-# ============================================================
-# v1.9.13 账户与权限路由（PRD-19）
-# ============================================================
+@app.route("/emp")
+def emp():
+    """v1.9.82 v2.0 · F-5：员工业务工作台（收藏 / 标签 / 客户）。
+
+    β 拓扑（勇哥 09-23 拍板）：员工主 workspace = **线上站**，本地 8765 = 离线副本；
+    所以本页**不加入 PUBLIC_HIDDEN_PAGES**——线上员工必须能用（与 /api/emp/* 同源，
+    否则会出现"接口放通、页面 404"的半截体验）。本地 8765 同样可访问（离线副本看自己数据）。
+
+    鉴权：登录守卫。未登录 → 跳登录页（带 next=/emp）；已登录即可（员工/管理员都看得到，
+    管理员额外有"看全部客户 + 转移归属"能力，但**不能编辑他人客户**，遵循 W6）。
+    """
+    me = _current_user()
+    if not me:
+        return redirect(url_for("login_page", next="/emp"))
+    try:
+        import core.employee_data_sync as emp_sync
+        emp_sync_status = emp_sync.status()
+    except Exception:                                          # noqa: BLE001
+        emp_sync_status = {"configured": False, "public": bool(PUBLIC), "state": {}}
+    return render_template("emp.html", me=me, is_admin=(me.get("role") == acc_mod.ROLE_ADMIN),
+                           emp_sync=emp_sync_status)
 def _require_admin():
     """返回 (me, err_resp)。me 为当前管理员账户 dict；非管理员 err_resp 为 403 JSON。"""
     me = _current_user()

@@ -20,7 +20,7 @@
     'zh-TW': {
       'nav.index': '概覽', 'nav.collect': '數據抓取設定', 'nav.search': '房源查詢',
       'nav.specified': '指定日期下載', 'nav.compare': '房源對比', 'nav.account': '帳號管理',
-      'nav.files': '本地檔案', 'nav.runs': '執行日誌',
+      'nav.files': '本地檔案', 'nav.runs': '執行日誌', 'nav.emp': '員工業務',
       'badge.live': '真實抓取', 'badge.demo': '離線示範',
       'footer.local': '數據全部保存在本機：',
       'footer.window': '僅在 07:00–23:00 內自動更新（REINS 其餘時間維護）',
@@ -192,7 +192,7 @@
     'en': {
       'nav.index': 'Overview', 'nav.collect': 'Data Capture', 'nav.search': 'Search',
       'nav.specified': 'Specific-date Download', 'nav.compare': 'Compare', 'nav.account': 'Account',
-      'nav.files': 'Local Files', 'nav.runs': 'Run Logs',
+      'nav.files': 'Local Files', 'nav.runs': 'Run Logs', 'nav.emp': 'Employee',
       'badge.live': 'Live', 'badge.demo': 'Demo',
       'footer.local': 'All data stored locally:',
       'footer.window': 'Auto-update only 07:00–23:00 (REINS maintenance otherwise)',
@@ -370,7 +370,7 @@
     'ja': {
       'nav.index': '概要', 'nav.collect': 'データ取得設定', 'nav.search': '物件検索',
       'nav.specified': '指定日ダウンロード', 'nav.compare': '物件比較', 'nav.account': 'アカウント管理',
-      'nav.files': 'ローカルファイル', 'nav.runs': '実行ログ',
+      'nav.files': 'ローカルファイル', 'nav.runs': '実行ログ', 'nav.emp': '社員業務',
       'badge.live': '本番取得', 'badge.demo': 'オフライン演示',
       'footer.local': 'データはすべて本機に保存：',
       'footer.window': '自動更新は 07:00–23:00 のみ（それ以外はREINSメンテ）',
@@ -1652,6 +1652,53 @@
   // 通用：操作失败/弹窗兜底标题
   ZH['ov.act']='操作';
   DICT['zh-TW']['ov.act']='操作'; DICT['en']['ov.act']='Action'; DICT['ja']['ov.act']='操作';
+
+  /* ---------- v1.9.82 v2.0 · F-5：员工业务工作台（收藏 / 标签 / 客户）四语齐套 ----------
+     ⚠ 简体（zh-CN）走元素原文兜底即可，但这里一并列全，避免日后 JS 里 t('emp.*') 裸 key；
+     繁/英/日必须齐（否则切换语言时整页裸 key）。门禁：tools/verify_i18n_keys.py */
+  ZH['emp.title']='员工业务'; ZH['emp.login_as']='当前登录'; ZH['emp.role_admin']='管理员';
+  ZH['emp.tip']='β 线上优先：本地 8765 是离线副本，数据由线上每 60 秒自动回流（收藏 / 标签 / 客户）。';
+  ZH['emp.tab_fav']='收藏'; ZH['emp.tab_tag']='标签'; ZH['emp.tab_cust']='客户';
+  ZH['emp.fav.title']='我的收藏'; ZH['emp.fav.add']='添加收藏'; ZH['emp.fav.no']='物件番号'; ZH['emp.fav.at']='收藏时间';
+  ZH['emp.fav.no_ph']='物件番号（如 300139241123）'; ZH['emp.fav.loading']='加载中…';
+  ZH['emp.tag.title']='我的标签'; ZH['emp.tag.create']='新建标签'; ZH['emp.tag.name']='标签名'; ZH['emp.tag.color']='颜色';
+  ZH['emp.tag.bind_title']='房源 ⇄ 标签'; ZH['emp.tag.bind']='绑定'; ZH['emp.tag.unbind']='解绑'; ZH['emp.tag.of']='查该房源标签'; ZH['emp.tag.loading']='加载中…';
+  ZH['emp.tag.name_ph']='标签名（如 重点跟进）'; ZH['emp.cust.title']='客户管理'; ZH['emp.cust.scope_all']='看全部（管理员）';
+  ZH['emp.cust.create']='新建客户'; ZH['emp.cust.name']='名称'; ZH['emp.cust.phone']='手机号'; ZH['emp.cust.note']='备注'; ZH['emp.cust.owner']='归属'; ZH['emp.cust.at']='登记时间'; ZH['emp.cust.loading']='加载中…';
+  ZH['emp.cust.name_ph']='客户名称'; ZH['emp.cust.phone_ph']='手机号'; ZH['emp.cust.note_ph']='备注'; ZH['emp.loading']='加载中…';
+
+  DICT['zh-TW']['emp.title']='員工業務'; DICT['zh-TW']['emp.login_as']='目前登入'; DICT['zh-TW']['emp.role_admin']='管理員';
+  DICT['zh-TW']['emp.tip']='β 線上優先：本地 8765 是離線副本，資料由線上每 60 秒自動回流（收藏 / 標籤 / 客戶）。';
+  DICT['zh-TW']['emp.tab_fav']='收藏'; DICT['zh-TW']['emp.tab_tag']='標籤'; DICT['zh-TW']['emp.tab_cust']='客戶';
+  DICT['zh-TW']['emp.fav.title']='我的收藏'; DICT['zh-TW']['emp.fav.add']='新增收藏'; DICT['zh-TW']['emp.fav.no']='物件番號'; DICT['zh-TW']['emp.fav.at']='收藏時間';
+  DICT['zh-TW']['emp.fav.no_ph']='物件番號（如 300139241123）'; DICT['zh-TW']['emp.fav.loading']='載入中…';
+  DICT['zh-TW']['emp.tag.title']='我的標籤'; DICT['zh-TW']['emp.tag.create']='新建標籤'; DICT['zh-TW']['emp.tag.name']='標籤名'; DICT['zh-TW']['emp.tag.color']='顏色';
+  DICT['zh-TW']['emp.tag.bind_title']='房源 ⇄ 標籤'; DICT['zh-TW']['emp.tag.bind']='綁定'; DICT['zh-TW']['emp.tag.unbind']='解綁'; DICT['zh-TW']['emp.tag.of']='查該房源標籤'; DICT['zh-TW']['emp.tag.loading']='載入中…';
+  DICT['zh-TW']['emp.tag.name_ph']='標籤名（如 重點跟進）'; DICT['zh-TW']['emp.cust.title']='客戶管理'; DICT['zh-TW']['emp.cust.scope_all']='看全部（管理員）';
+  DICT['zh-TW']['emp.cust.create']='新建客戶'; DICT['zh-TW']['emp.cust.name']='名稱'; DICT['zh-TW']['emp.cust.phone']='手機號'; DICT['zh-TW']['emp.cust.note']='備註'; DICT['zh-TW']['emp.cust.owner']='歸屬'; DICT['zh-TW']['emp.cust.at']='登記時間'; DICT['zh-TW']['emp.cust.loading']='載入中…';
+  DICT['zh-TW']['emp.cust.name_ph']='客戶名稱'; DICT['zh-TW']['emp.cust.phone_ph']='手機號'; DICT['zh-TW']['emp.cust.note_ph']='備註'; DICT['zh-TW']['emp.loading']='載入中…';
+
+  DICT['en']['emp.title']='Employee workspace'; DICT['en']['emp.login_as']='Logged in as'; DICT['en']['emp.role_admin']='Admin';
+  DICT['en']['emp.tip']='β online-first: local 8765 is an offline copy; data flows back from the online site every 60s (favorites / tags / customers).';
+  DICT['en']['emp.tab_fav']='Favorites'; DICT['en']['emp.tab_tag']='Tags'; DICT['en']['emp.tab_cust']='Customers';
+  DICT['en']['emp.fav.title']='My favorites'; DICT['en']['emp.fav.add']='Add favorite'; DICT['en']['emp.fav.no']='Property no.'; DICT['en']['emp.fav.at']='Favorited at';
+  DICT['en']['emp.fav.no_ph']='Property no. (e.g. 300139241123)'; DICT['en']['emp.fav.loading']='Loading…';
+  DICT['en']['emp.tag.title']='My tags'; DICT['en']['emp.tag.create']='New tag'; DICT['en']['emp.tag.name']='Tag name'; DICT['en']['emp.tag.color']='Color';
+  DICT['en']['emp.tag.bind_title']='Property ⇄ Tag'; DICT['en']['emp.tag.bind']='Bind'; DICT['en']['emp.tag.unbind']='Unbind'; DICT['en']['emp.tag.of']='Tags of this property'; DICT['en']['emp.tag.loading']='Loading…';
+  DICT['en']['emp.tag.name_ph']='Tag name (e.g. Hot lead)'; DICT['en']['emp.cust.title']='Customer management'; DICT['en']['emp.cust.scope_all']='View all (admin)';
+  DICT['en']['emp.cust.create']='New customer'; DICT['en']['emp.cust.name']='Name'; DICT['en']['emp.cust.phone']='Phone'; DICT['en']['emp.cust.note']='Note'; DICT['en']['emp.cust.owner']='Owner'; DICT['en']['emp.cust.at']='Registered at'; DICT['en']['emp.cust.loading']='Loading…';
+  DICT['en']['emp.cust.name_ph']='Customer name'; DICT['en']['emp.cust.phone_ph']='Phone'; DICT['en']['emp.cust.note_ph']='Note'; DICT['en']['emp.loading']='Loading…';
+
+  DICT['ja']['emp.title']='社員業務'; DICT['ja']['emp.login_as']='ログイン中'; DICT['ja']['emp.role_admin']='管理者';
+  DICT['ja']['emp.tip']='β オンライン優先：ローカル 8765 はオフライン副本で、データはオンラインから60秒ごとに自動回流します（收藏 / 標籤 / 客戶）。';
+  DICT['ja']['emp.tab_fav']='收藏'; DICT['ja']['emp.tab_tag']='標籤'; DICT['ja']['emp.tab_cust']='客戶';
+  DICT['ja']['emp.fav.title']='マイ收藏'; DICT['ja']['emp.fav.add']='收藏追加'; DICT['ja']['emp.fav.no']='物件番号'; DICT['ja']['emp.fav.at']='收藏日時';
+  DICT['ja']['emp.fav.no_ph']='物件番号（例 300139241123）'; DICT['ja']['emp.fav.loading']='読み込み中…';
+  DICT['ja']['emp.tag.title']='マイ標籤'; DICT['ja']['emp.tag.create']='標籤新規'; DICT['ja']['emp.tag.name']='標籤名'; DICT['ja']['emp.tag.color']='色';
+  DICT['ja']['emp.tag.bind_title']='物件 ⇄ 標籤'; DICT['ja']['emp.tag.bind']='紐付'; DICT['ja']['emp.tag.unbind']='紐付解除'; DICT['ja']['emp.tag.of']='この物件の標籤'; DICT['ja']['emp.tag.loading']='読み込み中…';
+  DICT['ja']['emp.tag.name_ph']='標籤名（例 重点跟進）'; DICT['ja']['emp.cust.title']='客戶管理'; DICT['ja']['emp.cust.scope_all']='全部表示（管理者）';
+  DICT['ja']['emp.cust.create']='客戶新規'; DICT['ja']['emp.cust.name']='名称'; DICT['ja']['emp.cust.phone']='電話番号'; DICT['ja']['emp.cust.note']='備考'; DICT['ja']['emp.cust.owner']='归属'; DICT['ja']['emp.cust.at']='登録日時'; DICT['ja']['emp.cust.loading']='読み込み中…';
+  DICT['ja']['emp.cust.name_ph']='客戶名稱'; DICT['ja']['emp.cust.phone_ph']='電話番号'; DICT['ja']['emp.cust.note_ph']='備考'; DICT['ja']['emp.loading']='読み込み中…';
 
   // 指定日期下载：zh-CN 兜底（否则简体下警报标题显示裸 key）
   ZH['spec.preview.h']='① 预览结果';

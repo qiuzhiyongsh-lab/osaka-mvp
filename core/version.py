@@ -9,8 +9,28 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.82"
-BUILD_AT = "2026-09-25 03:17"
+VERSION = "1.9.83"
+BUILD_AT = "2026-09-25 03:33"
+# ============================================================================
+# v1.9.83（2026-09-25 · v2.0 员工业务 · F-4 回流线程 + F-5 UI · 写码未发布）：
+#   勇哥 09-25 定：批次2 完成后即开 v2.0（员工业务）。F-1 接口隔离 + F-3 回流内核早已上线，
+#   本版补齐最该补的两块——F-4（回流调度线程，让内核真正跑起来）+ F-5（收藏/标签/客户 UI）。
+#   · **F-4 回流线程**：web/app.py 新增幂等守卫 `_EMP_SYNC_STARTED` + 模块函数
+#     `_start_employee_sync_loop(poll_seconds=60)`（复用 `_start_resume_check` 同款模式：守卫 +
+#     后台 daemon 线程 + 每 60s 调 `core.employee_data_sync.sync_once()`）；serve.py `if not _W.PUBLIC`
+#     块内挂起启动（与 pdf-resign/ai-relay/auto-sweep 同列）。β 拓扑：员工主 workspace=线上站，本地 8765
+#     离线副本 → 本地每 60s 把线上员工数据（收藏/标签/客户）回流到 employee.db；线上 PUBLIC 模式不拉。
+#   · **F-5 员工业务 UI**：web/templates/emp.html（员工工作台，收藏/标签/客户三 Tab，消费已上线的
+#     /api/emp/* 接口）；web/app.py 新增 `def emp()` 路由（登录守卫，不进 PUBLIC_HIDDEN_PAGES——
+#     否则线上员工有接口无页面）；base.html 导航加 `('emp','nav.emp','员工业务')`（本地+线上两套 nav）。
+#     ⚠ 修两处真 bug：① emp.html 用了 `esc()` 但 base.html 无全局版 → 补 `esc()` 定义（否则渲染即崩）；
+#       ② 路由函数原名 `emp_page` 端点名≠导航 `url_for('emp')` → 改名 `def emp()` 对齐约定。
+#   · **i18n 四语齐套**：web/static/i18n.js 补 `nav.emp` + 全部 `emp.*` 键（zh-CN 走元素原文兜底，
+#     繁/英/日齐套）；verify_i18n_keys 全绿（仅 5 个无关的旧 pdfcloud.* 警告）。
+#   · 验证：app.render_template('emp.html') 真实渲染（带上下文处理器）→ 4 段内联 JS 经 node --check 全 OK；
+#     `esc` 已定义；0 个 Jinja 残留；/emp 路由 + 15 条 /api/emp/* 接口全在 url_map；
+#     py_compile app.py/serve.py 全绿。本地 8765 重启后生效；未发布（平台单沙箱不重传代码）。
+# ============================================================================
 # ============================================================================
 # v1.9.82（2026-09-25 · 批次2·任务4 借地権 4.1 · 写码未发布）：
 #   勇哥 09-25 拍板「借地権=新增开关+加入查询条件（必须一起做），默认 ownership 暂先不抓」。
