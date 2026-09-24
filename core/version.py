@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 VERSION = "1.9.82"
-BUILD_AT = "2026-09-25 04:00"
+BUILD_AT = "2026-09-25 05:30"
 # ============================================================================
 # v1.9.82（2026-09-25 · 批次2·任务1 N1 断点续跑 · 写码未发布）：
 #   勇哥 09-25 拍板「断点续跑：每次启动后开始做，限平台工作时段内，并在日志说明」。
@@ -28,6 +28,18 @@ BUILD_AT = "2026-09-25 04:00"
 #   · 离线诊断 `_diag_n1_v1982.py` 全绿：① 当前 JST≈03:5x 在维护段 → _in_work_window=False；
 #     ② 窗口外假 store 中断轮次 → 不调 run_round、返回 out_of_window；
 #     ③ 强制窗口内 → 恰好调 run_round 一次（续跑触发）。py_compile OK。
+#   本地 8765 重启后生效；未发布。
+# · **D1 解耦（勇哥 09-25 确认「加 stage_b_enabled 默认 true、主轮仍 false」）**：
+#     实测澄清：v1.9.6/1.9.7 起阶段B 补详情**已在主轮关时仍跑**（run_round 的 elif 降级分支
+#     调 _backfill_details_pdfs），PRD §5.1「一个开关同时控两件事」是旧版残留描述，非现状。
+#     本版把它从「隐式跟随主轮降级」升级为**显式独立开关** crawl.stage_b_enabled（默认 true）：
+#     · core/crawler.py run_round 读 stage_b_on，仅当为真才调 _backfill_details_pdfs；
+#       为假 → stats['stage_b_skipped']=True 并日志说明（只落列表壳）。默认 true = 行为零变化。
+#     · config.yaml crawl 段加 stage_b_enabled: true（注释说明历史 + 默认）。
+#     · 设置页（collect.html）每轮检索计划加「阶段B 补详情」勾选 + 4 语 i18n（roundplan.stage_b*）；
+#       /api/crawl/settings 白名单加 stage_b_enabled（与 main_round_enabled 同款写盘即生效）。
+#   · 离线诊断 `_diag_d1_v1982.py` 全绿：live+主轮关下 ① stage_b=true→调 _backfill 1 次、
+#     detail_backfilled=5；② stage_b=false→0 次且 stage_b_skipped=True。py_compile + node --check OK。
 #   本地 8765 重启后生效；未发布。
 # ============================================================================
 # v1.9.81（2026-09-25 · 批次1「清历史小问题」· 进行中 · 写码未发布）：

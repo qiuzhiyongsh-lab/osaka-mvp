@@ -2872,9 +2872,12 @@ def api_crawl_settings():
         cr["main_round_enabled"] = bool(body["main_round_enabled"])
     if "sync_dates_backfill_prev_day" in body:
         cr["sync_dates_backfill_prev_day"] = bool(body["sync_dates_backfill_prev_day"])
+    if "stage_b_enabled" in body:
+        cr["stage_b_enabled"] = bool(body["stage_b_enabled"])
     cfgmod.save(cfg)
     log(f"抓取计划开关已保存：全期間主轮={cr.get('main_round_enabled')} "
-        f"前日补齐={cr.get('sync_dates_backfill_prev_day')}")
+        f"前日补齐={cr.get('sync_dates_backfill_prev_day')} "
+        f"阶段B={cr.get('stage_b_enabled')}")
     return jsonify({"status": "ok", "crawl": cr})
 
 

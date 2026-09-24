@@ -115,6 +115,11 @@ crawl:
     inline_fail_threshold: 5
   inline_detail: true
   main_round_enabled: false
+  # v1.9.82 D1 解耦：阶段B（补详情+PDF）独立开关，默认开。
+  #   历史：v1.9.6/1.9.7 已让阶段B 在 main_round=false 时仍跑（run_round 的 elif 降级分支
+  #   调 _backfill_details_pdfs）；本开关把它从「隐式跟随主轮降级」升级为「显式独立可控」。
+  #   主轮仍 false（勇哥 U3 拍板不动）；stage_b_enabled=false 时才会真正关掉补详情/PDF。
+  stage_b_enabled: true
   backfill_cap: 300
   backfill_max_minutes: 20
   sync_dates_enabled: true

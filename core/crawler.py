@@ -592,6 +592,10 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
         #   关掉时走下方 elif 降级分支，items/succeeded_subtypes 保持函数开头预声明空值，
         #   收尾 mark_delisted(seen=set, scope=set, complete=False) 安全只复活。
         main_round_on = bool((cfg.get("crawl", {}) or {}).get("main_round_enabled", False))
+        # v1.9.82 D1 解耦：阶段B（补详情+PDF）独立开关，默认开。
+        #   stage_b_enabled=false 时，即便主轮关，也**不再**补详情/PDF（只留列表壳）。
+        #   默认 true → 与历史行为完全一致（主轮关时仍补详情/PDF）。
+        stage_b_on = bool((cfg.get("crawl", {}) or {}).get("stage_b_enabled", True))
 
         # ---- v1.5.12：先跑「今日(登録/変更)」日期同步，把新盘(列表壳)先落库 ----
         #   再交给下面 _live_items 的阶段2 同轮补详情+PDF，消除「一轮滞后」
@@ -620,12 +624,17 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
             online_total = 0
             # v1.9.1（解耦阶段B）：即便主轮关，也独立补「详情+PDF」，
             # 让一轮下载默认就完整（阶段C 下架基线仍由 main_round 门控、默认关）。
-            try:
-                _bf = _backfill_details_pdfs(store, cfg, log, run_id)
-                stats["detail_backfilled"] = _bf.get("fetched", 0)
-            except Exception as _e:                    # noqa: BLE001
-                log("⚠ 阶段B 补详情失败（不影响本轮列表同步）：%s"
-                    % (type(_e).__name__ + ": " + str(_e)))
+            # v1.9.82 D1：该「独立补」由显式开关 stage_b_enabled 控制（默认 true）。
+            if stage_b_on:
+                try:
+                    _bf = _backfill_details_pdfs(store, cfg, log, run_id)
+                    stats["detail_backfilled"] = _bf.get("fetched", 0)
+                except Exception as _e:                # noqa: BLE001
+                    log("⚠ 阶段B 补详情失败（不影响本轮列表同步）：%s"
+                        % (type(_e).__name__ + ": " + str(_e)))
+            else:
+                stats["stage_b_skipped"] = True
+                log("· 阶段B 补详情已按开关关闭（crawl.stage_b_enabled=false）→ 本轮只落列表壳")
         else:
             # 真实模式：边抓边落库（每 flush_every 条写一次库 + PDF），不再等整轮结束
             sink = _BatchSink(store, cfg, log, run_id,
