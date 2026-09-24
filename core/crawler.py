@@ -507,6 +507,7 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
         #   这里由 `_live_items` 把真实组数带出来（试跑模式只跑 1 组，必须用真实值）。
         live_groups_n = 0
         succeeded_subtypes: set[str] = set()   # 本轮真正成功的種目（下架作用域；主轮被关时保持空）
+        date_sync_nos: set[str] = set()   # R1（v1.9.76）：本轮「今日日期同步」成功抓到的番号，併入收尾 seen 用于复活
         # v1.8.4（勇哥拍板 A）：全期間主轮 **默认关**。
         #   原 D1/R2 默认开，理由是「①数据主力（补详情/PDF）+ ②下架基线（本轮并集判下架）」。
         #   但勇哥 challenge 命中要害：bulk 搜索受 REINS 500 上限，老房源被挤出窗口即不在
@@ -526,6 +527,7 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
             try:
                 _ds = sync_today_dates(store, cfg, log, today=None, run_id=run_id)
                 stats["date_sync"] = _ds
+                date_sync_nos = set(_ds.get("property_nos") or [])
                 if _ds.get("inlined"):
                     log("✓ 概览页日期同步内联补详情 %d 条（主链统一，无需阶段B 兜底）" % _ds["inlined"])
             except Exception as e:                                 # noqa: BLE001
@@ -606,6 +608,11 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
         if mode == "live" and cfg.get("crawl", {}).get("delist_enabled", True):
             try:
                 seen = {r.get("property_no") for r in items if r.get("property_no")}
+                # R1（v1.9.76）：主轮关闭时 items 恒空 → seen 恒空 → mark_delisted:1588 安全阀直接 return
+                #   复活分支成死代码。把「今日日期同步」本轮成功抓到的番号并入 seen，
+                #   使"只复活、不判下架"的设计语义真正落地（_scope 仍空 → complete=False → 不判下架）。
+                if date_sync_nos:
+                    seen |= date_sync_nos
                 _consec = int(cfg.get("crawl", {}).get("delist_consecutive_runs", 2) or 2)
                 # v1.5.8：作用域 = 本轮**真正成功抓到**的種目（succeeded_subtypes），
                 #   不再是"打算覆盖"的全集。失败组（結果未知/検索超时）不进作用域
@@ -3167,6 +3174,7 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
     return {"searched": n_axis_per_day * len(days), "collected": len(collected),
             "updated": upd, "new": ins, "inlined": inlined_total,
             "reg": n_reg, "chg": n_chg, "union": n_union,
+            "property_nos": list(collected.keys()),
             "days": list(days), "backfill": prev_fixed}
 
 
