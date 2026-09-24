@@ -124,6 +124,10 @@ crawl:
   #   开 = 检索撞 500 件上限时，自动按 REINS 可筛维度（地域/価格帯）拆细重试。
   #   ⚠ 拆细重试会增请求、有风控风险，未经验证前默认关；开启需真机 e2e 复核。
   auto_split_on_limit: false
+  # v1.9.82 借地権：土地権利筛选开关（勇哥 09-25：新增开关 + 查询条件，但「暂先不抓」）。
+  #   ownership = 勾「所有権のみ」（保持现状，不抓借地権）；all = 不勾（REINS 返回全部含借地権）。
+  #   ⚠ all 路径需在真机复核 REINS 是否真返回借地権（B⑰ 沙箱禁公网），默认 ownership 零行为变化。
+  rights_filter: ownership
   backfill_cap: 300
   backfill_max_minutes: 20
   sync_dates_enabled: true

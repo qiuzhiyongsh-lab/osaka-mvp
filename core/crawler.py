@@ -362,6 +362,10 @@ LABEL_MAP = {
     "取引態様": "trade_type", "用途地域": "use_zone",
     "管理費": "management_fee", "修繕積立金": "repair_fund",
     "仲介会社名": "broker", "電話番号": "broker_tel",
+    # v1.9.82 借地権：抓取侧落库「土地権利」原始值（所有権 / 借地権 / 旧法借地権 …）。
+    # 默认 rights_filter=ownership 时只抓所有権类（落库值≈所有権）；
+    # 开关切到 all 后 REINS 返回含借地権，落库值即含「借地権」字样，查询页据此可筛。
+    "土地権利": "land_right",
 }
 
 
@@ -2627,6 +2631,13 @@ def _apply_manual_conditions(page, sel, opts, log, cfg=None) -> None:
 
     opts: kind/subtype(s)/groups/ward/price_min/max/area_min/max/line/station/date_type/date
     """
+    # v1.9.82 借地権：rights_filter 开关（crawl.rights_filter，默认 ownership）控制「所有権のみ」勾选。
+    #   ownership = 勾「所有権のみ」（现状，不抓借地権）；all = 不勾（REINS 返回全部含借地権）。
+    #   调用方显式传 ownership_only 时优先（如指定日期下载可强制），否则由开关决定。
+    if "ownership_only" not in opts:
+        _rf = (((cfg or {}).get("crawl", {}) or {}).get("rights_filter", "ownership")
+               if cfg else "ownership")
+        opts["ownership_only"] = (str(_rf).lower() != "all")
     # ---- 日期（可选）----
     # v1.5.5（2026-09-15 修正）：date 支持按「登録年月日 / 変更年月日」检索。
     #   ⚠ 实测：REINS 两排**同时**设 = AND（交集），非 OR。故「登録或変更」这种并集诉求

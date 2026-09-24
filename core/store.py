@@ -1430,6 +1430,20 @@ class Store:
                 else:
                     frags.append("json_extract(detail_json,'$.status_now') = ?"); args.append(v)
             where.append("(" + " OR ".join(frags) + ")")
+        # v1.9.82 借地権：土地権利 查询条件（多选 OR）。
+        # 字段在 detail_json（与 trade_type 同理），值形如「所有権 / 借地権 / 旧法借地権」，
+        # 故用 LIKE 包含匹配（选「借地権」也能命中「旧法借地権」）。
+        # __none__ = 字段缺失 / 为空（尚未抓取或 REINS 未填）。
+        # 全空不追加 = A10 零回归。
+        lrs = [x for x in (f.get("land_rights") or []) if x]
+        if lrs:
+            frags = []
+            for v in lrs:
+                if v == "__none__":
+                    frags.append("(json_extract(detail_json,'$.land_right') IS NULL OR json_extract(detail_json,'$.land_right')='')")
+                else:
+                    frags.append("json_extract(detail_json,'$.land_right') LIKE ?"); args.append("%" + v + "%")
+            where.append("(" + " OR ".join(frags) + ")")
         if f.get("date"):
             # v1.5.4：日期口径 = **REINS 平台的新建/变更日**，不是我方下载日。
             # 【为什么必须换·用户原话】"我这里面的日期应该是实际在平台中新建或者是变更的日期，

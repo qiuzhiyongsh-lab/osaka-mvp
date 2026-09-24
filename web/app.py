@@ -2278,6 +2278,8 @@ def api_query():
         # 前端每个选中值重复传一个 public_status / status_now 参数，后端 getlist 收成列表。
         "public_statuses": [s.strip() for s in request.args.getlist("public_status") if s.strip()],
         "status_nows": [s.strip() for s in request.args.getlist("status_now") if s.strip()],
+        # v1.9.82 借地権：土地権利 查询条件（多选 OR，与 trade_type 同机制；后端 getlist 收）。
+        "land_rights": [s.strip() for s in request.args.getlist("land_right") if s.strip()],
         "date": request.args.get("date", ""),
         # v1.7.0：日期时间段（起~止）
         "date_from": request.args.get("date_from", ""),

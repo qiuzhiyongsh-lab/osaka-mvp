@@ -113,6 +113,9 @@
       'search.trade_type.all': '全部', 'search.trade_type.seller': '売主（業主直售）',
       'search.trade_type.sennin': '専任（專任媒介）', 'search.trade_type.senzoku': '専属（專屬媒介）',
       'search.trade_type.dairi': '代理（賣方代理）', 'search.trade_type.ippan': '一般（一般媒介）',
+      /* v1.9.82 借地権：土地権利 查询条件 */
+      'search.land_right': '土地権利', 'search.land_right.ownership': '所有権',
+      'search.land_right.leased': '借地権',
       /* v1.9.46 PRD：房产状态搜索条件 */
       'search.status': '房產狀態', 'search.status_public': '公開狀態', 'search.status_now': '現狀',
       'search.status_none': '未公開/無狀態', 'search.status_add': '添加其他狀態',
@@ -282,6 +285,9 @@
       'search.trade_type.all': 'All', 'search.trade_type.seller': 'Owner-direct (売主)',
       'search.trade_type.sennin': 'Exclusive (専任)', 'search.trade_type.senzoku': 'Sole agency (専属)',
       'search.trade_type.dairi': 'Agency (代理)', 'search.trade_type.ippan': 'General (一般)',
+      /* v1.9.82 借地権：土地権利 查询条件 */
+      'search.land_right': 'Land rights', 'search.land_right.ownership': 'Ownership',
+      'search.land_right.leased': 'Leased land',
       /* v1.9.46 PRD：房产状态搜索条件 */
       'search.status': 'Property status', 'search.status_public': 'Public status', 'search.status_now': 'Current status',
       'search.status_none': 'Unpublished / no status', 'search.status_add': 'Add other status',
@@ -457,6 +463,9 @@
       'search.trade_type.all': 'すべて', 'search.trade_type.seller': '売主',
       'search.trade_type.sennin': '専任', 'search.trade_type.senzoku': '専属',
       'search.trade_type.dairi': '代理', 'search.trade_type.ippan': '一般',
+      /* v1.9.82 借地権：土地権利 查询条件 */
+      'search.land_right': '土地権利', 'search.land_right.ownership': '所有権',
+      'search.land_right.leased': '借地権',
       /* v1.9.46 PRD：房产状态搜索条件 */
       'search.status': '物件状況', 'search.status_public': '公開状況', 'search.status_now': '現況',
       'search.status_none': '未公開/状況なし', 'search.status_add': '他の状況を追加',
@@ -1129,6 +1138,9 @@
   ZH['search.status']='房产状态'; ZH['search.status_public']='公开状态'; ZH['search.status_now']='现状';
   ZH['search.status_none']='未公开/无状态'; ZH['search.status_add']='添加其他状态';
   ZH['search.status_add_ph']='输入状态名，回车添加'; ZH['search.status_now_tip']='Phase 2 待启用';
+  // v1.9.82 借地権：土地権利 查询条件（zh-CN 必须有条目，否则 t('search.land_right') 显示裸 key）
+  ZH['search.land_right']='土地权利'; ZH['search.land_right.ownership']='所有权';
+  ZH['search.land_right.leased']='借地权';
   // 多选面板「全选」（勇哥要求：除了清空，还要能一键全选）
   ZH['cat.select_all']='全选'; ZH['cat.selected_all']='已全选 {n} 项';
   ZH['cat.filter']='筛选选项…'; ZH['cat.no_match']='无匹配项';

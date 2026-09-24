@@ -114,6 +114,26 @@
         </div>
       </div>
     </div>
+    <div class="field" style="min-width:180px">
+      <span data-i18n="search.land_right">土地権利</span>
+      <div class="msp" id="lrMsp">
+        <button type="button" class="msp-btn" id="lrBtn" aria-expanded="false" onclick="msToggle('land_right',event)">
+          <span class="msp-txt" id="lrTxt" data-i18n="search.all">全部</span><span class="msp-care">▾</span>
+        </button>
+        <div class="msp-panel" id="lrPanel" hidden>
+          <div class="msp-head">
+            <b data-i18n="search.land_right">土地権利</b>
+            <span class="muted" data-i18n="cat.ms_hint">点选即可，可多选</span>
+          </div>
+          <div class="msp-body" id="lrBody"></div>
+          <div class="msp-foot">
+            <button type="button" class="ghost" onclick="msSelectAll('land_right')" data-i18n="cat.select_all">全选</button>
+            <button type="button" class="ghost" onclick="msClear('land_right')" data-i18n="cat.clear">清空</button>
+            <span class="msp-sum" id="lrSum"></span>
+          </div>
+        </div>
+      </div>
+    </div>
     {# v1.9.46 PRD：房产状态（公开状态组 + 现状组，双分组多选面板）。
        公开状态组 Phase 1 即用工；现状组 Phase 1 灰显（ST_PHASE_NOW=false，库无 status_now 数据）。
        支持手动填写新增（仅本浏览器 qstate 记忆，零后端改动）。#}
@@ -549,7 +569,7 @@ function mspToggle(ev){
      点 chip → 切换该值 → 同步按钮文案/已选计数；查询仍由页面「查询」按钮发起。
    复用 .msp-* 的样式，保证两个控件长得一样（一致性）。 */
 var MS_PREFIX = { ward: 'ward', trade_type: 'tt', status: 'st',
-                 layout_type: 'lt', line: 'ln', station: 'stn' };
+                 layout_type: 'lt', line: 'ln', station: 'stn', land_right: 'lr' };
 /* v1.9.50 / PRD-05 §4.2：单一数据源。
    v1.9.49 的根因就是「新增一个 MSP 要同步改 N 处，漏一处就出问题」——
    点外部收起的 key 数组没带上 layout_type/line/station，新面板点了不收。
@@ -558,11 +578,11 @@ var MSP_KEYS = Object.keys(MS_PREFIX);
 /* ⚠ MS_SEL 必须给每个 MSP 预置空对象：msRender 里直接读 MS_SEL[k][v]，
    键不存在会 TypeError —— 首次访问（localStorage 无历史）时面板会整块空白。 */
 var MS_SEL = { ward: {}, trade_type: {}, status: {},
-              layout_type: {}, line: {}, station: {} };
+              layout_type: {}, line: {}, station: {}, land_right: {} };
 /* v1.9.53：线路/车站面板的实时筛选输入（按标签子串过滤，只改可见性不改选中态）。
    与 MS_SEL 一一对应；为空＝不过滤。 */
 var MS_FILTER = { ward: '', trade_type: '', status: '',
-                 layout_type: '', line: '', station: '' };
+                 layout_type: '', line: '', station: '', land_right: '' };
 var MS_OPTS = {
   ward: [],                                   // 下面用模板里的 opts.wards 填充
   trade_type: [
@@ -588,7 +608,12 @@ var MS_OPTS = {
     { v: 'SLDK', i18n: 'search.lt.sldk' }
   ],
   line: [],        // 异步从 /api/lines 拉取
-  station: []      // 级联：选线路后从 /api/stations 拉取
+  station: [],     // 级联：选线路后从 /api/stations 拉取
+  // v1.9.82 借地権：土地権利（值＝REINS 原始文字；后端 LIKE 包含匹配，选「借地権」可命中「旧法借地権」）
+  land_right: [
+    { v: '所有権', i18n: 'search.land_right.ownership' },
+    { v: '借地権', i18n: 'search.land_right.leased' }
+  ]
 };
 function msEl(k, suffix){
   return document.getElementById(MS_PREFIX[k] + suffix);
@@ -855,6 +880,7 @@ function msInitAll(){
   applyLayoutCounts();                 // ⚠ 必须先算灰显，再渲染（否则第一次渲染没有 disabled 态）
   msRender('ward'); msRender('trade_type'); statusRender();
   msRender('layout_type'); msRender('line'); msRender('station');
+  msRender('land_right');              // v1.9.82 借地権：土地権利 面板
   loadLines();
 }
 /* v1.9.49 / PRD v1.4.0：线路候选异步加载（级联车站） */
@@ -1001,6 +1027,7 @@ function saveQState(){
       // v1.7.6：区 / 取引態様 都是多选 → 存**数组**（原来存单值）
       wards:     msValues('ward'),
       tts:       msValues('trade_type'),
+      lr:        msValues('land_right'),          // v1.9.82 借地権：土地権利 多选记忆
       limit:     document.getElementById('limit').value,
       subs:      mspSelected(),
       status:    statusValues(),                 // v1.9.46 PRD：房产状态（公开+现状+手填 混合）
@@ -1043,6 +1070,10 @@ function restoreQState(){
   MS_SEL['trade_type'] = {};
   (st.tts || (st.trade_type ? [st.trade_type] : [])).forEach(function(v){ MS_SEL['trade_type'][v] = 1; });
   msRender('ward'); msRender('trade_type');
+  // v1.9.82 借地権：土地権利 多选回填
+  MS_SEL['land_right'] = {};
+  (st.lr || []).forEach(function(v){ MS_SEL['land_right'][v] = 1; });
+  msRender('land_right');
   // v1.9.46 PRD：房产状态回填
   ST_SEL = {};
   (st.status || []).forEach(function(v){ ST_SEL[v] = 1; });
@@ -1113,7 +1144,7 @@ function applyUrlParams(){
     }
   });
   // v1.7.6：区 / 取引態様 支持 URL 多值（?ward=北区&ward=中央区）
-  [['ward', 'ward'], ['trade_type', 'trade_type']].forEach(function(pair){
+  [['ward', 'ward'], ['trade_type', 'trade_type'], ['land_right', 'land_right']].forEach(function(pair){
     var vs = qs.getAll(pair[0]).filter(function(x){ return x; });
     if(vs.length){
       MS_SEL[pair[1]] = {};
@@ -1257,6 +1288,7 @@ function buildFilterSummary(){
     parts.push(t('search.today_short') || '今天');
   }
   var tt = msValues('trade_type'); if(tt.length) parts.push(tt.join('、'));
+  var lrx = msValues('land_right'); if(lrx.length) parts.push(t('search.land_right') + '：' + lrx.join('、'));  // v1.9.82 借地権
   var stx = statusValues(); if(stx.length) parts.push(t('search.status') + '：' + stx.join('、'));   // v1.9.46 PRD
   return parts.join(' · ');
 }
@@ -1377,6 +1409,8 @@ function buildParams(page){
   //（与物件種目 subtype 同一套约定：后端 getlist 收，多值之间 OR）
   msValues('ward').forEach(function(v){ p.append('ward', v); });
   msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
+  // v1.9.82 借地権：土地権利 → 每个选中值重复传一个 land_right（后端 getlist 收，多值 OR）
+  msValues('land_right').forEach(function(v){ p.append('land_right', v); });
   // v1.9.46 PRD：房产状态 → 选中集（公开+手填）作为 public_status 发后端；现状组 Phase 1 灰显不进选中集
   statusValues().forEach(function(v){ p.append('public_status', v); });
   // v1.9.49 / PRD v1.4.0：四组新搜索条件

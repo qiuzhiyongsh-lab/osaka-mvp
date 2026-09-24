@@ -10,7 +10,28 @@ import subprocess
 from pathlib import Path
 
 VERSION = "1.9.82"
-BUILD_AT = "2026-09-25 06:30"
+BUILD_AT = "2026-09-25 03:17"
+# ============================================================================
+# v1.9.82（2026-09-25 · 批次2·任务4 借地権 4.1 · 写码未发布）：
+#   勇哥 09-25 拍板「借地権=新增开关+加入查询条件（必须一起做），默认 ownership 暂先不抓」。
+#   本版补齐「开关 + 查询条件」整链路（抓取侧开关 rights_filter 已在 N1/D1/RB-1 同批落地）：
+#   · **抓取侧落库**：core/crawler.py LABEL_MAP 新增 `"土地権利": "land_right"` ——
+#     _parse_detail 现在会把 REINS 详情页「土地権利」原始值（所有権 / 借地権 / 旧法借地権 …）写进
+#     detail_json。默认 rights_filter=ownership 时只抓所有権类（落库值≈所有権）；开关切 all 后
+#     REINS 返回含借地権，落库值即含「借地権」字样 —— 查询端据此可筛。
+#     （核实：改前库内 detail_json 0 条含 land_right；本版首次让该键可落库。）
+#   · **查询条件（后端）**：core/store.py search() 新增 land_rights 多选 OR 过滤，
+#     `json_extract(detail_json,'$.land_right') LIKE ?`（与 trade_type 同机制，选「借地権」可命中
+#     「旧法借地権」）；`__none__` 特判字段缺失/空。全空不追加 = A10 零回归。
+#   · **查询条件（接口）**：web/app.py /api/query 收 `land_right` 多值参数（getlist）注入 f。
+#   · **查询条件（前端）**：web/templates/search.html 复用 msSelect 通用多选组件新增「土地権利」面板
+#     （MS_PREFIX/SEL/FILTER/OPTS 全加 land_right；面板 HTML + saveQueryState 记忆 + restoreQState
+#     回填 + applyUrlParams 多值 + buildParams 发参 + buildFilterSummary 摘要 + msInitAll 渲染）；
+#     4 语 i18n（web/static/i18n.js：search.land_right / .ownership / .leased）。
+#   · 离线验证：Store(data/jproperty.db).search({"land_rights":["所有権"]}) 实跑 SQL 不报错
+#     （当前库无 land_right 数据→返回 0 条，SQL 语法/占位符顺序正确）；py_compile 全绿；
+#     node --check 前端 4 处改动 OK；verify_i18n_keys 全绿。本地 8765 重启后生效；未发布。
+# ============================================================================
 # ============================================================================
 # v1.9.82（2026-09-25 · 批次2·任务1 N1 断点续跑 · 写码未发布）：
 #   勇哥 09-25 拍板「断点续跑：每次启动后开始做，限平台工作时段内，并在日志说明」。
