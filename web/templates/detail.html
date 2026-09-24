@@ -654,7 +654,16 @@ function runAIRelay(){
           stop();
           aiRunning = false;
           aiSetBtn(t('detail.ai_interpret_regen'), false);
-          aiMsg(meta, tf('detail.ai_relay_done', {n: j.fields || 0, s: sec}), false);
+          /* v1.9.81 G-5：区分「本地生成成功」与「已回推线上」。
+             原来回推线上失败也一律显示「完成」——勇哥报的正是这个。
+             pushed===0 才是真回推失败；pushed 为 null（老任务无此字段）时不误报。 */
+          if(j.pushed === 0){
+            aiMsg(meta, tf('detail.ai_relay_push_failed',
+                           {n: j.fields || 0, s: sec,
+                            err: j.push_error || t('detail.ai_interpret_fail')}), true);
+          }else{
+            aiMsg(meta, tf('detail.ai_relay_done', {n: j.fields || 0, s: sec}), false);
+          }
           loadAI();
           return;
         }

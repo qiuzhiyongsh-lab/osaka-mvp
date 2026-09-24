@@ -1354,6 +1354,15 @@ def _relay_ensure_table() -> None:
         " created_at TEXT NOT NULL,"
         " picked_at TEXT,"
         " finished_at TEXT)")
+    # v1.9.81 G-5：回推线上结果字段（幂等 ALTER）。
+    #   原来只记「本地生成成功」→ 线上前端一律显示「完成」，
+    #   回推线上失败也被显示成完成（勇哥报的问题）。现在把回推结果单独存下来。
+    _cols = {r[1] for r in
+             STORE.conn.execute("PRAGMA table_info(ai_relay_tasks)").fetchall()}
+    if "pushed" not in _cols:
+        STORE.conn.execute("ALTER TABLE ai_relay_tasks ADD COLUMN pushed INTEGER")
+    if "push_error" not in _cols:
+        STORE.conn.execute("ALTER TABLE ai_relay_tasks ADD COLUMN push_error TEXT")
     STORE.conn.commit()
 
 
@@ -1433,9 +1442,12 @@ def api_ai_relay_status():
     queue = STORE.conn.execute(
         "SELECT COUNT(*) c FROM ai_relay_tasks WHERE status='pending' AND id<?",
         (task_id,)).fetchone()["c"]
-    return jsonify({"ok": True, "status": row["status"], "fields": row["fields"],
-                    "error": row["error"], "queue": queue,
-                    "created_at": row["created_at"], "finished_at": row["finished_at"]})
+    d = dict(row)
+    # v1.9.81 G-5：一并把「回推线上」结果带出去，前端据此区分「已生成」vs「已上线」
+    return jsonify({"ok": True, "status": d.get("status"), "fields": d.get("fields"),
+                    "error": d.get("error"), "queue": queue,
+                    "created_at": d.get("created_at"), "finished_at": d.get("finished_at"),
+                    "pushed": d.get("pushed"), "push_error": d.get("push_error")})
 
 
 @app.get("/api/ai/relay/claim")
@@ -1484,13 +1496,20 @@ def api_ai_relay_result():
     except (TypeError, ValueError):
         fields = 0
     err = str(body.get("error") or "")[:500]
+    # v1.9.81 G-5：回推线上结果（pushed=1成功 / 0失败 / NULL未知）
+    _p = body.get("pushed")
+    pushed = None if _p is None else (1 if _p else 0)
+    push_err = str(body.get("push_error") or "")[:500]
     STORE.conn.execute(
-        "UPDATE ai_relay_tasks SET status=?, fields=?, error=?, finished_at=? WHERE id=?",
+        "UPDATE ai_relay_tasks SET status=?, fields=?, error=?, finished_at=?,"
+        " pushed=?, push_error=? WHERE id=?",
         ("done" if ok else "fail", fields if ok else None, err,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), task_id))
+         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pushed, push_err, task_id))
     STORE.conn.commit()
-    if ok:
-        log(f"☁ [AI接力] 任务 #{task_id} 完成（{fields} 项）")
+    if ok and pushed == 0:
+        log(f"☁ [AI接力] 任务 #{task_id} 本地已完成（{fields} 项）但**回推线上失败**：{push_err}")
+    elif ok:
+        log(f"☁ [AI接力] 任务 #{task_id} 完成（{fields} 项，回推线上成功）")
     else:
         log(f"☁ [AI接力] 任务 #{task_id} 失败：{err}")
     return jsonify({"ok": True})
@@ -1586,13 +1605,24 @@ def _start_ai_relay_loop(poll_seconds: int = 2):
                 (no,)).fetchone()
             con.close()
             pushed = False
-            if row is not None:
+            push_err = ""
+            if row is None:
+                push_err = "AI 结果行未找到（ai_structure 无此番号）"
+            else:
                 r = publisher_mod.post_ai(CFG, [dict(row)])
                 pushed = bool(r.get("ok"))
+                if not pushed:
+                    push_err = ("; ".join(r.get("errors") or [])
+                                or str(r.get("error") or "回推线上失败"))
+            # v1.9.81 G-5：把回推结果一并上报。
+            #   原实现**无视 pushed、永远发 ok=True** → 线上前端一律显示「完成」，
+            #   回推线上失败也显示完成 —— 勇哥报的正是这个。
             _post_json(base, token, "/api/ai/relay/result",
-                       {"task_id": tid, "ok": True, "fields": fields})
+                       {"task_id": tid, "ok": True, "fields": fields,
+                        "pushed": pushed, "push_error": push_err[:500]})
             log(f"☁ [AI接力] 任务 #{tid} {no} 完成：{fields} 项，"
-                f"用时 {_t.monotonic()-t0:.1f}s，回推{'成功' if pushed else '失败'}")
+                f"用时 {_t.monotonic()-t0:.1f}s，回推"
+                f"{'成功' if pushed else '失败：' + push_err}")
         except Exception as e:                                  # noqa: BLE001
             try:
                 _post_json(base, token, "/api/ai/relay/result",
