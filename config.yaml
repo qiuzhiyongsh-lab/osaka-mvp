@@ -184,6 +184,7 @@ publish:
   batch_size: 200
   auto_enabled: true
   interval_minutes: 10
+  full_repush_hours: 24
   date_from: ''
   date_to: ''
 ai:

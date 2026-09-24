@@ -42,6 +42,9 @@ _DEFAULTS: dict[str, Any] = {
     # 故意放顶层、不放在 ai 块内 —— ai 块含真 api_key（在 config.local.yaml），
     # cfgmod.save 会整块剔除私密键，read_kinds 写不回；顶层 ai_read_scope 可正常持久化。
     "ai_read_scope": [],
+    # v1.9.80：定期自动全量重推间隔（小时）；0=禁用。
+    #   根治「已存在行的字段更新不被增量捕获」（见 core/publisher.PublishLoop._full_due）。
+    "publish": {"full_repush_hours": 24},
 }
 
 

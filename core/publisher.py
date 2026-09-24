@@ -693,6 +693,35 @@ class PublishLoop:
         pub = (self.cfg.get("publish") or {})
         return bool(pub.get("auto_enabled")) and bool(pub.get("enabled"))
 
+    def _full_due(self) -> bool:
+        """v1.9.80：是否到了「定期全量重推」的时刻。
+
+        根治「已存在行的字段更新不被增量捕获」：增量只认 last_seen，而「日期同步」
+        写 reg/chg_date_iso、「复活」写 is_active 都**不推进 last_seen** → 线上永久旧值。
+        定期 full 覆盖所有字段，对现有与未来所有「不推进 last_seen 的写入」一律生效。
+
+        间隔取 publish.full_repush_hours（默认 24；<=0 禁用）。到期判定用
+        publish_audit 里最近一次 mode='full' 的成功时间；缺表/无记录 → 视为到期。
+        """
+        hrs = float((self.cfg.get("publish") or {}).get("full_repush_hours") or 0)
+        if hrs <= 0:
+            return False
+        last = None
+        try:
+            row = self.store.conn.execute(
+                "SELECT MAX(finished_at) FROM publish_audit"
+                " WHERE mode='full' AND ok=1").fetchone()
+            last = row[0] if row else None
+        except Exception:                                        # noqa: BLE001
+            last = None            # 缺表（老库）→ 当作从未做过 full
+        if not last:
+            return True
+        try:
+            last_dt = datetime.strptime(str(last)[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:                                        # noqa: BLE001
+            return True
+        return (datetime.now() - last_dt) >= timedelta(hours=hrs)
+
     def status(self) -> dict:
         return {
             "running": self.running,
@@ -739,7 +768,12 @@ class PublishLoop:
             if not self._is_enabled():
                 continue
             try:
-                r = publish(self.cfg, self.store.conn, mode="incr", log=self._log)
+                # v1.9.80：到期则本轮走 full 全量（覆盖「字段更新不被增量捕获」），否则照常增量
+                mode = "full" if self._full_due() else "incr"
+                if mode == "full":
+                    self._log("☁ 定期全量重推（每 %s 小时一次，覆盖字段更新）"
+                              % (self.cfg.get("publish") or {}).get("full_repush_hours", 24))
+                r = publish(self.cfg, self.store.conn, mode=mode, log=self._log)
                 self.last_count = int(r.get("sent") or 0)
                 self.last_run_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if r.get("errors"):
