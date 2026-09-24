@@ -142,10 +142,12 @@ from core.store import Store                                       # noqa: E402
 CFG = cfgmod.load()
 PATHS = cfgmod.paths(CFG)
 
-_seed = ROOT.parent / "data" / "site_data.json"
+_seed = ROOT / "data" / "site_data.json"
 # v1.9.45：种子触发**不再只比行数** —— 行数相同但内容已变（例如某列批量回填、
 #   房源改价改面积）时也必须重灌。判据改成"数据包生成时间印章" site_data.stamp。
-_stamp = ROOT.parent / "data" / "site_data.stamp"
+# ⚠ v1.9.84 收敛：种子与 AI 库同落 app_local/data（部署单元自洽，不再依赖父目录），
+#   serve_public.py 与 sync_to_publish.py 的落地路径保持一致。
+_stamp = ROOT / "data" / "site_data.stamp"
 _store = Store(PATHS["db"])
 if _seed.exists():
     try:
@@ -270,7 +272,9 @@ def main() -> int:
             "count": len(rows),
             "rows": rows,
         }
-        dst = PUB / "data" / "site_data.json"
+        # v1.9.84：种子直接落 app_local/data（与 AI 库同目录），使 app_local 成为
+        # 自洽部署单元（serve_public.py 读 ROOT/data），不再依赖父目录 data/。
+        dst = TARGET / "data" / "site_data.json"
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp = dst.with_name("site_data.json.part")
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
