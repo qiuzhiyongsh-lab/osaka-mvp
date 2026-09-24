@@ -530,6 +530,8 @@ class Store:
         self._ensure_columns()
         # v1.9.77：PDF 串号修复相关新表（pdf_upload_audit / pdf_recrawl_queue，幂等建表）
         self._ensure_pdf_tables()
+        # v1.9.81 G-3 / §17⑧：番号検索终局跳过台账 + 按次检索日志（幂等建表）
+        self._ensure_v1981_tables()
         # v1.9.50 / PRD-05 §4.1：线路 / 车站字典（line_text UDF 依赖内存字典，必须先载入）
         self._ensure_rail_dict()
         self.conn.commit()
@@ -749,6 +751,105 @@ class Store:
             ON pdf_recrawl_queue(status, priority, id);
         """)
         c.commit()
+
+    def _ensure_v1981_tables(self) -> None:
+        """v1.9.81：G-3 终局跳过台账 + §17⑧ 按次检索日志（幂等建表）。
+
+        - no_search_miss：番号検索「0 件」计数台账。连续 N 次（默认 2，勇哥 09-25 定）
+          0 件 → terminal=1，后续轮次**不再发起检索**（原实现每轮白跑 ≈10s/号）。
+        - search_log：按「每次检索」留痕（时间/条件/结果数/耗时/是否触限），供排查。
+          ⚠ result_count 读不到时记 **NULL**，绝不写 0（"读不到"≠"0 件"铁律）。
+        """
+        c = self.conn
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS no_search_miss (
+            property_no  TEXT PRIMARY KEY,
+            miss_count   INTEGER DEFAULT 0,
+            terminal     INTEGER DEFAULT 0,      -- 1=终局跳过，不再检索
+            last_miss_at TEXT,
+            updated_at   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_no_miss_terminal ON no_search_miss(terminal);
+        CREATE TABLE IF NOT EXISTS search_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       INTEGER,
+            kind         TEXT,                   -- list / bukken / date_sync
+            cond         TEXT,                   -- 检索条件（種目/新旧/日期等短文本）
+            result_count INTEGER,                -- 结果条数（读不到=NULL，绝不记 0）
+            hit_limit    INTEGER DEFAULT 0,      -- 是否触及 500 条上限
+            elapsed_s    REAL,
+            at           TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_search_log_at ON search_log(at);
+        """)
+        c.commit()
+
+    # ---------------- v1.9.81 G-3：番号検索 终局跳过 ----------------
+    def no_miss_terminal(self, property_no: str) -> bool:
+        """该番号是否已判「终局跳过」（连续 N 次 0 件）。"""
+        if not property_no:
+            return False
+        r = self.conn.execute(
+            "SELECT terminal FROM no_search_miss WHERE property_no=?",
+            (property_no,)).fetchone()
+        return bool(r and int(r[0] or 0))
+
+    def no_miss_bump(self, property_no: str, threshold: int = 2) -> dict:
+        """记一次「0 件」，返回 {"count":n,"terminal":bool}；达阈值即置终局。"""
+        if not property_no:
+            return {"count": 0, "terminal": False}
+        now_s = now()
+        row = self.conn.execute(
+            "SELECT miss_count FROM no_search_miss WHERE property_no=?",
+            (property_no,)).fetchone()
+        n = int(row[0] or 0) + 1 if row else 1
+        term = 1 if n >= int(threshold) else 0
+        self.conn.execute(
+            "INSERT INTO no_search_miss (property_no,miss_count,terminal,last_miss_at,updated_at)"
+            " VALUES (?,?,?,?,?) ON CONFLICT(property_no) DO UPDATE SET"
+            " miss_count=excluded.miss_count, terminal=excluded.terminal,"
+            " last_miss_at=excluded.last_miss_at, updated_at=excluded.updated_at",
+            (property_no, n, term, now_s, now_s))
+        self.conn.commit()
+        return {"count": n, "terminal": bool(term)}
+
+    def no_miss_clear(self, property_no: str) -> None:
+        """检索成功 → 清零计数并解除终局（房源可能重新上架）。"""
+        if not property_no:
+            return
+        self.conn.execute("DELETE FROM no_search_miss WHERE property_no=?", (property_no,))
+        self.conn.commit()
+
+    def no_miss_stats(self) -> dict:
+        """台账概览：总数 / 终局数。"""
+        tot = self.conn.execute("SELECT COUNT(*) FROM no_search_miss").fetchone()[0]
+        term = self.conn.execute(
+            "SELECT COUNT(*) FROM no_search_miss WHERE terminal=1").fetchone()[0]
+        return {"total": int(tot), "terminal": int(term)}
+
+    # ---------------- v1.9.81 §17⑧：按次检索日志 ----------------
+    def log_search(self, kind: str = "", cond: str = "", result_count=None,
+                   hit_limit: bool = False, elapsed_s: float = 0.0, run_id=None) -> None:
+        """记一次检索。result_count=None = 读不到，绝不写成 0。"""
+        self.conn.execute(
+            "INSERT INTO search_log (run_id,kind,cond,result_count,hit_limit,elapsed_s,at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (run_id, kind, cond or "",
+             None if result_count is None else int(result_count),
+             1 if hit_limit else 0, float(elapsed_s or 0.0), now()))
+        self.conn.commit()
+
+    def search_log_recent(self, limit: int = 100, kind: str = "") -> list:
+        """取最近检索记录（可按 kind 过滤）。"""
+        if kind:
+            rows = self.conn.execute(
+                "SELECT * FROM search_log WHERE kind=? ORDER BY id DESC LIMIT ?",
+                (kind, int(limit))).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM search_log ORDER BY id DESC LIMIT ?",
+                (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
 
     def set_pdf(self, property_no: str, pdf_path: str) -> None:
         """只更新 PDF 落盘路径（v1.3.0：后台 worker 下完 PDF 后由主线程回写）。

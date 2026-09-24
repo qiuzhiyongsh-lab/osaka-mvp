@@ -1431,11 +1431,20 @@ def _live_items(store, cfg, log, trial: bool = False, sink=None,
                 # v1.5.10：点「検索」后若弹「検索結果が500件を超えています」事前確認框，
                 # 必须点「はい/続行」确认，否则结果页不渲染 → 整组记「未知」甚至 0 条。
                 # 用户明确要求：遇到此确认框要真去点，不能跳过/直接跳回检索页。
-                if _dismiss_modal(page):
+                _hit500 = _dismiss_modal(page)
+                if _hit500:
                     log("· 已确认「検索結果が500件」事前確認框，继续显示结果")
                     page.wait_for_timeout(1500)   # 确认后结果页才真正渲染
                 total_txt = _read_total(page, sel, log=log)
                 log(f"· {label} → 线上报告 {total_txt or '未知'} 件")
+                # v1.9.81 §17⑧：按「每次检索」留痕（读不到记 NULL，绝不记 0 ——「读不到」≠「0 件」）
+                try:
+                    _n = _parse_total(total_txt) if total_txt else None
+                    store.log_search(kind="list", cond=label, result_count=_n,
+                                     hit_limit=bool(_hit500), elapsed_s=0.0,
+                                     run_id=(sink.run_id if sink is not None else None))
+                except Exception as _e:
+                    log(f"   · 检索日志写入失败（不影响抓取）：{type(_e).__name__}: {_e}")
                 # v1.5.8：只有真正取到结果条数的组才算"抓过"，才进下架判定的作用域；
                 # 「結果 未知」/ 検索超时 等失败组一律不进 → 不会被误判下架。
                 # v1.9.5 追加：**确认 0 件**（0件告示 / tab 0 件）的组也不进 ——
@@ -3391,7 +3400,8 @@ def reins_bukken_search(cfg, log, nos) -> dict:
 
 
 def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
-                        pdf_worker=None, need_pdf: bool = True, log=None) -> dict | None:
+                        pdf_worker=None, need_pdf: bool = True, log=None,
+                        store=None) -> dict | None:
     """v1.9.6：阶段B 用「物件番号検索」打开详情页抓全字段 + PDF。
 
     REINS 列表行「詳細」是 <button> 无直链 → detail_href 全库恒空（jproperty.db 实测
@@ -3402,6 +3412,33 @@ def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
     任一解析异常返回 None（绝不写脏）；SessionExpired 原样上抛。
     """
     log = log or (lambda *_a, **_k: None)
+
+    # v1.9.81 G-3：终局跳过 —— 该番号已连续 N 次「0 件」（成約済/取り下げ等），
+    #   后续轮次**不再发起检索**。原实现每轮都重查，实测白跑 ≈10s/号（如
+    #   300140791556 / 100140789119 / 100140779224）。勇哥 09-25 定：跑 2 次后结束不再跑。
+    def _miss(reason: str) -> None:
+        """记一次「0 件 / 无結果」；达阈值(2)即置终局跳过。"""
+        if store is None:
+            return
+        try:
+            # §17⑧：番号检索按次留痕（此处是**真 0 件**，不是「读不到」，故记 0 而非 NULL）
+            store.log_search(kind="bukken", cond=property_no, result_count=0,
+                             hit_limit=False, elapsed_s=0.0)
+            r = store.no_miss_bump(property_no, threshold=2)
+            if r["terminal"]:
+                log("  · " + property_no + " " + reason
+                    + "（连续 %d 次 → 已标记终局跳过，后续不再检索）" % r["count"])
+        except Exception:
+            pass
+
+    if store is not None:
+        try:
+            if store.no_miss_terminal(property_no):
+                log("  · " + property_no + " 终局跳过（番号検索连续 0 件已达阈值，不再检索）")
+                return None
+        except Exception:
+            pass
+
     site = (cfg.get("site") or {})
     url = (site.get("bukken_search_url") or "").strip()
     inp = (sel.get("bukken_search_inputs") or "").strip()
@@ -3428,11 +3465,13 @@ def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
         _html0 = (page.content() or "")
         if ("検索結果が0件" in _html0) or ("0件です" in _html0):
             log("  · " + property_no + " 番号検索 0件（成約済/取り下げ等，无詳細可补，跳过）")
+            _miss("番号検索 0件")
             return None
         _rows0 = sel.get("result_rows") or "div.p-table-body-row"
         try:
             if page.locator(_rows0).count() == 0:
                 log("  · " + property_no + " 番号検索 结果 0 行（无詳細可补，跳过）")
+                _miss("结果 0 行")
                 return None
         except Exception:
             pass
@@ -3440,6 +3479,7 @@ def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
         _det = page.locator(sel["detail_button"])
         if _det.count() == 0:
             log("  · " + property_no + " 番号検索 结果页无「詳細」按钮（跳过）")
+            _miss("无「詳細」按钮")
             return None
         # 结果列表点「詳細」（REINS 是 <button>，可能同标签或开新标签）
         _det.first.click(timeout=8000)
@@ -3453,6 +3493,12 @@ def _fetch_detail_by_no(ctx, page, property_no: str, sel, cfg,
                 dp.set_default_timeout(cfg["browser"].get("timeout_ms", 30000))
         rec = _parse_detail(dp, property_no, cfg)
         rec["property_no"] = property_no
+        # v1.9.81 G-3：检索成功 → 清零终局台账（房源可能重新上架，不能被永久跳过）
+        if store is not None:
+            try:
+                store.no_miss_clear(property_no)
+            except Exception:
+                pass
         if need_pdf and bool(cfg.get("download", {}).get("pdf", True)):
             rec["pdf_url"] = _pdf_url_of(dp, sel)
             try:
@@ -3601,13 +3647,18 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
             # （selectors.bukken_search_inputs/button 已就绪才会进到这里）。
             try:
                 d = _fetch_detail_by_no(ctx, page, no, sel, cfg,
-                                       pdf_worker=worker, need_pdf=need_pdf, log=log)
+                                       pdf_worker=worker, need_pdf=need_pdf, log=log,
+                                       store=store)
             except SessionExpired:
                 raise
             except Exception as e:
                 log("  ✗ " + no + " 阶段B 详情失败：" + type(e).__name__ + ": " + str(e))
                 continue
             if not d:
+                # v1.9.81 G-3：终局跳过 ≠ 失败 —— 不计进失败、也不再重试
+                if store is not None and store.no_miss_terminal(no):
+                    skipped += 1
+                    continue
                 log("  ✗ " + no + " 阶段B 详情为空（番号検索未打开详情，下轮重试）")
                 continue
             d["property_no"] = no

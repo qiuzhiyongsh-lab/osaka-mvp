@@ -49,7 +49,8 @@ def _save_bytes(no: str, data: bytes) -> str:
 def recrawl_one(store, cfg, cos, cli, no, ctx, page) -> dict:
     """重抓单个番号 PDF，落盘后接 F4 上云闸门。返回结果 dict。"""
     sel = cfg.get("selectors") or {}
-    rec = crawler._fetch_detail_by_no(ctx, page, no, sel, cfg, need_pdf=True, log=_say)
+    rec = crawler._fetch_detail_by_no(ctx, page, no, sel, cfg, need_pdf=True, log=_say,
+                                      store=store)
     if not rec:
         return {"no": no, "ok": False, "msg": "详情/PDF 未抓到（0件/选择器未配/解析失败）"}
     # 落盘（优先点击下载的 bytes；直链兜底用 urllib 带 Referer 下载）
