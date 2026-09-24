@@ -40,6 +40,8 @@ env/
 # 根目录 _*.py / _*.js / _*.out / _*.txt / _rendered_*.html 等
 /_*
 /docs/UI_PRD/_*
+# tools/ 下的临时发版/诊断辅助脚本（_ 前缀 = 本地辅助、不部署、不入库）
+/tools/_*.py
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/
