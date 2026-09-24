@@ -489,6 +489,67 @@ def _ask_operator(store, run_id, kind: str, params: dict | None = None,
     return default_action
 
 
+def _completeness_gate(store, cfg, run_id, stats, log) -> dict:
+    """v1.9.81 §16：下载完整性校验锁（勇哥批注：「做！」）。
+
+    退出前比对「本轮应下 vs 实际落库」，**绝不静默结束**：
+      · 空转：列表扫到 scanned>0 却 fetched==0 → 整轮什么都沒落库，🔴 告警
+      · PDF 缺口：本轮涉及（last_seen ≥ 本轮开始）且平台标有図面(has_floorplan=1)
+        但本地 pdf_path 仍空 → 🔴 告警 + **强制入 pdf_recrawl_queue** 下轮补抓
+    返回 {"empty_round":bool, "gap_pdf":int, "enqueued":int, "blocked":bool}。
+
+    ⚠「阻断」的落点 = 不静默结束 + 强制入补抓队列 + 写通知，
+      而**不是**卡住进程（自动化场景挂死代价更大）。
+    """
+    say = log or (lambda *_a, **_k: None)
+    out = {"empty_round": False, "gap_pdf": 0, "enqueued": 0, "blocked": False}
+    try:
+        scanned = int(stats.get("scanned") or 0)
+        fetched = int(stats.get("fetched") or 0)
+        out["empty_round"] = bool(scanned > 0 and fetched == 0)
+    except Exception:
+        pass
+    started = None
+    try:
+        r = store.conn.execute("SELECT started_at FROM runs WHERE id=?", (run_id,)).fetchone()
+        started = r[0] if r else None
+    except Exception:
+        started = None
+    if started:
+        try:
+            rows = store.conn.execute(
+                "SELECT property_no FROM properties"
+                " WHERE COALESCE(has_floorplan,0)=1"
+                "   AND (pdf_path IS NULL OR pdf_path='')"
+                "   AND COALESCE(last_seen_at,first_seen_at) >= ?",
+                (started,)).fetchall()
+            out["gap_pdf"] = len(rows)
+            for r in rows[:200]:
+                try:
+                    if store.enqueue_pdf_recrawl(r[0], priority=4,
+                                                 reason="completeness_gate"):
+                        out["enqueued"] += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    out["blocked"] = bool(out["empty_round"] or out["gap_pdf"] > 0)
+    if out["blocked"]:
+        say("🔴 完整性校验：本轮存在缺口（空转=%s ｜ PDF 缺口=%d，已入补抓 %d）"
+            % (out["empty_round"], out["gap_pdf"], out["enqueued"]))
+        try:
+            store.add_notification(
+                "completeness_gap",
+                "本轮下载不完整：列表 %d / 落库 %d ｜ PDF 缺口 %d 条（已入补抓队列）"
+                % (int(stats.get("scanned") or 0), int(stats.get("fetched") or 0),
+                   out["gap_pdf"]))
+        except Exception:
+            pass
+    else:
+        say("· 完整性校验通过（无缺口）")
+    return out
+
+
 def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
               scale: float = 0.25, trial: bool = False, resume: bool = False,
               _retry: bool = False) -> dict[str, Any]:
@@ -707,6 +768,12 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
                     log("  ⚠ 推送失败（不影响本轮）：" + "; ".join(_res.get("errors") or []))
         except Exception as _e:                                # noqa: BLE001
             log("  ⚠ 自动上传异常（不影响本轮）：%s: %s" % (type(_e).__name__, _e))
+        # ---- v1.9.81 §16 收尾⑤：下载完整性校验锁（勇哥：「做！」）----
+        #   退出前强制校验「应下 vs 已落库」，有缺口即告警 + 入补抓队列，绝不静默结束。
+        try:
+            stats["completeness"] = _completeness_gate(store, cfg, run_id, stats, log)
+        except Exception as _e:                                # noqa: BLE001
+            log("  ⚠ 完整性校验异常（不影响本轮）：%s: %s" % (type(_e).__name__, _e))
         # ---- v1.4.0 收尾③：手动触发的轮次写一条通知，前端轮询到就提示"已跑完" ----
         if trigger in ("manual", "real-download", "test-download"):
             store.add_notification(
