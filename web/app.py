@@ -1336,6 +1336,8 @@ _RELAY_DONE_TTL_H = 24          # 终态任务保留 24h 后清理，防表膨�
 # v1.9.64：常驻线程幂等守卫（serve.py 与 __main__ 两条启动路径谁先到谁生效）
 _RESIGN_LOOP_STARTED = False
 _AI_RELAY_STARTED = False
+# v1.9.82 N1：启动断点续跑自检幂等守卫（同上，绝不双跑）
+_RESUME_CHECKED = False
 
 _AI_RELAY_COLS = ["property_no", "structure_json", "radar_json", "conclusion",
                   "anomaly_json", "overall", "edited", "source_file", "source_row",
@@ -1534,6 +1536,40 @@ def _start_pdf_sweep_loop(interval_min: int = 10):
     """
     from core import pdf_cloud
     pdf_cloud._start_auto_sweep_loop(interval_min=interval_min, log=log)
+
+
+def _start_resume_check():
+    """v1.9.82 N1：启动自检「上一轮是否被中断」→ 平台工作时段内**自动断点续跑**。
+
+    勇哥 09-25 定：每次启动后开始做，限工作时段，并在日志说明。
+    骨架来自 v1.5.2（crawl_state 断点 + run_round(resume=True)），本函数补的是
+    「启动后自动做 + 工作时段判定 + 日志说明」三件事，逻辑在 core/crawler.resume_if_interrupted。
+
+    ⚠ 在后台线程跑：run_round 是一整轮抓取（可能耗时分钟级），绝不能阻塞 Flask 启动
+      （否则用户按完 start_mvp 打不开页面）。同款幂等守卫（_RESUME_CHECKED）：
+      serve.py 与 __main__ 两条启动路径谁先到谁生效，绝不双跑。
+    线上（OSAKA_PUBLIC=1）绝不调用（serve.py 已用 `if not _W.PUBLIC` 包住）。
+    """
+    global _RESUME_CHECKED
+    if _RESUME_CHECKED:
+        return
+    _RESUME_CHECKED = True
+
+    def _run() -> None:
+        try:
+            import core.crawler as crawler_mod
+        except Exception as e:                                # noqa: BLE001
+            log(f"· 断点续跑自检跳过（import crawler 失败）：{type(e).__name__}: {e}")
+            return
+        try:
+            res = crawler_mod.resume_if_interrupted(STORE, CFG, log=log)
+        except Exception as e:                                # noqa: BLE001
+            log(f"✗ 断点续跑自检异常：{type(e).__name__}: {e}")
+
+    # 先让开 3s，等服务起来、账号同步线程先跑，避免开局抢资源。
+    threading.Thread(target=lambda: (time.sleep(3), _run()),
+                     daemon=True, name="resume-check").start()
+    log("[断点续跑] 启动自检已挂起（后台线程，检测到中断轮次且在工作时段内将自动续跑）")
 
 
 def _start_ai_relay_loop(poll_seconds: int = 2):

@@ -176,6 +176,10 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
         _W._enable_pdf_cloud_auto()
         # v1.9.67：上云「欠账巡检」兜底线程（每 10 分钟扫「本地有 PDF 未上云」→ 自动补齐）
         _W._start_pdf_sweep_loop()
+        # v1.9.82 N1：启动自检「上一轮是否被中断」→ 平台工作时段内**自动断点续跑**。
+        #   勇哥 09-25 定：每次启动后开始做，限工作时段，并在日志说明。
+        #   同款幂等守卫（_RESUME_CHECKED），绝不双跑。
+        _W._start_resume_check()
 
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。

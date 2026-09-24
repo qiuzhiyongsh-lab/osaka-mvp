@@ -9,8 +9,26 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.81"
-BUILD_AT = "2026-09-25 02:35"
+VERSION = "1.9.82"
+BUILD_AT = "2026-09-25 04:00"
+# ============================================================================
+# v1.9.82（2026-09-25 · 批次2·任务1 N1 断点续跑 · 写码未发布）：
+#   勇哥 09-25 拍板「断点续跑：每次启动后开始做，限平台工作时段内，并在日志说明」。
+#   骨架来自 v1.5.2（crawl_state 断点 + run_round(resume=True)），本版补三件事：
+#   · core/crawler.py 新增 `resume_if_interrupted(store,cfg,log)` + `_in_work_window(cfg)`：
+#       启动自检「上一轮是否被中断（runs 最新一条 status=running/interrupted）」；
+#       **仅**当前处于日本时间 07:00–23:00（复用 scheduler._now_tz UTC+9 换算，不受本机时区影响）
+#       才调 run_round(resume=True) 续跑；维护段（23:00–07:00）绝不续跑，避免撞维护页白跑；
+#       日志明确说明「哪一轮、阶段、已扫多少条、是否续跑」。
+#   · serve.py 启动器在 `if not _W.PUBLIC` 块内调用 `_W._start_resume_check()`；
+#     web/app.py 新增 `_start_resume_check()`（幂等守卫 _RESUME_CHECKED，与 pdf_resign/ai_relay 同款），
+#     后台线程跑（run_round 是整轮抓取，不能阻塞 Flask 启动），启动先让开 3s。
+#   正确性验证：run_round 每次 start_run 新建 run_id 并 finish 'done'，而 last_interrupted_run
+#     只查最新一条 → 续跑轮成为新最新且 done，旧的 interrupted 轮沦为无害孤儿，不会无限续跑同一轮。
+#   · 离线诊断 `_diag_n1_v1982.py` 全绿：① 当前 JST≈03:5x 在维护段 → _in_work_window=False；
+#     ② 窗口外假 store 中断轮次 → 不调 run_round、返回 out_of_window；
+#     ③ 强制窗口内 → 恰好调 run_round 一次（续跑触发）。py_compile OK。
+#   本地 8765 重启后生效；未发布。
 # ============================================================================
 # v1.9.81（2026-09-25 · 批次1「清历史小问题」· 进行中 · 写码未发布）：
 #   依据 `docs/PRD/32_待上线需求实施计划_PRD稿_2026-09-25.md`（勇哥 09-25 逐条确认 7 项）。

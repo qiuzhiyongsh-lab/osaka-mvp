@@ -815,6 +815,70 @@ def run_round(store, cfg: dict, trigger: str = "manual", progress_cb=None,
 
 
 # ============================================================
+# v1.9.82 N1 · 断点续跑（勇哥 09-25：「每次启动后开始做，平台工作时段内，并在日志里说明」）
+# ============================================================
+def _in_work_window(cfg: dict) -> bool:
+    """当前是否处于平台工作时段（日本时间 07:00–23:00；维护 23:00–次日 07:00）。
+
+    口径与 core/scheduler 完全一致（_now_tz 取 UTC+9，不受本机时区影响），
+    这里只是复用同一套换算，避免"另写一套时钟"再算错一次。
+    """
+    from . import scheduler as _sched      # 延迟导入：scheduler 已 import crawler，避免循环
+    try:
+        now = _sched._now_tz(cfg)
+        w = (cfg.get("schedule") or {}).get("window", {}) or {}
+        sh, sm = _sched._parse_hhmm(w.get("start", "07:00"))
+        eh, em = _sched._parse_hhmm(w.get("end", "23:00"))
+        cur = now.hour * 60 + now.minute
+        return (sh * 60 + sm) <= cur <= (eh * 60 + em)
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
+def resume_if_interrupted(store, cfg, log=None) -> dict:
+    """启动自检：上一轮被中断（进程被关 / 崩溃）→ **自动断点续跑**。
+
+    骨架来自 v1.5.2（crawl_state 断点 + run_round(resume=True)），
+    本版补的是勇哥要的三件事：① 启动后自动做 ② 只在平台工作时段内 ③ 日志说明。
+
+    ⚠ 维护时段（日本 23:00–07:00）**绝不续跑**——那时 REINS 在维护，
+      硬跑只会撞维护页被 _check_maintenance 拦下，纯属白费。
+    """
+    say = log or (lambda *_a, **_k: None)
+    try:
+        r = store.last_interrupted_run()
+    except Exception as e:                                   # noqa: BLE001
+        say("· 断点自检跳过（读不到 runs）：%s: %s" % (type(e).__name__, e))
+        return {"resumed": False, "reason": "read_error"}
+    if not r:
+        return {"resumed": False, "reason": "none"}
+
+    rid = r.get("id")
+    try:
+        st = store.load_crawl_state(rid) or {}
+    except Exception:                                        # noqa: BLE001
+        st = {}
+    phase = st.get("phase") or "未知阶段"
+    scanned = st.get("scanned") or 0
+
+    if not _in_work_window(cfg):
+        say("⏸ 检测到未完成轮次 #%s（阶段 %s，已扫 %s 条），但当前**不在平台工作时段**"
+            "（日本时间 07:00–23:00）→ 本次不续跑，等下一轮" % (rid, phase, scanned))
+        return {"resumed": False, "reason": "out_of_window", "run_id": rid}
+
+    say("⟳ 检测到未完成轮次 #%s（阶段 %s，已扫 %s 条）→ 平台工作时段内，**自动断点续跑**"
+        % (rid, phase, scanned))
+    try:
+        res = run_round(store, cfg, trigger="resume", progress_cb=say, resume=True)
+        say("· 断点续跑结束：状态=%s（扫描 %s / 落库 %s）"
+            % (res.get("status") or "?", res.get("scanned") or 0, res.get("fetched") or 0))
+        return {"resumed": True, "run_id": rid, "result": res}
+    except Exception as e:                                   # noqa: BLE001
+        say("✗ 断点续跑失败：%s: %s" % (type(e).__name__, e))
+        return {"resumed": False, "reason": "error", "error": str(e)}
+
+
+# ============================================================
 # DEMO：本地生成样例数据
 # ============================================================
 def _demo_items(store, cfg, scale: float, log) -> list[dict]:
