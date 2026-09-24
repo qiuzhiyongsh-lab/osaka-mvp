@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 VERSION = "1.9.82"
-BUILD_AT = "2026-09-25 05:30"
+BUILD_AT = "2026-09-25 06:30"
 # ============================================================================
 # v1.9.82（2026-09-25 · 批次2·任务1 N1 断点续跑 · 写码未发布）：
 #   勇哥 09-25 拍板「断点续跑：每次启动后开始做，限平台工作时段内，并在日志说明」。
@@ -40,6 +40,21 @@ BUILD_AT = "2026-09-25 05:30"
 #       /api/crawl/settings 白名单加 stage_b_enabled（与 main_round_enabled 同款写盘即生效）。
 #   · 离线诊断 `_diag_d1_v1982.py` 全绿：live+主轮关下 ① stage_b=true→调 _backfill 1 次、
 #     detail_backfilled=5；② stage_b=false→0 次且 stage_b_skipped=True。py_compile + node --check OK。
+#   本地 8765 重启后生效；未发布。
+# · **RB-1 REINS 500 件上限应对（勇哥 09-25 确认「先上方案 A、细分开关默认关」）**：
+#     现状已具备：split_subtypes 把種目拆平成单種目一组（降单组体量）、「検索結果が500件」事前確認框
+#     已被 `_dismiss_modal` 识别点掉、`search_log` 已记 hit_limit。缺的是**显式超限告警**与**可切换的细分开关**。
+#     本版补：
+#     · config.yaml crawl 段加 `auto_split_on_limit: false`（默认关 = 只告警不细分，PRD 建议「告警先做」）；
+#       设置页 collect.html 加「500 件拆细重试」勾选 + 4 语 i18n（roundplan.auto_split*）；
+#       /api/crawl/settings 白名单加 auto_split_on_limit。
+#     · crawler.py 两处检索后（_live_items 列表检索 + sync_today_dates 日期同步，后者为**当前活跃路径**
+#       因主轮默认关）捕获 `_dismiss_modal` 返回的 500 命中：**明确告警「结果可能不全」**；
+#       ON 时改文案「已标记超限组（拆细待真机验证）」；两处均把 hit_limit 写入 search_log（按次留痕）。
+#     · ⚠ 真机拆细子查询（按 REINS 地域/価格帯筛选）实现后，开关 ON 才真正拆细；
+#       当前版本 ON 仅记录、不实际拆细（默认 OFF 零行为变化）。需真机 e2e 复核（B⑰ 沙箱禁公网）。
+#   · 离线诊断 `_diag_rb1_v1982.py` 结构全绿：默认关 + _dismiss_modal/_parse_total 可用 +
+#     两处 500 检测 + 两处 hit_limit 入表 + OFF/ON 文案均在。py_compile + node --check OK。
 #   本地 8765 重启后生效；未发布。
 # ============================================================================
 # v1.9.81（2026-09-25 · 批次1「清历史小问题」· 进行中 · 写码未发布）：

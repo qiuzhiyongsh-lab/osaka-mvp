@@ -2874,10 +2874,13 @@ def api_crawl_settings():
         cr["sync_dates_backfill_prev_day"] = bool(body["sync_dates_backfill_prev_day"])
     if "stage_b_enabled" in body:
         cr["stage_b_enabled"] = bool(body["stage_b_enabled"])
+    if "auto_split_on_limit" in body:
+        cr["auto_split_on_limit"] = bool(body["auto_split_on_limit"])
     cfgmod.save(cfg)
     log(f"抓取计划开关已保存：全期間主轮={cr.get('main_round_enabled')} "
         f"前日补齐={cr.get('sync_dates_backfill_prev_day')} "
-        f"阶段B={cr.get('stage_b_enabled')}")
+        f"阶段B={cr.get('stage_b_enabled')} "
+        f"500拆细={cr.get('auto_split_on_limit')}")
     return jsonify({"status": "ok", "crawl": cr})
 
 

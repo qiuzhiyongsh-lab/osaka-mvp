@@ -1586,7 +1586,17 @@ def _live_items(store, cfg, log, trial: bool = False, sink=None,
                 # 用户明确要求：遇到此确认框要真去点，不能跳过/直接跳回检索页。
                 _hit500 = _dismiss_modal(page)
                 if _hit500:
+                    _split_on = bool((cfg.get("crawl", {}) or {}).get("auto_split_on_limit", False))
                     log("· 已确认「検索結果が500件」事前確認框，继续显示结果")
+                    if _split_on:
+                        # v1.9.82 RB-1：开关开 → 标记本组超限（拆细子查询需真机 e2e 验证 REINS
+                        #   地域/価格帯筛选后再启用，当前版本打开开关仅记录、不实际拆细）。
+                        log("⚠ 本组线上 >500 件（REINS 截断）：auto_split_on_limit=ON "
+                            "→ 已标记超限组（拆细子查询待真机验证 REINS 地域/価格帯筛选后启用）")
+                    else:
+                        # v1.9.82 RB-1：默认只告警不细分（PRD 建议「告警先做」）。
+                        log("⚠ 本组线上 >500 件（REINS 截断）：结果可能不全；"
+                            "如需自动拆细请开启 crawl.auto_split_on_limit")
                     page.wait_for_timeout(1500)   # 确认后结果页才真正渲染
                 total_txt = _read_total(page, sel, log=log)
                 log(f"· {label} → 线上报告 {total_txt or '未知'} 件")
@@ -3251,8 +3261,26 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
             page.locator(sel["search_button"]).first.click()
             page.wait_for_load_state("networkidle", timeout=40000)
             page.wait_for_timeout(2500)
-            _dismiss_modal(page)
+            # v1.9.82 RB-1：捕获 500 件上限确认框（_dismiss_modal 命中即 True），
+            #   记录 hit_limit + 明确告警（默认只告警不细分）。
+            _hit500 = _dismiss_modal(page)
+            if _hit500:
+                _split_on = bool((cfg.get("crawl", {}) or {}).get("auto_split_on_limit", False))
+                log("· 已确认「検索結果が500件」事前確認框，继续显示结果")
+                log("⚠ 本组日期同步线上 >500 件（REINS 截断）：结果可能不全；"
+                    + ("auto_split_on_limit=ON → 已标记超限组（拆细待真机验证）" if _split_on
+                       else "如需自动拆细请开启 crawl.auto_split_on_limit"))
             total = _read_total(page, sel, log=log)
+            # v1.9.82 §17⑧：日期同步也按次留痕（含 hit_limit），与列表检索同源。
+            try:
+                _n = _parse_total(total) if total else None
+                store.log_search(kind="date_sync",
+                                cond="%s %s×%s/%s" % (day, g["kind"], "·".join(g["subtypes"]), field),
+                                result_count=_n, hit_limit=bool(_hit500),
+                                elapsed_s=0.0, run_id=run_id)
+            except Exception as _e:
+                log("   · 检索日志写入失败（不影响抓取）：%s: %s"
+                    % (type(_e).__name__, _e))
             # v1.6.3：先打条件横幅，确认 当日/地区/房屋类型
             # v1.8.2：seq/total 改用**整个排期**的序号（补前日时不会每天从 1 重数）
             _log_search_banner(log, seq=_seq, total=len(_jobs),

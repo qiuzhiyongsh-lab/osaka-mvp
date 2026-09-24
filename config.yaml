@@ -120,6 +120,10 @@ crawl:
   #   调 _backfill_details_pdfs）；本开关把它从「隐式跟随主轮降级」升级为「显式独立可控」。
   #   主轮仍 false（勇哥 U3 拍板不动）；stage_b_enabled=false 时才会真正关掉补详情/PDF。
   stage_b_enabled: true
+  # v1.9.82 RB-1：500 件上限应对。默认关 = 只告警不细分（PRD 建议「告警先做」）。
+  #   开 = 检索撞 500 件上限时，自动按 REINS 可筛维度（地域/価格帯）拆细重试。
+  #   ⚠ 拆细重试会增请求、有风控风险，未经验证前默认关；开启需真机 e2e 复核。
+  auto_split_on_limit: false
   backfill_cap: 300
   backfill_max_minutes: 20
   sync_dates_enabled: true

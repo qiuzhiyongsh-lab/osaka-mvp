@@ -181,6 +181,13 @@
         <span class="muted" data-i18n="roundplan.stage_b_tip">v1.9.82 从主轮解耦为独立开关：主轮关时仍补详情+PDF；取消勾选才关掉</span>
       </span>
     </label>
+    <label class="field" style="flex:1 1 320px;display:flex;align-items:flex-start;gap:8px">
+      <input type="checkbox" id="autoSplitOn" onchange="renderRoundPlan()" {{ 'checked' if (cfg.crawl or {}).get('auto_split_on_limit', false) }} style="width:auto;height:auto;margin-top:4px">
+      <span>
+        <b data-i18n="roundplan.auto_split">500 件拆细重试（默认关闭）</b><br>
+        <span class="muted" data-i18n="roundplan.auto_split_tip">REINS 单组 >500 件截断时自动拆细重试；开启增请求有风控风险，未真机验证前建议关</span>
+      </span>
+    </label>
   </div>
 
   <div class="libhint" style="margin-top:6px">
@@ -785,7 +792,8 @@ async function saveRoundPlan(){
   const body = {
     main_round_enabled: document.getElementById('mainRoundOn').checked,
     sync_dates_backfill_prev_day: document.getElementById('backfillOn').checked,
-    stage_b_enabled: document.getElementById('stageBOn').checked
+    stage_b_enabled: document.getElementById('stageBOn').checked,
+    auto_split_on_limit: document.getElementById('autoSplitOn').checked
   };
   try{
     await postJSON('/api/crawl/settings', body);

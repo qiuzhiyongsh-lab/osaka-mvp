@@ -900,6 +900,8 @@
   ZH['roundplan.backfill_tip']='上一日尾巴断了自动补搜一次（一天最多一次，常态不补）';
   ZH['roundplan.stage_b']='阶段B 补详情（已默认开启）';
   ZH['roundplan.stage_b_tip']='v1.9.82 从主轮解耦为独立开关：主轮关时仍补详情+PDF；取消勾选才关掉';
+  ZH['roundplan.auto_split']='500 件拆细重试（默认关闭）';
+  ZH['roundplan.auto_split_tip']='REINS 单组 >500 件截断时自动拆细重试；开启增请求有风控风险，未真机验证前建议关';
   ZH['roundplan.preview_h']='本轮实际检索计划';
   ZH['roundplan.p1']='① 平台日期同步：当天 登録/変更 2 轴 × 6 组 = 12 次';
   ZH['roundplan.p2']='② 全期間主轮：6 组 × 2 轴 = 12 次（补详情 + 図面 + 下架判定）';
@@ -967,6 +969,8 @@
   DICT['zh-TW']['roundplan.backfill_tip']='上一日尾巴斷了自動補搜一次（一天最多一次，常態不補）';
   DICT['zh-TW']['roundplan.stage_b']='階段B 補詳情（已預設開啟）';
   DICT['zh-TW']['roundplan.stage_b_tip']='v1.9.82 從主輪解耦為獨立開關：主輪關時仍補詳情+PDF；取消勾選才關掉';
+  DICT['zh-TW']['roundplan.auto_split']='500 件拆細重試（預設關閉）';
+  DICT['zh-TW']['roundplan.auto_split_tip']='REINS 單組 >500 件截斷時自動拆細重試；開啟增請求有風控風險，未真機驗證前建議關';
   DICT['zh-TW']['roundplan.preview_h']='本輪實際檢索計劃';
   DICT['zh-TW']['roundplan.p1']='① 平台日期同步：當天 登録/変更 2 軸 × 6 組 = 12 次';
   DICT['zh-TW']['roundplan.p2']='② 全期間主輪：6 組 × 2 軸 = 12 次（補詳情 + 図面 + 下架判定）';
@@ -982,6 +986,8 @@
   DICT['en']['roundplan.backfill_tip']='Auto re-searches the previous day once if its tail broke (at most once/day, normally off)';
   DICT['en']['roundplan.stage_b']='Stage B detail backfill (on by default)';
   DICT['en']['roundplan.stage_b_tip']='v1.9.82 decoupled from main round into its own switch: still backfills detail+PDF when main round is off; uncheck to disable';
+  DICT['en']['roundplan.auto_split']='500-item split retry (off by default)';
+  DICT['en']['roundplan.auto_split_tip']='When a REINS group exceeds 500 (truncated), auto split into finer sub-queries; ON adds requests/risk, keep off until e2e-validated';
   DICT['en']['roundplan.preview_h']='This round\'s actual fetch plan';
   DICT['en']['roundplan.p1']='① Platform date sync: today reg/change 2 axes × 6 groups = 12 searches';
   DICT['en']['roundplan.p2']='② Full-period main round: 6 groups × 2 axes = 12 searches (detail + floorplan + delist)';
@@ -997,6 +1003,8 @@
   DICT['ja']['roundplan.backfill_tip']='前日の末尾が切れた場合のみ自動で再検索（1日最大1回、通常は行わない）';
   DICT['ja']['roundplan.stage_b']='ステージB 詳細補完（既定オン）';
   DICT['ja']['roundplan.stage_b_tip']='v1.9.82 メインラウンドから分離して独立スイッチに：メインがオフでも詳細+PDF を補完；チェック外すと停止';
+  DICT['ja']['roundplan.auto_split']='500件分割リトライ（既定オフ）';
+  DICT['ja']['roundplan.auto_split_tip']='REINS 1グループが500件超で打ち切り時、自動で細分化リトライ；オンは要求増・リスク大、e2e検証まではオフ推奨';
   DICT['ja']['roundplan.preview_h']='このラウンドの実際の取得計画';
   DICT['ja']['roundplan.p1']='① プラットフォーム日付同期：当日 登録/変更 2 軸 × 6 組 = 12 回';
   DICT['ja']['roundplan.p2']='② 全期間メインラウンド：6 組 × 2 軸 = 12 回（詳細 ＋ 間取図 ＋ 下架判定）';
