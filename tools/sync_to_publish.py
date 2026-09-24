@@ -256,7 +256,7 @@ def main() -> int:
     cfg = cfgmod.load()
     con = sqlite3.connect(str(MVP / "data" / "jproperty.db"))
     local_total = con.execute("SELECT COUNT(*) FROM properties").fetchone()[0]
-    rows, _wm = publisher.build_rows(con, cfg, mode="full")
+    rows, _wm, _dw = publisher.build_rows(con, cfg, mode="full")
     con.close()
     leak = sum(1 for r in rows if PDF_KEYS & set(r.keys()))
     print(f"① 数据：本地库 {local_total} 行 → 数据包 {len(rows)} 行，PDF 字段泄漏 {leak}（应为 0）")
