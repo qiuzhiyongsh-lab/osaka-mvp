@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core.pdf_verify import verify_gate, norm  # v1.9.77 F4：上云前一致性校验
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # 预签名有效期：腾讯云上限 7 天
@@ -165,21 +167,110 @@ def _write_pdf_url(no: str, url: str) -> bool:
         con.close()
 
 
-def upload_one(no: str, cos: dict, cli, expire: int = DEFAULT_EXPIRE) -> dict:
-    """上传单份 + 写回 pdf_url。幂等：云端已有则不重传，只重签。"""
+# v1.9.77 F4：上云前一致性校验辅助（bnames 全表扫描较重，加 600s TTL 缓存）
+_BNAMES_CACHE = {"ts": 0.0, "data": []}
+
+
+def _get_bnames():
+    """跨房源楼名反查表（楼名≥5 字），带 600s TTL 缓存。"""
+    import time as _t
+    if _t.time() - _BNAMES_CACHE["ts"] < 600 and _BNAMES_CACHE["data"]:
+        return _BNAMES_CACHE["data"]
+    out = []
+    con = _connect()
+    try:
+        for pno, bn in con.execute(
+                "SELECT property_no, building_name FROM properties "
+                "WHERE building_name IS NOT NULL AND building_name <> ''"):
+            b = norm(bn)
+            if len(b) >= 5:
+                out.append((b, pno))
+    finally:
+        con.close()
+    _BNAMES_CACHE["ts"] = _t.time()
+    _BNAMES_CACHE["data"] = out
+    return out
+
+
+def _sha256_of(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _audit_upload(no, cos_key, sha256, verdict, triggered_by):
+    """F4：记录每次 COS 上传的校验结论（含被拦截的 mismatch）。"""
+    con = _connect()
+    try:
+        con.execute(
+            "INSERT INTO pdf_upload_audit (property_no,cos_key,sha256,verdict,triggered_by,at)"
+            " VALUES (?,?,?,?,?,?)",
+            (no, cos_key or "", sha256 or "", verdict, triggered_by,
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        con.commit()
+    finally:
+        con.close()
+
+
+def _notify_pdf(kind, message):
+    con = _connect()
+    try:
+        con.execute(
+            "INSERT INTO notifications (kind,message,created_at) VALUES (?,?,?)",
+            (kind, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        con.commit()
+    finally:
+        con.close()
+
+
+def upload_one(no: str, cos: dict, cli, expire: int = DEFAULT_EXPIRE,
+               triggered_by: str = "manual") -> dict:
+    """上传单份 + 写回 pdf_url。幂等：云端已有则不重传，只重签。
+
+    v1.9.77 F4：上云前一致性闸门 —— 先核验 PDF 是否真的属于 `no`（verify_gate）。
+      · mismatch（命中别的房源楼名）→ **拒上云** + 写审计 + 告警，返回 ok=False，
+        绝不让错误 PDF 挂到线上本番号下。
+      · 其余（match / unverified / no_text / unknown）→ 照常上云，审计记 verdict。
+    """
     src = attachments_dir() / ("%s.pdf" % no)
     if not src.exists():
         return {"ok": False, "no": no, "msg": "本地无此 PDF"}
     key = "%s.pdf" % no
+    sha = _sha256_of(str(src))
+    # v1.9.77 F4：上云前校验
+    try:
+        con = _connect()
+        try:
+            row = con.execute(
+                "SELECT address, building_name FROM properties WHERE property_no=?",
+                (no,)).fetchone()
+        finally:
+            con.close()
+        rec = {"address": (row[0] if row else None),
+               "building_name": (row[1] if row else None)}
+        bnames = _get_bnames()
+        verdict, note = verify_gate(no, rec, str(src), bnames)
+    except Exception as e:  # noqa: BLE001
+        verdict, note = "no_text", "verify_gate 异常: %s" % e
+    if verdict == "mismatch":
+        _audit_upload(no, key, sha, "mismatch", triggered_by)
+        _notify_pdf("pdf_mismatch",
+                    "番号 %s 待上云 PDF 实为「%s」，已拦截上云（疑似串号）" % (no, note))
+        return {"ok": False, "no": no, "verdict": "mismatch",
+                "msg": "PDF 串号，已拦截上云: %s" % note}
     try:
         cli.head_object(Bucket=cos["bucket"], Key=key)
         uploaded = False
-    except Exception:                                         # noqa: BLE001 - 404 即未存在
+    except Exception:  # noqa: BLE001 - 404 即未存在
         cli.upload_file(Bucket=cos["bucket"], Key=key, LocalFilePath=str(src),
                         PartSize=10, MAXThread=4, EnableMD5=False)
         uploaded = True
     url = cli.get_presigned_download_url(Bucket=cos["bucket"], Key=key, Expired=expire)
-    return {"ok": True, "no": no, "uploaded": uploaded,
+    _audit_upload(no, key, sha, verdict, triggered_by)
+    return {"ok": True, "no": no, "uploaded": uploaded, "verdict": verdict,
             "written": _write_pdf_url(no, url), "size": src.stat().st_size, "url": url}
 
 
@@ -193,7 +284,7 @@ def push_urls(cfg: dict, pairs: list[tuple], log=None) -> dict:
 
 
 def start_upload(nos: list[str], push_online: bool = True, log=None,
-                 progress_every: int = 50) -> str:
+                 progress_every: int = 50, triggered_by: str = "manual") -> str:
     """起后台线程批量上传，返回 task_id（UI 轮询 status）。
 
     log：可选日志回调 —— 上传过程写进设置页「实时日志」（勇哥 2026-09-23 要求：
@@ -225,7 +316,7 @@ def start_upload(nos: list[str], push_online: bool = True, log=None,
             with _TASKS_LOCK:
                 _TASKS[tid]["current"] = no
             try:
-                r = upload_one(no, cos, cli)
+                r = upload_one(no, cos, cli, triggered_by=triggered_by)
                 with _TASKS_LOCK:
                     _TASKS[tid]["done"] += 1
                     if r.get("ok"):
@@ -330,7 +421,7 @@ def _auto_worker():
             if todo:
                 say("[PDF云·自动] 检测到 %d 份新 PDF（已上云跳过 %d）→ 自动上传"
                     % (len(todo), len(batch) - len(todo)))
-                start_upload(todo, push_online=True, log=say)
+                start_upload(todo, push_online=True, log=say, triggered_by="auto")
             with _AUTO_LOCK:
                 _AUTO_PENDING.difference_update(batch)
         except Exception as e:                                # noqa: BLE001
@@ -393,7 +484,7 @@ def sweep_pending(push_online: bool = True, log=None, cap: int = _SWEEP_BATCH) -
         return {"ok": True, "pending": len(nos), "task": None,
                 "skipped": "upload_running"}
     say("[PDF云·巡检] 发现 %d 份本地有 PDF 但未上云 → 自动上传" % len(nos))
-    tid = start_upload(nos, push_online=push_online, log=say)
+    tid = start_upload(nos, push_online=push_online, log=say, triggered_by="sweep")
     return {"ok": True, "pending": len(nos), "task": tid}
 
 

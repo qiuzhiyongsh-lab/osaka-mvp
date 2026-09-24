@@ -9,8 +9,20 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.76"
-BUILD_AT = "2026-09-24 09:10"
+VERSION = "1.9.77"
+BUILD_AT = "2026-09-24 11:00"
+# ============================================================================
+# v1.9.77（2026-09-24 11:00 · PDF 串号污染修复（F1–F7）· 写码未发布）：
+#   整合 PRD osaka_mvp_pdf_mismatch_prd.md 的 F1–F7 闸门与工具（勇哥拍板「写代码修复」）：
+#   · F1 crawler 详情页一致性闸门（开页核物件番号==期望，否则丢 None 防串号）
+#   · F2 pipeline 落 PDF 后 verify_gate（mismatch 拒落盘+告警；unverified/no_text 标 pdf_unverified）
+#   · F3 tools/recrawl_pdf.py（按番号重抓 PDF，接 F4 上云闸门）
+#   · F4 pdf_cloud 上云前 verify_gate+审计表 pdf_upload_audit（mismatch 拦截上云）
+#   · F5 存量修复（129 高置信串号优先 83 在架重抓→重上云→回推 pdf_url）
+#   · F6 publisher 过滤 price_hold=1（±40% 价格跳变熔断，进 pending_decisions 待决）
+#   · F7 tools/flag_false_jumps.py（changes 表 9/15–9/16 价格跳变打 flag，保留原行）
+#   · DB schema 由 Store.__init__ 自动 ALTER（pdf_unverified/pdf_verify_note/price_hold/changes.flag
+#     + 新表 pdf_upload_audit/pdf_recrawl_queue）；本地 8765 重启后生效，全程未发布。
 # ============================================================================
 # v1.9.76（2026-09-24 09:10 · 复活机制修复 + 批量救回误下架 · 整合发版）：
 #   整合 PRD-31 的 R1 + R2（勇哥 09:10 拍板「去整合发版」）：

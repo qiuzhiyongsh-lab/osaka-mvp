@@ -18,6 +18,7 @@ from pathlib import Path
 from . import config as cfgmod
 from . import differ
 from .store import now
+from .pdf_verify import verify_gate
 
 
 def _ward_of(address: str) -> str:
@@ -53,6 +54,12 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
     stats = {"scanned": len(items), "fetched": 0, "new": 0, "changed": 0,
              "pdf_saved": 0, "errors": []}
     seen = []
+    # v1.9.77 F2/F4：跨房源楼名反查表（每批取一次，落盘/上云闸门共用）。
+    # 失败则退化为空表（闸门退化为「不反查」，仅自检自家命中）。
+    try:
+        bnames = store.all_building_names()
+    except Exception:  # noqa: BLE001
+        bnames = []
     today = datetime.now().strftime("%Y-%m-%d")
     today_iso = datetime.now().strftime("%Y%m%d")
 
@@ -71,6 +78,32 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
                 pdf_path = _save_pdf(rec, no, att_dir)
                 if pdf_path:
                     stats["pdf_saved"] += 1
+                    # v1.9.77 F2：PDF 落盘一致性闸门
+                    # 新下载的 PDF 必须自证属于本房源，否则可能是 run74 式「列表重排→开错房」
+                    # 造成的串号。match→放行；unverified/no_text/unknown→放过但标 pdf_unverified
+                    # 待 F5 重抓；mismatch→拒落盘（删掉错文件 + 告警），绝不让错误 PDF 挂上本房源。
+                    abs_path = att_dir / f"{no}.pdf"
+                    try:
+                        verdict, note = verify_gate(no, rec, str(abs_path), bnames)
+                    except Exception as e:  # noqa: BLE001
+                        verdict, note = "no_text", "verify_gate 异常: %s" % e
+                    if verdict == "mismatch":
+                        try:
+                            abs_path.unlink(missing_ok=True)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        store.add_notification(
+                            "pdf_mismatch",
+                            "番号 %s 新抓 PDF 实为「%s」，已拒落盘（疑似串号，待 F5 重抓）" % (no, note))
+                        pdf_path = ""          # 不放行：不写 pdf_path、不触发上云钩子
+                        rec.pop("pdf_bytes", None)
+                        rec.pop("pdf_src", None)
+                        stats["pdf_saved"] -= 1
+                    elif verdict == "match":
+                        # 自证成功：清掉历史遗留的待复核标记
+                        store.set_pdf_unverified(no, "match")
+                    elif verdict in ("unverified", "no_text", "unknown"):
+                        store.set_pdf_unverified(no, verdict, note)
 
             # ---- 2. 组装主档 ----
             rec.setdefault("ward", _ward_of(rec.get("address", "")))
@@ -132,6 +165,30 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
                 rec.setdefault("first_seen_at", now())
             if any(c["type"] in ("price_down", "price_up", "modified") for c in changes):
                 rec["last_changed_at"] = now()
+
+            # v1.9.77 F6：价格异常熔断（±40% 跳变疑似串号/错位）
+            # 命中则暂停自动推送（price_hold=1）、进待决窗口等勇哥裁决，并把「有 PDF 的」
+            # 房源入重抓队列（F3b：用新抓的 PDF 反查复核是否串号）。原价格变更仍照常入 changes。
+            if old is not None and rec.get("price") not in (None, "", 0) and old.get("price"):
+                try:
+                    _old_p, _new_p = float(old["price"]), float(rec["price"])
+                    if _old_p and abs(_new_p - _old_p) / abs(_old_p) >= 0.40:
+                        store.set_price_hold(no, 1)
+                        store.add_decision(
+                            run_id, "price_hold",
+                            {"property_no": no, "old_price": int(_old_p),
+                             "new_price": int(_new_p)},
+                            options=["confirm", "revert"],
+                            default_action="confirm", timeout_s=0)
+                        store.add_notification(
+                            "price_hold",
+                            "番号 %s 价格 %d→%d 跳变 %.0f%%，已熔断暂停推送（待复核）"
+                            % (no, int(_old_p), int(_new_p),
+                               abs(_new_p - _old_p) / abs(_old_p) * 100))
+                        if rec.get("pdf_path") or old.get("pdf_path"):
+                            store.enqueue_pdf_recrawl(no, priority=5, reason="price_jump_verify")
+                except (TypeError, ValueError):
+                    pass
 
             store.upsert_property(rec)
             store.add_snapshot(no, rec.get("price"), "active", fp)

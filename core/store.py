@@ -528,6 +528,8 @@ class Store:
         self._tls.conn = _c
         self.conn.executescript(SCHEMA)
         self._ensure_columns()
+        # v1.9.77：PDF 串号修复相关新表（pdf_upload_audit / pdf_recrawl_queue，幂等建表）
+        self._ensure_pdf_tables()
         # v1.9.50 / PRD-05 §4.1：线路 / 车站字典（line_text UDF 依赖内存字典，必须先载入）
         self._ensure_rail_dict()
         self.conn.commit()
@@ -588,10 +590,25 @@ class Store:
             # v1.9.1：列表行详情直链（绝对 URL）。sync_today_dates 落库，
             #   供「解耦阶段B」独立补详情复用，避免为拿直链重搜 REINS。
             "detail_href": "TEXT",
+            # v1.9.77：PDF 串号修复（PRD osaka_mvp_pdf_mismatch_prd.md）
+            #   pdf_unverified=1 表示「已落盘但未能自证属于本房源」
+            #   （无文字层 / 自身地址楼名不命中），待 F5 重抓或人工复核；
+            #   pdf_verify_note 记 verdict 原因（match/mismatch/unverified/no_text/unknown）。
+            "pdf_unverified": "INTEGER DEFAULT 0",
+            "pdf_verify_note": "TEXT",
+            # v1.9.77：F6 价格异常熔断 —— price_hold=1 的房源暂停自动推送
+            #   （publisher.build_rows 过滤 COALESCE(price_hold,0)=0），进入
+            #   pending_decisions 待勇哥裁决；解除后置 0。
+            "price_hold": "INTEGER DEFAULT 0",
         },
         "runs": {
             "online_total": "INTEGER DEFAULT 0",  # v1.4.0：列表层分母
             "pdf_saved": "INTEGER DEFAULT 0",     # v1.4.0：PDF 层分子
+        },
+        "changes": {
+            # v1.9.77：F7 历史假跳变标注 —— 存量价格跳变大概率由串号/错位造成，
+            #   标记 flag 便于前端/对账区分「真实跳变」与「疑似脏数据」，**不删原行**。
+            "flag": "TEXT",
         },
     }
 
@@ -701,6 +718,38 @@ class Store:
                     except Exception:
                         pass
 
+    def _ensure_pdf_tables(self) -> None:
+        """v1.9.77：PDF 串号修复相关新表（幂等建表）。
+
+        - pdf_upload_audit：每次 COS 上传的校验结论（含被拦截的 mismatch）。
+        - pdf_recrawl_queue：按番号重抓 PDF 的待办队列（F3b/F5）。
+        """
+        c = self.conn
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS pdf_upload_audit (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_no  TEXT NOT NULL,
+            cos_key      TEXT,
+            sha256       TEXT,
+            verdict      TEXT,             -- match / mismatch / unverified / no_text / unknown
+            triggered_by TEXT DEFAULT 'manual',
+            at           TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pdf_audit_no ON pdf_upload_audit(property_no);
+        CREATE TABLE IF NOT EXISTS pdf_recrawl_queue (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_no  TEXT NOT NULL,
+            status       TEXT DEFAULT 'pending',   -- pending / done / skip
+            priority     INTEGER DEFAULT 0,
+            reason       TEXT,
+            created_at   TEXT,
+            done_at      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_recrawl_pending
+            ON pdf_recrawl_queue(status, priority, id);
+        """)
+        c.commit()
+
     def set_pdf(self, property_no: str, pdf_path: str) -> None:
         """只更新 PDF 落盘路径（v1.3.0：后台 worker 下完 PDF 后由主线程回写）。
 
@@ -720,6 +769,103 @@ class Store:
                 _hook(property_no, str(pdf_path))
             except Exception:                                     # noqa: BLE001
                 pass          # 钩子失败绝不影响主下载流程
+
+    # ---------------- v1.9.77：PDF 串号修复 / 价格熔断 方法 ----------------
+    def set_pdf_unverified(self, property_no: str, verdict: str, note: str = "") -> None:
+        """F2/F4：标记该房源 PDF 未能自证属于本房源（落盘闸门放过但标注待复核）。
+
+        verdict ∈ match/mismatch/unverified/no_text/unknown；note 记反查到的「实为哪套」。
+        """
+        if not property_no:
+            return
+        if verdict in ("match", "ok"):
+            # 已自证属于本房源（落盘闸门匹配 / 重抓修复成功）→ 清除待复核标记
+            self.conn.execute(
+                "UPDATE properties SET pdf_unverified=0, pdf_verify_note=? WHERE property_no=?",
+                ("", property_no))
+        else:
+            msg = f"{verdict}: {note}" if note else verdict
+            self.conn.execute(
+                "UPDATE properties SET pdf_unverified=1, pdf_verify_note=? WHERE property_no=?",
+                (msg, property_no))
+        self.conn.commit()
+
+    def set_price_hold(self, property_no: str, hold: int = 1) -> None:
+        """F6：价格异常熔断 —— hold=1 暂停自动推送，hold=0 解除。"""
+        if not property_no:
+            return
+        self.conn.execute("UPDATE properties SET price_hold=? WHERE property_no=?",
+                          (int(hold), property_no))
+        self.conn.commit()
+
+    def add_pdf_audit(self, property_no, cos_key, sha256, verdict,
+                      triggered_by: str = "manual") -> None:
+        """F4：记录每次 COS 上传的校验结论（含被拦截的 mismatch）。"""
+        self.conn.execute(
+            "INSERT INTO pdf_upload_audit (property_no,cos_key,sha256,verdict,triggered_by,at)"
+            " VALUES (?,?,?,?,?,?)",
+            (property_no, cos_key or "", sha256 or "", verdict, triggered_by, now()))
+        self.conn.commit()
+
+    def enqueue_pdf_recrawl(self, property_no, priority: int = 0, reason: str = "") -> bool:
+        """F3b/F5：加入 PDF 重抓队列（已 pending 则不动，返回 False）。"""
+        if not property_no:
+            return False
+        cur = self.conn.execute(
+            "SELECT 1 FROM pdf_recrawl_queue WHERE property_no=? AND status='pending'",
+            (property_no,)).fetchone()
+        if cur:
+            return False
+        self.conn.execute(
+            "INSERT INTO pdf_recrawl_queue (property_no,status,priority,reason,created_at)"
+            " VALUES (?, 'pending', ?, ?, ?)",
+            (property_no, int(priority), reason, now()))
+        self.conn.commit()
+        return True
+
+    def pdf_recrawl_pending(self, limit: int = 50) -> list:
+        """F3b/F5：取待重抓队列（优先级降序、创建升序）。"""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM pdf_recrawl_queue WHERE status='pending'"
+            " ORDER BY priority DESC, id ASC LIMIT ?", (limit,)).fetchall()]
+
+    def mark_pdf_recrawl_done(self, property_no, ok: bool = True) -> None:
+        """F3b/F5：标记队列项完成 / 跳过。"""
+        if not property_no:
+            return
+        self.conn.execute(
+            "UPDATE pdf_recrawl_queue SET status=?, done_at=? WHERE property_no=? AND status='pending'",
+            ("done" if ok else "skip", now(), property_no))
+        self.conn.commit()
+
+    def flag_price_jumps(self, start_iso: str, end_iso: str,
+                         flag: str = "false_jump_candidate", dry_run: bool = False) -> int:
+        """F7：对 changes 表指定区间的价格跳变行打 flag（保留原行，不删）。返回命中行数。
+
+        dry_run=True 只统计不写（便于先预估影响面）。
+        """
+        sql = ("SELECT count(*) FROM changes WHERE change_type IN ('price_up','price_down')"
+               " AND (flag IS NULL OR flag='') AND detected_at BETWEEN ? AND ?")
+        if dry_run:
+            return self.conn.execute(sql, (start_iso, end_iso)).fetchone()[0]
+        cur = self.conn.execute(
+            "UPDATE changes SET flag=? WHERE change_type IN ('price_up','price_down')"
+            " AND (flag IS NULL OR flag='') AND detected_at BETWEEN ? AND ?",
+            (flag, start_iso, end_iso))
+        self.conn.commit()
+        return cur.rowcount
+
+    def all_building_names(self) -> list:
+        """F2/F4 跨房源反查用：返回 [(归一楼名, 物件番号), ...]（楼名≥5 字）。"""
+        from .pdf_verify import norm
+        out = []
+        for r in self.conn.execute(
+                "SELECT property_no, building_name FROM properties"
+                " WHERE building_name IS NOT NULL AND building_name <> ''"):
+            b = norm(r["building_name"])
+            if len(b) >= 5:
+                out.append((b, r["property_no"]))
+        return out
 
     # ---------------- 普通读写 ----------------
     def get_property(self, property_no: str) -> sqlite3.Row | None:

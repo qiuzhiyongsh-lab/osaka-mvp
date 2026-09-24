@@ -1826,6 +1826,13 @@ def _fetch_detail(ctx, page, row, property_no: str, sel, cfg,
         dp.wait_for_timeout(500)
         rec = _parse_detail(dp, property_no, cfg)
 
+        # v1.9.77 F1：详情页一致性闸门 —— 列表重排导致 nth(idx) 开错房是串号根因。
+        # 开页后先核「本页物件番号」是否等于期望番号；不一致直接丢弃（不写脏数据、
+        # 不下载错 PDF 落到本番号名下）。抽不到番号时不挡（防误杀）。
+        if not _detail_no_consistent(dp, property_no):
+            print("[F1] 番号 %s 详情页物件番号不一致（疑似串号），丢弃本页" % property_no)
+            return None
+
         # 下载図面 / PDF（v1.3.0 两种模式）
         _t_pdf = time.perf_counter()
         rec["pdf_url"] = _pdf_url_of(dp, sel) if need_pdf else ""
@@ -1907,6 +1914,11 @@ def _fetch_detail_inline(ctx, page, rows_locator, idx, property_no, sel, cfg,
                 dp = others[-1]
                 dp.set_default_timeout(cfg["browser"].get("timeout_ms", 30000))
         rec = _parse_detail(dp, no, cfg)
+        # v1.9.77 F1：详情页一致性闸门（同 _fetch_detail）。不一致直接丢弃本页结果，
+        # 不写脏数据、不触发错 PDF 下载。
+        if not _detail_no_consistent(dp, no):
+            log(f"  ✗ {no} 详情页物件番号不一致（疑似串号），丢弃")
+            return None, touched
         rec["property_no"] = no
         if want_pdf and cfg.get("download", {}).get("pdf", True):
             rec["pdf_url"] = _pdf_url_of(dp, sel)
@@ -1947,6 +1959,45 @@ def _fetch_detail_inline(ctx, page, rows_locator, idx, property_no, sel, cfg,
                 dp.close()
         except Exception:
             pass
+
+
+def _detail_no_consistent(dp, expected_no: str) -> bool:
+    """v1.9.77 F1 详情页一致性闸门：确认刚打开的详情页真的属于 `expected_no`。
+
+    串号根因（run74）：列表重排致 `nth(idx)` 点了错行 → 详情页是别人的房。
+    这里开页后直接从 DOM 抽「物件番号」（th/label 含 物件番号/No/番号 的兄弟文本，
+    或标题里的 10+ 位数字），与期望番号归一比较：
+      · 抽不到（详情页结构异常）→ 返回 True（不挡，避免误杀）；
+      · 抽到了且明显不等于期望 → 返回 False（串号，调用方应丢弃本页结果）。
+    """
+    if not expected_no:
+        return True
+    try:
+        txt = dp.evaluate("""() => {
+            const labels = ['物件番号','物件Ｎｏ','物件No','物件NO','No.','番号'];
+            const nodes = document.querySelectorAll('th,dt,.p-label-title');
+            for (const el of nodes) {
+                const t = (el.innerText||'').replace(/[：:]/g,'').trim();
+                if (labels.indexOf(t) >= 0) {
+                    let v = '';
+                    const sib = el.nextElementSibling;
+                    if (sib) v = (sib.innerText||'').trim();
+                    if (!v) { const box = el.closest('.p-label'); if (box) { const s = box.nextElementSibling; if (s) v = (s.innerText||'').trim(); } }
+                    if (v) return v;
+                }
+            }
+            const h = ((document.querySelector('h1,h2,.p-title')||{}).innerText) || '';
+            const m = h.match(/[0-9]{10,}/);
+            return m ? m[0] : '';
+        }""")
+    except Exception:  # noqa: BLE001
+        return True
+    if not txt:
+        return True
+    import unicodedata
+    def _n(s):
+        return "".join(unicodedata.normalize("NFKC", s)).replace("-", "").replace(" ", "")
+    return _n(txt) == _n(expected_no)
 
 
 def _parse_detail(dp, property_no: str, cfg) -> dict:

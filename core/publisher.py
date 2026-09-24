@@ -222,6 +222,9 @@ def build_rows(con: sqlite3.Connection, cfg: dict, mode: str = "full",
     say = log or (lambda *_a, **_k: None)
     state = get_state(con)
     where, args = _scope_where(cfg, mode, state.get("last_at"))
+    # v1.9.77 F6：价格异常熔断 —— 被挂起（price_hold=1）的房源不自动推送，
+    #   等勇哥在 pending_decisions 裁决后解除。COALESCE 兼容老库无此列的情况。
+    where = "(" + where + ") AND COALESCE(price_hold,0)=0"
     cols = [c for c, _ in FIELD_MAP]
     sql = ("SELECT " + ",".join(cols) + " FROM properties WHERE " + where +
            " ORDER BY COALESCE(last_seen_at,first_seen_at)")
@@ -469,6 +472,9 @@ def preview_scope(cfg: dict, con: sqlite3.Connection, limit: int = 5, log=None) 
     # 与 build_rows 完全一致：直接复用 _scope_where 的返回（不加 is_active），
     # 保证「预览 count」==「实际发布 count」，用户看到的数就是真会推的数。
     inner, args = _scope_where(cfg, "full", None)
+    # v1.9.77 F6：与 build_rows 保持一致，预览也排除 price_hold 挂起的房源，
+    #   保证「预览 count」==「实际发布 count」。
+    inner = "(" + inner + ") AND COALESCE(price_hold,0)=0"
     cur = con.cursor()
     cnt = cur.execute("SELECT count(*) AS c FROM properties WHERE " + inner, args).fetchone()
     total = int(cnt[0]) if cnt else 0
