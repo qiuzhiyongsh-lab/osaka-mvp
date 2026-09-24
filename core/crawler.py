@@ -235,27 +235,40 @@ _PDF_CLICK_SELECTORS = [
 ]
 
 
-def _download_pdf_by_click(dp, log=None, timeout_ms: int = 20000):
+def _download_pdf_by_click(dp, log=None, timeout_ms: int = 20000, attempts: int = 3):
     """点「図面参照」按钮把 PDF 下下来。返回 bytes；拿不到返回 None **并记日志**。
 
     【为什么要记日志】老代码这里 `except: pass` 全吞了，
     于是"PDF 一份没下"在日志里完全看不出来（只显示"成功 0 / 失败 0"），
     问题藏了整整一天。现在失败一定留痕。
+
+    v1.9.81 G-1（勇哥定：PDF 下载失败要重试）：
+      PDF 下载**失败即放弃**，于是出现「図面有、8 天无 PDF」（如 300140678627）。
+      现改为共 attempts 次（默认 3 = 首次 + 重试 2 次），每次之间稍等（REINS 偶发抖动，
+      多试一次往往就成了）；全部失败才返回 None，由调用方写失败台账（交欠账补抓消费）。
     """
     say = log or (lambda *_a, **_k: None)
-    for s in _PDF_CLICK_SELECTORS:
-        try:
-            loc = dp.locator(s).first
-            if loc.count() == 0:
+    _att = max(1, int(attempts or 1))
+    for _try in range(_att):
+        for s in _PDF_CLICK_SELECTORS:
+            try:
+                loc = dp.locator(s).first
+                if loc.count() == 0:
+                    continue
+                with dp.expect_download(timeout=timeout_ms) as dinfo:
+                    loc.click(timeout=8000)
+                p = dinfo.value
+                data = Path(p.path()).read_bytes()
+                if data:
+                    return data
+            except Exception:                                # noqa: BLE001
                 continue
-            with dp.expect_download(timeout=timeout_ms) as dinfo:
-                loc.click(timeout=8000)
-            p = dinfo.value
-            data = Path(p.path()).read_bytes()
-            if data:
-                return data
-        except Exception:                                    # noqa: BLE001
-            continue
+        if _try < _att - 1:
+            say("  · PDF 第 %d 次未取到，重试（共 %d 次）" % (_try + 1, _att))
+            try:
+                dp.wait_for_timeout(1200)
+            except Exception:                                # noqa: BLE001
+                pass
     try:
         # 日志里留个证据：页面到底有没有図面区块
         has = dp.locator("button:has-text('図面'), a:has-text('図面')").count()
@@ -3670,6 +3683,14 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
                     + (" [PDF→后台]" if (need_pdf and d.get("pdf_url")) else ""))
             except Exception as e:
                 log("  ✗ " + no + " 阶段B 写库失败：" + type(e).__name__ + ": " + str(e))
+            # v1.9.81 G-1：PDF 仍未取到 → 写失败台账（交欠账补抓消费），
+            #   杜绝「図面有、N 天无 PDF」却静默放弃（如 300140678627）。
+            if need_pdf and not d.get("pdf_bytes") and not d.get("pdf_url"):
+                try:
+                    store.enqueue_pdf_recrawl(no, priority=3, reason="pdf_download_failed")
+                    log("  · " + no + " PDF 未取到（已含重试）→ 已记入补抓台账")
+                except Exception:
+                    pass
             if max_minutes and (time.monotonic() - t0) > max_minutes * 60:
                 log("⏱ 阶段B 已到时长上限，剩余留待下一轮")
                 break
