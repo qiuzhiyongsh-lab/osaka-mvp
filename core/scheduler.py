@@ -110,6 +110,29 @@ class Scheduler:
             nxt += timedelta(days=1)
         return max(30, int((nxt - now).total_seconds()))
 
+    def _window_start_after(self, t: datetime) -> datetime:
+        """v1.9.85：返回 >= t 的最近一个「运行时段起点」。
+
+        用途：目标时刻若落在运行时段外，实际会顺延到窗口起点才跑（见 _loop），
+        把顺延后的真实时刻算出来，避免页面上长期挂一个"已经过去"的下一轮时刻。
+        """
+        w = self._sched().get("window", {}) or {}
+        sh, sm = _parse_hhmm(w.get("start", "07:00"))
+        eh, em = _parse_hhmm(w.get("end", "23:00"))
+        start = sh * 60 + sm
+        end = eh * 60 + em
+        cur = t.hour * 60 + t.minute
+        cand = t.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        if start <= end:
+            # 同日窗口（如 07:00–23:00）：t 在起点之前 → 当天起点；否则 → 次日起点
+            if cur >= start:
+                cand += timedelta(days=1)
+            return cand
+        # 跨午夜窗口（如 23:00–次日 07:00）：取当天或次日中 >= t 的那个起点
+        if cand <= t:
+            cand += timedelta(days=1)
+        return cand
+
     def _rand_minutes(self) -> tuple[float, float]:
         """随机间隔（分钟）：优先读分钟键；两者都缺时用老的小时键 ×60 换算。"""
         s = self._sched()
@@ -288,8 +311,16 @@ class Scheduler:
         while not self._stop.is_set():
             delay = self._next_delay()
             target = _now_tz(self.cfg) + timedelta(seconds=delay)
-            self.next_run_at = target
-            self._log(f"下一轮：{target.strftime('%H:%M:%S')}")
+            # v1.9.85：目标时刻若落在运行时段外（如日本 23:00–07:00 维护/非运行时段），
+            #   到点会被 _in_window() 拦下、顺延到窗口起点才真跑。这里直接把 next_run_at
+            #   写成顺延后的真实时刻，避免页面上显示一个"已经过去却不动"的下一轮时间。
+            show = target if self._in_window(target) else self._window_start_after(target)
+            self.next_run_at = show
+            if show != target:
+                self._log(f"下一轮：{target.strftime('%H:%M:%S')}（在运行时段外 → 顺延到 "
+                          f"{show.strftime('%H:%M:%S')}）")
+            else:
+                self._log(f"下一轮：{target.strftime('%H:%M:%S')}")
 
             # 分片 sleep，便于随时停止；配置热改时由 rearm() 打断重算
             waited = 0.0

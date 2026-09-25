@@ -266,7 +266,8 @@
   </div>
   <p class="muted" style="margin:10px 0 0">
     <span data-i18n="step4.manual"><b>手动更新</b> = 点一下按钮，立刻按你点击的<b>当前时间节点</b>抓一轮（在「概览」页）。</span>
-    {% if sched.next_run_at %}｜ <span data-i18n="status.next">下一轮：</span>{{ sched.next_run_at }}{% endif %}
+    {% if sched.next_run_at %}｜ <span data-i18n="status.next">下一轮：</span>{{ sched.next_run_at }}<span data-i18n="status.next_tz">（日本时间）</span>{% endif %}
+    {% if sched.busy %}｜ <span data-i18n="status.busy">正在进行</span>{% endif %}
     {% if not sched.in_window %}｜ <b data-i18n="status.outwin">当前不在运行时段</b>{% endif %}
   </p>
 </div>

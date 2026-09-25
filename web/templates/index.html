@@ -286,7 +286,7 @@
     <b>自动更新：{{ '运行中' if sched.enabled else '已停止' }}</b>
     <span class="muted">{{ sched.describe }}</span>
     <span class="muted">
-      {% if sched.next_run_at %}下一轮 {{ sched.next_run_at }}
+      {% if sched.next_run_at %}下一轮 {{ sched.next_run_at }}<span data-i18n="status.next_tz">（日本时间）</span>
       {% elif sched.enabled %}{{ sched.describe }}{% else %}—{% endif %}
     </span>
     {% if sched.busy %}<span class="tag running">正在进行</span>{% endif %}
@@ -700,7 +700,7 @@ async function refreshOverview(){
     var line = '<span class="dot-ind '+(sc.enabled?'on':'off')+'"></span>'
       + '<b>'+t('status.auto')+(sc.enabled?t('status.running'):t('status.stopped'))+'</b>'
       + '<span class="muted">'+esc(sc.describe||'')+'</span>';
-    if(sc.next_run_at) line += '<span class="muted">'+t('status.next')+' '+esc(sc.next_run_at)+'</span>';
+    if(sc.next_run_at) line += '<span class="muted">'+t('status.next')+' '+esc(sc.next_run_at)+t('status.next_tz')+'</span>';
     else if(sc.enabled) line += '<span class="muted">'+esc(sc.describe||'')+'</span>';
     if(busy) line += '<span class="tag running">'+t('status.busy')+'</span>';
     if(sc.in_window === false) line += '<span class="tag modified">'+t('status.outwin')+'</span>';

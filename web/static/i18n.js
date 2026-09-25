@@ -35,7 +35,7 @@
       'kpi.today_update': '今日更新（新增 / 變更）', 'kpi.sum': '合計',
       'kpi.coverage': '線上覆蓋', 'kpi.cov_online': '線上', 'kpi.cov_local': '本地',
       'status.auto': '自動更新：', 'status.running': '執行中', 'status.stopped': '已停止',
-      'status.next': '下一輪', 'status.busy': '正在進行', 'status.outwin': '當前不在執行時段',
+      'status.next': '下一輪', 'status.next_tz': '（日本時間）', 'status.busy': '正在進行', 'status.outwin': '當前不在執行時段',
       'btn.manual': '▶ 手動更新（立刻抓一輪）', 'btn.trial': '試跑（最輕量）',
       'btn.manual_running': '正在執行中…（完成後自動提示）', 'btn.manual_done': '本次已完成 ✓（再點重新跑）', 'btn.manual_busy': '系統更新中（自動）',
       'detail.reins_search': 'REINS 物件番号検索', 'detail.search_hint': '（詳細頁需在 REINS 內點擊「詳細」開啟，無永久直鏈）',
@@ -207,7 +207,7 @@
       'kpi.today_update': 'Updated today (new / changed)', 'kpi.sum': 'Total',
       'kpi.coverage': 'Online coverage', 'kpi.cov_online': 'Online', 'kpi.cov_local': 'Local',
       'status.auto': 'Auto-update: ', 'status.running': 'Running', 'status.stopped': 'Stopped',
-      'status.next': 'Next run', 'status.busy': 'In progress', 'status.outwin': 'Outside run window',
+      'status.next': 'Next run', 'status.next_tz': ' (Japan time)', 'status.busy': 'In progress', 'status.outwin': 'Outside run window',
       'btn.manual': '▶ Manual update (fetch now)', 'btn.trial': 'Trial run (lightest)',
       'btn.manual_running': 'Running… (auto-notifies when done)', 'btn.manual_done': 'Done this run ✓ (click to re-run)', 'btn.manual_busy': 'System updating (auto)',
       'detail.reins_search': 'REINS property-no search', 'detail.search_hint': '(detail opens only by clicking 詳細 inside REINS; no permanent link)',
@@ -385,7 +385,7 @@
       'kpi.today_update': '本日更新（新規 / 変更）', 'kpi.sum': '合計',
       'kpi.coverage': 'オンライン網羅率', 'kpi.cov_online': 'オンライン', 'kpi.cov_local': 'ローカル',
       'status.auto': '自動更新：', 'status.running': '実行中', 'status.stopped': '停止',
-      'status.next': '次回', 'status.busy': '実行中', 'status.outwin': '実行時間外',
+      'status.next': '次回', 'status.next_tz': '（日本時間）', 'status.busy': '実行中', 'status.outwin': '実行時間外',
       'btn.manual': '▶ 手動更新（今すぐ取得）', 'btn.trial': '試走（軽量）',
       'btn.manual_running': '実行中…（完了すると自動で通知）', 'btn.manual_done': '今回完了 ✓（再クリックで再実行）', 'btn.manual_busy': 'システム更新中（自動）',
       'detail.reins_search': 'REINS 物件番号検索', 'detail.search_hint': '（詳細ページは REINS 内で「詳細」をクリックして開きます。永続リンクなし）',
@@ -1598,7 +1598,7 @@
 
   // 概览页：状态行 + 运行表头（原先整行硬编码；键只有繁/英/日，补 zh-CN）
   ZH['status.auto']='自动更新：'; ZH['status.running']='运行中'; ZH['status.stopped']='已停止';
-  ZH['status.next']='下一轮'; ZH['status.busy']='正在进行'; ZH['status.outwin']='当前不在运行时段';
+  ZH['status.next']='下一轮'; ZH['status.next_tz']='（日本时间）'; ZH['status.busy']='正在进行'; ZH['status.outwin']='当前不在运行时段';
   ZH['th.id']='#'; ZH['th.start']='开始'; ZH['th.trigger']='触发'; ZH['th.scanned']='扫描';
   ZH['th.fetched']='落库'; ZH['th.change']='变更'; ZH['th.status']='状态';
   ZH['link.allruns']='查看全部运行日志 →';
