@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import random
@@ -1196,31 +1197,49 @@ def _load_saved_condition(page, sel, cond_value: str, log) -> None:
 def _needs_detail(existing) -> bool:
     """这套房需不需要（重新）抓详情页。
 
-    三条规则，满足任一就要抓：
-      ① 库里根本没有这套房                      → 抓
-      ② 库里有，但 detail_json 是空的            → 抓
-      ③ 库里有、也有详情，但**缺平台日期**且还没核验过 → 抓一次（v1.5.6）
+    四条规则，满足任一就要抓：
+      ① 库里根本没有这套房                         → 抓
+      ② 库里有，但 detail_json 是空的               → 抓
+      ③ 库里有、详情也齐，但**缺平台日期**且还没核验过 → 补抓一次（v1.5.6）
+      ④ 库里有，但 detail_json 是「伪详情」（有内容却缺 address，
+         即列表字段拼装、从未真抓过详情页）→ 补抓一次（v1.9.86）
 
-    【为什么要有第 ③ 条】本机有 229 条缺「平台登録/変更日」，其中 205 条
-    是**老版本程序抓的详情**（那时还没有 reg_date_iso / chg_date_iso 这两列）。
-    旧规则「有 detail_json 就不重抓」会让这 205 条**永远补不上**，
-    于是它们按平台日期永远筛不出来（勇哥查历史日期就查不到）。
-    现在允许补抓一次；抓完打上 `pdate_checked=1` 标记，以后不再重复抓，
-    所以只是一次性成本，不会每轮都浪费。
+    【规则④的由来 · 2026-09-25 实证】
+      全库 729 条是「伪详情」：detail_json 仅 17~18 键、source_url=裸
+      GBK003100（无 ?bknno=）、ward=''、无 address/layout/照片。它们是列表
+      字段拼装的占位，从未抓过真详情页，导致地址/間取/照片/AI 永久缺失。
+      旧规则「有 detail_json 就不重抓」把它们漏掉了（_needs_detail 三规则
+      全不满足 → 返回 False）。加规则④识别「缺 address 即伪详情」→ 重抓。
+
+    【一次性护栏 · 复用 pdate_checked】
+      规则③/④补抓一次后，pipeline 会把 pdate_checked 置 1；下轮起这两个
+      规则都不再触发。所以最多补抓一次，不会每轮都白抓（防重试上限）。
+      若真抓仍失败（落回伪详情），pdate_checked=1 同样生效 → 放过，不无限循环。
+      实证：729 条伪详情行 pdate_checked 当前全为 0，故规则④能全部命中。
     """
     if existing is None:
         return True
     try:
-        if not existing["detail_json"]:
-            return True
+        raw = existing["detail_json"]
     except Exception:                                        # noqa: BLE001
         return True
-    # ③ 缺平台日期 且 还没核验过 → 补抓一次
+    if not raw:
+        return True                                          # ② 空详情 → 抓
+    # 解析 detail_json，判伪详情（规则④）
+    parsed = None
     try:
-        checked = existing["pdate_checked"]
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
     except Exception:                                        # noqa: BLE001
-        checked = None
-    if checked:
+        parsed = None
+    if not isinstance(parsed, dict):
+        return True                                          # 非空也非 dict → 视为需重抓
+    has_address = bool(parsed.get("address"))
+    # ④ 伪详情：有内容却缺 address（列表字段拼装、未真抓详情）
+    if not has_address:
+        # 已核验过（pdate_checked=1）→ 放过，避免无限重抓；否则补抓一次
+        return not existing.get("pdate_checked")
+    # ③ 缺平台日期 且 还没核验过 → 补抓一次
+    if existing.get("pdate_checked"):
         return False
     try:
         reg = existing["reg_date_iso"]
@@ -3400,9 +3419,25 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
                 cols[_raw] = cols[_c]
         row = cur.execute("select property_no from properties where property_no=?", (no,)).fetchone()
         if row:
-            sets = ", ".join(c + "=?" for c in cols)
+            # v1.9.86（根治价格漂移）：已存在行也要把列表行的当前字段（price/address/...）
+            # 写回——旧版只写日期列，导致「REINS 改价、本地不跟」永久冻结（见 5WHY 根因）。
+            # 仅当某字段真的变了才落库 + 前推 last_seen_at，避免每天全量重推。
+            allcols = dict(cols)
+            changed = False
+            if base:
+                old = dict(zip(base.keys(),
+                               cur.execute("select " + ", ".join(base.keys()) +
+                                           " from properties where property_no=?", (no,)).fetchone()
+                               or (None,) * len(base)))
+                for k, v in base.items():
+                    if str(old.get(k)) != str(v):
+                        allcols[k] = v
+                        changed = True
+            if changed:
+                allcols["last_seen_at"] = now
+            sets = ", ".join(c + "=?" for c in allcols)
             cur.execute("update properties set " + sets + " where property_no=?",
-                        list(cols.values()) + [no])
+                        list(allcols.values()) + [no])
             upd += 1
         else:
             keys = ["property_no"] + list(base.keys()) + list(cols.keys()) \
