@@ -28,11 +28,13 @@ if not exist "%PY%" set "PY=python"
 echo Using python: %PY%
 echo.
 
-echo [1/2] Refreshing 729 pseudo-details (missing address) ...
+rem --- v1.9.88 重补地址：清空旧断点，强制全量重抓（上次只 bump last_seen 没补到地址）---
+if exist tools\_refresh_done_nos.txt del /F tools\_refresh_done_nos.txt
+echo [1/2] Refreshing 729 pseudo-details (re-fetch to BACKFILL ADDRESS) ...
 "%PY%" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt --no-pdf --resume
 echo.
-echo [2/2] Refreshing 6 missing listings ...
-"%PY%" tools\refresh_by_no.py --file tools\_missing_6_nos.txt --no-pdf
+echo [2/2] Refreshing 6 missing listings (re-fetch to BACKFILL ADDRESS) ...
+"%PY%" tools\refresh_by_no.py --file tools\_missing_6_nos.txt --no-pdf --resume
 echo.
 echo ==========================================================
 echo   Finished. Please screenshot the LAST 3 LINES and send

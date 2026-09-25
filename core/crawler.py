@@ -352,7 +352,13 @@ LIST_FIELD_MAP = {
 # 详情页标签 → 本地字段（覆盖列表缺的 土地面積/建物面積/登録・変更年月日 等）
 LABEL_MAP = {
     "物件番号": "property_no", "物件種目": "property_subtype",
-    "所在地名1": "address", "所在地": "address", "建物名": "building_name",
+    "所在地": "address",
+    # v1.9.88：详情页地址分「所在地名1/2/3」三段（REINS 用全角数字 １２３）。
+    # 旧代码只认半角「所在地名1」且单段覆盖 → 户建等分段地址系统性抓不到 / 丢段。
+    "所在地名1": "address_seg", "所在地名１": "address_seg",
+    "所在地名2": "address_seg", "所在地名２": "address_seg",
+    "所在地名3": "address_seg", "所在地名３": "address_seg",
+    "建物名": "building_name",
     "基本価格": "price", "価格": "price", "変更前価格": "previous_price",
     "専有面積": "exclusive_area", "土地面積": "land_area",
     "建物面積": "building_area",
@@ -368,6 +374,15 @@ LABEL_MAP = {
     # 开关切到 all 后 REINS 返回含借地権，落库值即含「借地権」字样，查询页据此可筛。
     "土地権利": "land_right",
 }
+
+# v1.9.88：REINS 详情页标签用全角数字（所在地名１/２/３），归一化半角避免 LABEL_MAP 失配。
+_ZEN_DIGITS = "０１２３４５６７８９"
+_HAN_DIGITS = "0123456789"
+def _normalize_label(k: str) -> str:
+    if not k:
+        return ""
+    k = k.replace("：", "").replace(":", "").strip()
+    return k.translate(str.maketrans(_ZEN_DIGITS, _HAN_DIGITS))
 
 
 class _BatchSink:
@@ -2246,12 +2261,16 @@ def _parse_detail(dp, property_no: str, cfg) -> dict:
         return rec
 
     for k, v in pairs:
-        k = k.replace("：", "").replace(":", "").strip()
-        field = LABEL_MAP.get(k)
+        field = LABEL_MAP.get(_normalize_label(k)) or LABEL_MAP.get(k.replace("：", "").replace(":", "").strip())
         if not field:
             continue
         v = (v or "").strip()
-        if field == "_station":
+        if field == "address_seg":
+            # 分段地址：所在地名1/2/3 按顺序拼装（REINS 详情页分三段，单段会丢信息）
+            rec.setdefault("_addr_segs", []).append(v)
+        elif field == "address":
+            rec["address"] = v
+        elif field == "_station":
             rec["line_station"] = f"{rec.get('line_station','')} {v}".strip()
         elif field in ("price", "previous_price", "unit_price_sqm", "unit_price_tsubo"):
             rec[field] = _money_to_yen(v)
@@ -2259,6 +2278,10 @@ def _parse_detail(dp, property_no: str, cfg) -> dict:
             rec[field] = _area_to_float(v)
         else:
             rec[field] = v
+    # v1.9.88：分段地址兜底拼装（整条「所在地」优先；无整条才用 1/2/3 段拼）
+    if not rec.get("address") and rec.get("_addr_segs"):
+        rec["address"] = "".join(s for s in rec["_addr_segs"] if s).strip()
+    rec.pop("_addr_segs", None)
     return rec
 
 
