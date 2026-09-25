@@ -29,10 +29,10 @@ echo Using python: %PY%
 echo.
 
 echo [1/2] Refreshing 729 pseudo-details (missing address) ...
-"%PY%" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt
+"%PY%" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt --no-pdf --resume
 echo.
 echo [2/2] Refreshing 6 missing listings ...
-"%PY%" tools\refresh_by_no.py --file tools\_missing_6_nos.txt
+"%PY%" tools\refresh_by_no.py --file tools\_missing_6_nos.txt --no-pdf
 echo.
 echo ==========================================================
 echo   Finished. Please screenshot the LAST 3 LINES and send

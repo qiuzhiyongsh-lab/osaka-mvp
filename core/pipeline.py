@@ -70,7 +70,12 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
         seen.append(no)
         lo = bool(rec.pop("_list_only", False))   # v1.4.0：阶段1列表模式，不写详情/PDF
         try:
-            old = store.get_property(no)
+            # v1.9.87 修复：Store.get_property 返回 sqlite3.Row，**没有 .get()**。
+            # 旧代码 old.get("price") / old.get("pdf_path") 会在 ingest 时炸
+            # AttributeError（且被 try 吞掉 → 表现为"changed=1 实际却没写进去"）。
+            # 统一转成 dict，后续 old["x"] / old.get("x") 都安全。
+            _raw = store.get_property(no)
+            old = dict(_raw) if _raw is not None else None
 
             # ---- 1. 落 PDF（仅详情模式；列表模式跳过，留待阶段2）----
             pdf_path = ""

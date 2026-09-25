@@ -23,6 +23,19 @@
     （正常，不影响数据）。若自动登录失败，会弹窗让你手工登录。
   · 必须和 8765 同 cwd / 同 OSAKA_DB 环境变量运行，否则会指向不同的库。
   · 落库前会校验「properties 表非空」，若指向空壳库则直接中止，绝不写脏。
+
+v1.9.87 已修的三个坑（都是"跑到一半才炸"型，务必别再回退）：
+  ① `No module named 'core'`：脚本曾漏 sys.path 注入（sys.path[0]=tools/）。
+  ② `SessionExpired: ERR_HTTP_RESPONSE_CODE_FAILURE`：曾用 headless=True 被 REINS 拦，
+     必须 headless=False；且会话失效时转手工登录兜底。
+  ③ `AttributeError: 'sqlite3.Row' object has no attribute 'get'`：Store.get_property
+     返回 sqlite3.Row，没有 .get()，必须用 _g() 取值。旧代码在第 1 个番号就崩，
+     表现为"刚打印『开始刷新 N 个番号』就 Traceback"，一条都抓不到。
+
+长跑参数（735 个番号 ≈ 数十分钟起，强烈建议带上）：
+  --no-pdf   只补详情字段+价格，不点下载 PDF（明显提速；PDF 由日常主轮次自然补）
+  --resume   跳过 tools/_refresh_done_nos.txt 里已成功的番号，中断后只补漏的
+  --every N  每 N 个打一行进度心跳（含 ETA），默认 25
 """
 from __future__ import annotations
 import sys
@@ -43,10 +56,35 @@ from core.crawler import (Auth, _sync_playwright, _mask_webdriver,
 from core.auth import SessionExpired  # v1.9.87：捕获会话失效以转手工登录兜底
 
 
+def _g(row, key):
+    """v1.9.87 修复：Store.get_property 返回 sqlite3.Row，**没有 .get()** 方法。
+
+    旧写法 `row.get("price")` 会在第 1 个番号就抛
+    `AttributeError: 'sqlite3.Row' object has no attribute 'get'`，
+    表现为"刚打印完『开始刷新 N 个番号』就崩"，一条都抓不到。
+    sqlite3.Row 支持 [] 下标 + keys()，故用 keys() 做安全取值。
+    """
+    if row is None:
+        return None
+    try:
+        if key in row.keys():
+            return row[key]
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="定向番号検索刷新（REINS 登录态）")
     ap.add_argument("nos", nargs="*", help="物件番号（可多个）")
     ap.add_argument("--file", help="从文件读番号（每行一个）")
+    # v1.9.87 增：长跑韧性参数
+    ap.add_argument("--resume", action="store_true",
+                    help="跳过 tools/_refresh_done_nos.txt 里已成功的番号，续跑不再重抓")
+    ap.add_argument("--no-pdf", action="store_true",
+                    help="只补详情字段、不下载 PDF（明显提速；PDF 可日后由主轮次补）")
+    ap.add_argument("--every", type=int, default=25,
+                    help="每 N 个打印一次进度心跳（默认 25）")
     args = ap.parse_args()
 
     nos = [s.strip() for s in args.nos if s.strip()]
@@ -65,6 +103,24 @@ def main() -> None:
     if not nos:
         print("无番号，退出")
         return
+
+    # v1.9.87：断点续跑——成功过的番号记在 done 文件里，--resume 时跳过。
+    # 735 个番号要跑很久（每个 ≈10s 起），中途被 Ctrl+C / 网络断 / 会话失效打断时，
+    # 没有这个机制就得从第 1 个重跑，白白多花几十分钟。
+    done_path = Path(__file__).resolve().parent / "_refresh_done_nos.txt"
+    if args.resume and done_path.exists():
+        done = set()
+        for ln in done_path.read_text(encoding="utf-8").splitlines():
+            s = ln.strip()
+            if s and not s.startswith("#"):
+                done.add(s.split(",")[0].strip())
+        n_all = len(nos)
+        nos = [n for n in nos if n not in done]
+        print("[refresh_by_no] --resume：已记录成功 %d 个，跳过 %d 个，剩余 %d 个"
+              % (len(done), n_all - len(nos), len(nos)))
+        if not nos:
+            print("✓ 清单内番号全部已刷新过，无需重跑。")
+            return
 
     cfg = cfgmod.load()
     paths = cfgmod.paths(cfg)
@@ -87,7 +143,8 @@ def main() -> None:
 
     store = Store(db_path)
     sel = (cfg.get("selectors") or {})
-    run_id = "refresh_by_no_%d" % int(time.time())
+    # changes.run_id 列是 INTEGER，与其他抓取调用保持一致（避免混类型写 TEXT）。
+    run_id = int(time.time())
     log = lambda *a, **k: print(*a)
 
     auth = Auth(cfg, paths["session"])
@@ -112,20 +169,63 @@ def main() -> None:
                 return
             ctx, page = auth.open_authed_page(browser, log=log)
         _mask_webdriver(ctx)
-        for no in nos:
+        need_pdf = not args.no_pdf
+        t0 = time.time()
+        hard_fail = False
+        done_f = open(done_path, "a", encoding="utf-8")
+        n_total = len(nos)
+        for idx, no in enumerate(nos, 1):
             before = store.get_property(no)
-            bprice = before.get("price") if before else None
-            bsub = before.get("property_subtype") if before else None
-            try:
-                rec = _fetch_detail_by_no(ctx, page, no, sel, cfg, store=store)
-            except Exception as e:  # noqa: BLE001
-                print("  ✗ %s 异常：%s: %s" % (no, type(e).__name__, e))
+            bprice = _g(before, "price")
+            bsub = _g(before, "property_subtype")
+
+            rec = None
+            err = None
+            for attempt in (1, 2):
+                try:
+                    rec = _fetch_detail_by_no(ctx, page, no, sel, cfg,
+                                              need_pdf=need_pdf, store=store, log=log)
+                    break
+                except SessionExpired:
+                    # v1.9.87：735 个番号是长跑，中途 REINS 会话失效几乎必然发生。
+                    # 旧实现一旦 SessionExpired 就整体终止 → 前面抓的白抓（除 done 文件外）。
+                    # 这里自动重登并重试本番号；重登也失败才转手工登录。
+                    if attempt == 2:
+                        err = "会话失效（重登后仍失败）"
+                        break
+                    print("  ⚠ %s 会话失效 → 自动重登后重试" % no)
+                    try:
+                        ctx, page = auth.open_authed_page(browser, log=log)
+                    except SessionExpired:
+                        if not auth.manual_login(wait_seconds=300):
+                            err = "会话失效且手工登录未成功"
+                            hard_fail = True
+                            break
+                        try:
+                            ctx, page = auth.open_authed_page(browser, log=log)
+                        except SessionExpired:
+                            err = "会话失效且手工登录后仍不可用"
+                            hard_fail = True
+                            break
+                    _mask_webdriver(ctx)
+                except Exception as e:  # noqa: BLE001
+                    err = "%s: %s" % (type(e).__name__, e)
+                    break
+
+            if hard_fail:
+                print("✗ 会话无法恢复，已中止本次刷新（本段成功 %d / 跳过 %d / 失败 %d）。"
+                      % (ok, skip, fail))
+                print("  已完成部分已写入 %s，可用 --resume 续跑，不必从头再来。" % done_path.name)
+                break
+            if err:
+                print("  ✗ %s 异常：%s" % (no, err))
                 fail += 1
                 continue
             if not rec:
                 print("  · %s 无详情（0件/解析失败，跳过）" % no)
                 skip += 1
                 continue
+
             rec["property_no"] = no
             try:
                 pipeline.ingest([rec], store, cfg, run_id)
@@ -134,16 +234,35 @@ def main() -> None:
                 fail += 1
                 continue
             after = store.get_property(no)
-            aprice = after.get("price") if after else None
-            asub = after.get("property_subtype") if after else None
-            alast = after.get("last_seen_at") if after else None
+            aprice = _g(after, "price")
+            asub = _g(after, "property_subtype")
+            alast = _g(after, "last_seen_at")
             tag = "NEW" if before is None else "UPD"
             print("  ✓ %s [%s] price %s → %s | subtype %s → %s | last_seen=%s"
                   % (no, tag, bprice, aprice, bsub, asub, alast))
             ok += 1
+            try:
+                done_f.write("%s,%s\n" % (no, aprice or ""))
+                done_f.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+            if args.every and idx % args.every == 0:
+                el = time.time() - t0
+                rate = el / idx
+                eta = rate * (n_total - idx)
+                print("—— 进度 %d/%d | 成功 %d 跳过 %d 失败 %d | 已用 %.0f分 | 预计剩余 %.0f分 "
+                      "(%.1f 秒/个) ——" % (idx, n_total, ok, skip, fail, el / 60, eta / 60, rate))
+        try:
+            done_f.close()
+        except Exception:  # noqa: BLE001
+            pass
         browser.close()
 
     print("完成：成功 %d / 跳过 %d / 失败 %d（共 %d）" % (ok, skip, fail, len(nos)))
+    if skip or fail:
+        print("⚠ 有跳过/失败：可加 --resume 重跑同一条命令（已成功的番号自动跳过，只补漏的）；")
+        print("  断点记录文件：%s" % done_path)
     if ok:
         print("提示：刷新后 last_seen 已前推，下一轮增量推送会按水位线把这些房源重推到线上。")
 
