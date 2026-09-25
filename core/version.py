@@ -9,8 +9,31 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.86"
-BUILD_AT = "2026-09-25 12:26"
+VERSION = "1.9.87"
+BUILD_AT = "2026-09-25 14:30"
+# ============================================================================
+# v1.9.87（2026-09-25 · 公寓一致性修复：種目污染/伪详情/价格漂移/缺失 · 写码未发布）：
+#   【勇哥 09-25 质疑】上午修了「一户建」价格漂移，但怀疑公寓(中古マンション)也有同类问题。
+#   实测结论：**修复代码本身是種目无关的**（LIST_FIELD_MAP/LABEL_MAP 不区分種目；sync_today_dates
+#   的 BASE_KEYS 含 exclusive_area/layout/floor；_needs_detail 规则④ 判据是缺 address）——
+#   并非只管一户建。但公寓**数据落地层问题仍在**：312 件抽样核对发现 6 缺失/16 价格漂移/88 伪详情/
+#   20 種目污染；线上继承同批错值且 v1.9.86 未发布。
+#   【修复①·種目污染（复发型解析 bug，最优先）】
+#   根因：REINS 列表网格 (1,5) 格内把「物件種目」与「取引状況(オーナーチェンジ/オークション)」
+#   用全角斜线 ／ 拼在一格，原文「中古マンション／オーナーチェンジ」→ property_subtype 被污染
+#   → 查询页 property_subtype IN(...) 过滤失效、抓取 6 组選択误判。
+#   代码层(core/crawler._postprocess_list_rec)：剥离 ／ 前段作真種目；后段存 detail_json.trade_status
+#   （不复用 trade_type——那是网格(2,2)「取引態様」且不在 PROPERTY_COLUMNS、列表模式会被 upsert 丢弃）。
+#   存量清洗：tools/clean_subtype_pollution.py（默认 dry-run，实跑需勇哥授权）——全库 228 件
+#   （226 中古マンション+オーナーチェンジ、1 売地+オークション、1 中古マンション+オークション）。
+#   【修复②·公寓伪详情批量补抓】729 条伪详情(含公寓 541) address 为空 → tools/_pseudo_detail_nos.txt
+#   走 refresh_by_no.py 定点补详情（detail 页写干净 property_subtype，顺带治①复发）。
+#   【修复③·价格漂移覆盖层】_backfill_details_pdfs 候选从「仅空 detail_json」扩到
+#   「伪详情(缺 address)」+「可选 backfill_refresh_stale_days>0 时超期在架真详情」；循环放宽
+#   have_detail 跳过，使陈旧在架房源重抓详情纠正降价未跟（默认 0=关，建议设 21 激活自愈）。
+#   【修复④·缺失 6 件补抓】tools/_missing_6_nos.txt 走 refresh_by_no.py 定点补（No.1/2/6/12/20/22）。
+#   注：②③④ 属「数据修复」绕开平台代码冻结；① 代码层属 core 修复须发版才线上生效。
+# ============================================================================
 # ============================================================================
 # v1.9.85（2026-09-25 · 调度时间显示口径修正 · 写码未发布）：
 #   勇哥 09-25 问「随机间隔设 55–70 分钟，页面『下一轮』看着没按这个跑，这值是怎么设出来的」。

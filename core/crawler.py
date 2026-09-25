@@ -963,6 +963,22 @@ def _postprocess_list_rec(rec: dict[str, Any]) -> dict[str, Any]:
             out[k] = _area_to_float(text)
         elif k == "access":
             out["line_station"] = (out.get("line_station", "") + " " + text).strip()
+        elif k == "property_subtype":
+            # v1.9.87 根治「種目污染」：REINS 列表网格 (1,5) 格内把「物件種目」与
+            # 「取引状況(オーナーチェンジ/オークション)」用全角斜线 「／」拼在同一格，
+            # 原文形如「中古マンション／オーナーチェンジ」。若不剥离：property_subtype
+            # 被污染 → 查询页 property_subtype IN(...) 过滤失效、抓取 6 组選択也误判。
+            # 剥离 ／ 之前的部分作为真種目；余下取引状況单独存 trade_status
+            # （不复用 trade_type：那是网格 (2,2) 的「取引態様」，两维语义不同，且
+            #  trade_type 不在 PROPERTY_COLUMNS、列表模式会被 upsert 丢弃 → 塞进去既丢又误导）。
+            #  trade_status 在详情模式下随 detail_json 落库（detail=dict(rec) 全量捕获），
+            #  列表模式虽被丢弃，但其值本就只在「有真详情」时才有业务意义，无损主修复。
+            _seg = text.split("／")[0]
+            out[k] = _seg.split("\n")[0].strip()
+            if "／" in text:
+                _rest = text.split("／", 1)[1].replace("\n", " ").strip()
+                if _rest:
+                    out["trade_status"] = _rest
         else:
             out[k] = text
     # v1.7.3 根治（勇哥 2026-09-16 反馈：修繕積立金 10,346,000 円 荒谬）；
@@ -3815,10 +3831,34 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
     # 不再依赖 detail_href；改为按「在架且 detail_json 空」选壳，每轮渐进清积压。
     # 额外取 reg/chg 日期，供「行内点詳細」兜底按日期分组复用指定日期下载。
     try:
+        # v1.9.87 ③ 覆盖层修复：候选从「仅空 detail_json」扩到「伪详情(有内容却缺 address)」，
+        # 根治 729 条伪详情（含公寓 541）永远不在补抓清单的盲区（旧 SQL 让规则④只在 date_sync
+        # 重遇时才触发，缓慢且漏网）。用 json_extract 判 address 缺失；空壳仍保留。
+        # 可选 backfill_refresh_stale_days>0：再把「在架但 last_seen 过旧」纳入，直接对抗价格漂移
+        # （REINS 已降价本地没跟）——按 last_seen ASC 优先修最陈旧的。
+        _stale_days = int(cr.get("backfill_refresh_stale_days", 0) or 0)
+        _cut = ""
+        _stale_sql = ""
+        if _stale_days > 0:
+            _cut = (datetime.now() - timedelta(days=_stale_days)).strftime("%Y-%m-%d")
+            _stale_sql = (
+                " OR (detail_json IS NOT NULL AND detail_json<>'' "
+                "AND json_extract(detail_json,'$.address') IS NOT NULL "
+                "AND last_seen_at < '%s')" % _cut)
         cand = store.conn.execute(
-            "SELECT property_no, reg_date_iso, chg_date_iso FROM properties "
-            "WHERE is_active=1 AND (detail_json IS NULL OR detail_json='') "
-            "ORDER BY last_seen_at DESC LIMIT ?", (cap,)).fetchall()
+            "SELECT property_no, reg_date_iso, chg_date_iso, last_seen_at FROM properties "
+            "WHERE is_active=1 AND (detail_json IS NULL OR detail_json='' "
+            "OR json_extract(detail_json,'$.address') IS NULL) %s "
+            "ORDER BY last_seen_at ASC LIMIT ?" % _stale_sql, (cap,)).fetchall()
+        # 计算「陈旧强制刷新集」：满足 stale 条件（真详情在架 + 超期未再见）的番号。
+        # 这些行虽然 detail 已存在、无 PDF 需求，也必须重新番号検索抓详情以纠正价格漂移
+        # （否则下方 have_detail 跳过会漏掉它们）。空壳/伪详情不在强制集内（走原规则④）。
+        _stale_set = set()
+        if _cut:
+            for _r in cand:
+                _ls = (_r["last_seen_at"] or "")[:10]
+                if _ls and _ls < _cut:
+                    _stale_set.add(_r["property_no"])
     except Exception as e:
         log("· 阶段B 取待补清单失败：" + type(e).__name__ + ": " + str(e))
         return {"fetched": 0, "skipped": 0}
@@ -3867,7 +3907,10 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
             existing = store.get_property(no)
             have_detail = bool(existing and (existing["detail_json"]))
             need_pdf = bool(want_pdf) and not _pdf_exists(root_dir, no)
-            if have_detail and not need_pdf:
+            # v1.9.87 ③：陈旧强制刷新集里的番号，即便已有 detail、无 PDF 需求也要重抓详情
+            # （纠正价格漂移——REINS 已降价本地没跟）。其余按原规则跳过。
+            _force = no in _stale_set
+            if have_detail and not need_pdf and not _force:
                 skipped += 1
                 continue
             # v1.9.6：REINS 詳細 是 <button> 无直链 → 走「番号検索」打开详情页
