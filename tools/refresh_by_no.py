@@ -25,6 +25,12 @@
 """
 from __future__ import annotations
 import sys
+from pathlib import Path
+
+# v1.9.87 修复：以脚本所在目录推导项目根并注入 sys.path，
+# 否则 `python tools/refresh_by_no.py` 运行时 sys.path[0]=tools/，找不到 core 包。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import time
 import argparse
 
