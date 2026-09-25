@@ -10,7 +10,7 @@ echo   Keep the 8765 black window CLOSED while this runs.
 echo ==========================================================
 echo.
 
-rem --- guard: 8765 must not be running (it shares data\session.json) ---
+rem --- guard: 8765 must not run (shares data\session.json) ---
 netstat -ano | findstr ":8765" | findstr "LISTENING" >nul
 if %errorlevel%==0 (
   echo [STOP] Port 8765 is still in use.
@@ -28,7 +28,7 @@ if not exist "%PY%" set "PY=python"
 echo Using python: %PY%
 echo.
 
-rem --- v1.9.88 重补地址：清空旧断点，强制全量重抓（上次只 bump last_seen 没补到地址）---
+rem --- v1.9.88 backfill address: clear old resume point, force full re-fetch ---
 if exist tools\_refresh_done_nos.txt del /F tools\_refresh_done_nos.txt
 echo [1/2] Refreshing 729 pseudo-details (re-fetch to BACKFILL ADDRESS) ...
 "%PY%" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt --no-pdf --resume
