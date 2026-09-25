@@ -121,10 +121,22 @@ def check_config():
     s = cfg.get("schedule") or {}
     w = s.get("window") or {}
     start, end = str(w.get("start", "")), str(w.get("end", ""))
-    bad = start.startswith("2") or (start >= end)
+
+    def _hm(v: str):
+        try:
+            h, m = str(v).split(":")
+            return int(h) * 60 + int(m)
+        except Exception:                                         # noqa: BLE001
+            return None
+
+    # v1.9.85：此前判定用「起点以 2 开头」，会把合法的 20:00 起也误判，
+    #   且文案写的是「REINS 22:00–07:00 维护」这一**已作废的旧前提**。
+    #   正确口径：REINS 维护 = 日本时间 23:00–次日 07:00（见 core/scheduler.py 头注释）。
+    st, en = _hm(start), _hm(end)
+    bad = st is None or st >= 23 * 60 or st < 7 * 60 or (en is not None and en <= st)
     rec("RD", "调度窗口 vs REINS 维护期",
         RED if bad else GREEN,
-        f"{start}–{end}（REINS 日方 22:00–07:00 维护）" + (" ← 撞维护期！" if bad else ""))
+        f"{start}–{end}（REINS 日本时间 23:00–07:00 维护）" + (" ← 撞维护期！" if bad else ""))
 
     rec("RD", "自动更新开关", YELLOW if not s.get("enabled") else GREEN,
         "enabled=false → 不会自动抓（勇哥尚未开启）" if not s.get("enabled") else "已开启")
