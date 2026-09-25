@@ -18,8 +18,9 @@
   python tools/refresh_by_no.py --file tools/_drift_nos.txt
 
 注意：
-  · 会打开一个无头 Edge 会话，复用 data/session.json；与 8765 共用同一会话文件，
-    可能触发 8765 侧一次会话重登（正常，不影响数据）。
+  · 会打开一个**有窗口的 Edge 会话**（REINS 拦截无头浏览器，故必须用窗口模式），
+    复用 data/session.json；与 8765 共用同一会话文件，可能触发 8765 侧一次会话重登
+    （正常，不影响数据）。若自动登录失败，会弹窗让你手工登录。
   · 必须和 8765 同 cwd / 同 OSAKA_DB 环境变量运行，否则会指向不同的库。
   · 落库前会校验「properties 表非空」，若指向空壳库则直接中止，绝不写脏。
 """
@@ -39,6 +40,7 @@ from core import pipeline
 from core.store import Store
 from core.crawler import (Auth, _sync_playwright, _mask_webdriver,
                           _check_maintenance, _fetch_detail_by_no)
+from core.auth import SessionExpired  # v1.9.87：捕获会话失效以转手工登录兜底
 
 
 def main() -> None:
@@ -91,8 +93,24 @@ def main() -> None:
     auth = Auth(cfg, paths["session"])
     ok = skip = fail = 0
     with _sync_playwright() as p:
-        browser = auth.launch(p, headless=True)
-        ctx, page = auth.open_authed_page(browser, log=log)
+        # v1.9.87：必须 headless=False（有窗口 Edge）。REINS 会拦截无头浏览器
+        # （core/auth.py 自身警告），强制无头会导致搜索页深链被拒
+        # （ERR_HTTP_RESPONSE_CODE_FAILURE），表现为"自动登录成功却进不去"。
+        # 这与 8765 主抓取保持同一模式。
+        browser = auth.launch(p, headless=False)
+        try:
+            ctx, page = auth.open_authed_page(browser, log=log)
+        except SessionExpired:
+            # 自动登录（含会话自愈）失败时，转「手工登录」：弹一个可见 Edge 窗口，
+            # 你亲手输入 REINS 账号密码，程序识别成功后会话入库，再继续抓取。
+            print("⚠ 自动登录失败（可能是账号/密码问题或会话过期）。")
+            print("→ 将打开一个可见的 Edge 窗口，请手工输入 REINS 账号密码登录；")
+            print("  登录成功后程序会自动识别并继续，无需在窗口里做任何额外操作。")
+            if not auth.manual_login(wait_seconds=300):
+                print("✗ 手工登录也未成功，退出。请确认 data/ 下账号密码是否正确、REINS 账号是否可用。")
+                browser.close()
+                return
+            ctx, page = auth.open_authed_page(browser, log=log)
         _mask_webdriver(ctx)
         for no in nos:
             before = store.get_property(no)
