@@ -9,9 +9,33 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.93"
-BUILD_AT = "2026-09-26 02:20"
+VERSION = "1.9.94"
+BUILD_AT = "2026-09-27 01:40"
 # ============================================================================
+# v1.9.94（2026-09-27 · 查询状态维度 F1+F2+F3 落地 · 勇哥拍板 1C / 2A / 3A）：
+#   同事阿丹需求（能否查到「空室/賃貸中」等状态）→ PRD《33_查询状态维度与全文高亮》。
+#   · F1 房产状态统一维度：落库时由 detail_json 派生 occupancy_status（公开组 + 租赁·在租组
+#     + 其他，竖线分隔）；store.search 支持枚举过滤（LIKE 包含）+ 自定义词复用文本列 LIKE；
+#     发布链路 3 处同步（PROPERTY_COLUMNS / publisher.FIELD_MAP / NEVER_UPLOAD_KEYS 不屏蔽）。
+#   · F2 前端房产状态面板：租赁·在租组 6 项全启用（带租约OC/空室/賃貸中/満室/居住中/其他），
+#     自定义值判定是否命中枚举（命中=枚举、否则=自由文本关键词 occupancy_keyword），
+#     URL/localStorage 兼容回填，空结果且 date=今天时给「查看全部日期」提示；四语 i18n。
+#   · F3 关键词命中高亮（**保留**）+ FTS5 全文索引（**关闭**，勇哥拍板「决策点1 = C」）：
+#     —— 高亮：compute_q_hit 在 Python 侧算 hit_snippet（html.escape + <mark>，XSS 安全），
+#        api_query 把 qhit 挂返回行，前端 renderFullItem/renderCompactItem 双链渲染 + CSS；
+#        **完全不依赖 FTS5**，关闭索引后高亮照常工作（已实测 中古<mark>マンション</mark>）。
+#     —— 关闭原因（实测）：FTS5 的 ai/ad/au 三触发器与写库**强耦合**，索引一旦损坏会让
+#        每条 properties 写库抛 "database disk image is malformed" ⇒ 抓取入库全线瘫痪（P0）。
+#        core.store.FTS_ENABLED = False ⇒ _ensure_fts 主动 DROP properties_fts 表 + 三触发器，
+#        彻底解耦；search() 恒定走 LIKE（功能等价，仅略慢）。需要时把该常量改回 True 即可恢复。
+#   · 决策点3 = A「如实告知」：租赁组下方加数据口径说明（search.status_lease_note，四语）——
+#     REINS 卖房详情**没有**量化的「空室/賃貸中」字段，唯一可推断的在租信号是带租约OC
+#     （オーナーチェンジ ≈939 条），空室仅 7 条、賃貸中 2 条；避免阿丹点「空室」只出几条
+#     误以为系统坏了。
+#   · 数据：已对活动库执行回填，occupancy_status 5677/5677 全量补齐（tools/backfill_occupancy_fts.py）。
+#   · 顺带修：prop_card.js（母本复制件）误用不存在的 row.tag_chg → 对齐既有 row.tag_changed，
+#     i18n 门禁由 FAIL 转 I18N_KEYS_OK。
+#
 # v1.9.93（2026-09-26 · 客户表单重排 + 编辑回填表单 + 按钮统一「保存客户」）：
 #   勇哥：① 客户名称 + 手机号**并排一行**，备注单独一行；② 「编辑」不再用 prompt
 #     弹窗，而是**回到客户管理页把原始信息回填到上方表单**让用户改；③ 新建 / 编辑

@@ -77,7 +77,7 @@
     var badge = '';
     if (window.CUR_DATE) {
       if (r.reg_date_iso === window.CUR_DATE) { badge = '<span class="qtag qtag-reg">' + t('row.tag_new') + '</span>'; }
-      else if (r.chg_date_iso === window.CUR_DATE) { badge = '<span class="qtag qtag-chg">' + t('row.tag_chg') + '</span>'; }
+      else if (r.chg_date_iso === window.CUR_DATE) { badge = '<span class="qtag qtag-chg">' + t('row.tag_changed') + '</span>'; }
     }
     var ttBadge = '';
     if (r.trade_type) {

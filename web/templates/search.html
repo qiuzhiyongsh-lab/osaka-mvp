@@ -134,9 +134,9 @@
         </div>
       </div>
     </div>
-    {# v1.9.46 PRD：房产状态（公开状态组 + 现状组，双分组多选面板）。
-       公开状态组 Phase 1 即用工；现状组 Phase 1 灰显（ST_PHASE_NOW=false，库无 status_now 数据）。
-       支持手动填写新增（仅本浏览器 qstate 记忆，零后端改动）。#}
+    {# v1.9.94 PRD：房产状态（公开状态组 + 租赁·在租组，双分组多选面板）。
+       公开状态组来自派生列 occupancy_status 的公开 facet；租赁·在租组来自同一派生列（带租约OC/空室/賃貸中/満室/居住中/其他）。
+       支持手动填写新增：命中枚举当枚举、否则当自由文本关键词（occupancy_keyword）。#}
     <div class="field" style="min-width:200px">
       <span data-i18n="search.status">房产状态</span>
       <div class="msp" id="stMsp">
@@ -153,10 +153,12 @@
               <button type="button" class="ghost" onclick="statusAddCustom()" data-i18n="search.status_add">添加</button>
             </div>
           </div>
-          <div class="msp-sec msp-sec-disabled" id="stNowSec">
-            <div class="msp-sec-h"><b data-i18n="search.status_now">现状</b>
-              <span class="muted" data-i18n="search.status_now_tip">Phase 2 待启用</span></div>
+          <div class="msp-sec" id="stNowSec">
+            <div class="msp-sec-h"><b data-i18n="search.status_lease">租赁·在租状态</b>
+              <span class="muted" data-i18n="search.status_lease_tip">点选即可，可多选</span></div>
             <div class="msp-body" id="stNowBody"></div>
+            <!-- v1.9.94 · 勇哥拍板「决策点3 = A」：如实告知数据口径，避免阿丹点「空室」只出几条以为系统坏了 -->
+            <div class="msp-note" data-i18n="search.status_lease_note">口径说明：REINS 卖房详情没有量化的「空室/賃貸中」字段；可推断信号为「带租约OC（オーナーチェンジ）」约 939 条；空室仅 7 条、賃貸中 2 条。</div>
           </div>
           <div class="msp-foot">
             <button type="button" class="ghost" onclick="statusSelectAllPub()" data-i18n="cat.select_all">全选</button>
@@ -788,16 +790,19 @@ document.addEventListener('keydown', function(ev){
   msCloseAll();
   msSyncMask();
 });
-/* v1.9.46 PRD：房产状态「双分组多选面板」（公开状态组 + 现状组）。
+/* v1.9.94 PRD：房产状态「双分组多选面板」（公开状态组 + 租赁·在租组）。
    不复用 msRender（它只支持扁平单组），这里独立实现两套选中集合 + 手填新增。
-   公开状态组枚举来自真实库实测（public_status 去重：公開中/申込あり/一時停止/'-'/NULL）；
-   现状组 Phase 1 灰显（ST_PHASE_NOW=false，库无 status_now 数据）。
-   __none__ = 「未公开/无状态」（字段为 '-' 或 NULL）。 */
+   两组都来自派生列 occupancy_status（落库时由 detail_json 派生）：
+     公开组 —— 公开 facet（公開中/申込あり/一時停止/未公开[__none__]）；
+     租赁组 —— 租赁·在租 facet（带租约OC/空室/賃貸中/満室/居住中/其他）。
+   手填值：命中枚举则当枚举、否则当「自由文本关键词」（走 occupancy_keyword）。
+   __none__ = 「未公开/无状态」（公开 facet 缺失或为 '-'）。 */
 var STATUS_PUB = ['公開中', '申込あり', '一時停止', { v: '__none__', i18n: 'search.status_none' }];
-var STATUS_NOW = ['空室', '居住中', '入居中', '賃貸中'];   // Phase 2 现状枚举占位（Phase 1 灰显）
-var ST_PHASE_NOW = false;                                  // Phase 2 开关：改为 true 即启用现状组
-var ST_SEL = {};                                           // 选中值集合（公开 + 现状 + 手填 混合）
+var STATUS_LEASE = ['带租约OC', '空室', '賃貸中', '満室', '居住中', '其他'];  // v1.9.94：租赁·在租组（启用）
+var ST_PHASE_NOW = true;                                  // v1.9.94：启用租赁·在租组
+var ST_SEL = {};                                           // 选中值集合（公开 + 租赁 + 手填 混合）
 var ST_CUSTOM = [];                                        // 本浏览器手填新增的状态（仅 qstate 记忆）
+var ST_CUSTOM_FLAG = {};                                   // 手填值是否走「自由文本关键词」逻辑（非枚举）
 function statusLabel(o){
   var v = (typeof o === 'string') ? o : o.v;
   var key = (typeof o === 'object' && o.i18n) ? o.i18n : null;
@@ -818,11 +823,12 @@ function statusRender(){
       +  '<span>' + esc(v) + '</span></label>';
   });
   var pb = document.getElementById('stPubBody'); if(pb) pb.innerHTML = h;
-  // 现状组（Phase 1 灰显：checkbox disabled，不进选中集合）
+  // v1.9.94：租赁·在租组（STATUS_LEASE，启用，非灰显）
   var h2 = '';
-  STATUS_NOW.forEach(function(v){
-    h2 += '<label class="msp-chip"><input type="checkbox" data-st="' + esc(v) + '" disabled'
-      +  ' onchange="statusPick(this)"><span>' + esc(v) + '</span></label>';
+  STATUS_LEASE.forEach(function(v){
+    h2 += '<label class="msp-chip"><input type="checkbox" data-st="' + esc(v) + '"'
+      +  (ST_SEL[v] ? ' checked' : '') + ' onchange="statusPick(this)">'
+      +  '<span>' + esc(v) + '</span></label>';
   });
   var nb = document.getElementById('stNowBody'); if(nb) nb.innerHTML = h2;
   var sec = document.getElementById('stNowSec');
@@ -853,9 +859,14 @@ function statusSelectAllPub(){
 function statusAddCustom(){
   var inp = document.getElementById('stAddInput'); if(!inp) return;
   var v = (inp.value || '').trim(); if(!v) return;
-  var dup = STATUS_PUB.some(function(o){ return (typeof o === 'string') ? o === v : o.v === v; });
-  if(!dup && (ST_CUSTOM || []).indexOf(v) < 0){ ST_CUSTOM.push(v); }
-  ST_SEL[v] = 1; inp.value = ''; statusRender();
+  // v1.9.94：自定义值若命中公开/租赁枚举 → 当枚举处理；否则当「自由文本关键词」走 occupancy_keyword。
+  var isEnum = STATUS_PUB.concat(STATUS_LEASE).some(function(o){
+    return (typeof o === 'string') ? o === v : o.v === v;
+  });
+  if(!isEnum && (ST_CUSTOM || []).indexOf(v) < 0){ ST_CUSTOM.push(v); }
+  ST_SEL[v] = 1;
+  ST_CUSTOM_FLAG[v] = !isEnum;   // 标记是否走关键词逻辑（buildParams 据此分流）
+  inp.value = ''; statusRender();
 }
 function statusToggle(ev){
   if(ev) ev.stopPropagation();
@@ -1030,7 +1041,8 @@ function saveQState(){
       lr:        msValues('land_right'),          // v1.9.82 借地権：土地権利 多选记忆
       limit:     document.getElementById('limit').value,
       subs:      mspSelected(),
-      status:    statusValues(),                 // v1.9.46 PRD：房产状态（公开+现状+手填 混合）
+      status:    statusValues(),                 // v1.9.94：房产状态枚举值（公开+租赁+枚举型手填）
+      custom:    (ST_CUSTOM || []).filter(function(v){ return ST_CUSTOM_FLAG[v]; }),  // 自由文本关键词
       // v1.9.49 / PRD v1.4.0：四组新搜索条件记忆
       layout_types: msValues('layout_type'),
       rooms_min:  document.getElementById('rooms_min').value,
@@ -1074,9 +1086,13 @@ function restoreQState(){
   MS_SEL['land_right'] = {};
   (st.lr || []).forEach(function(v){ MS_SEL['land_right'][v] = 1; });
   msRender('land_right');
-  // v1.9.46 PRD：房产状态回填
-  ST_SEL = {};
+  // v1.9.94 PRD：房产状态回填 —— 枚举值进 ST_SEL，自定义词（st.custom）进 ST_CUSTOM + ST_CUSTOM_FLAG。
+  ST_SEL = {}; ST_CUSTOM = []; ST_CUSTOM_FLAG = {};
   (st.status || []).forEach(function(v){ ST_SEL[v] = 1; });
+  (st.custom || []).forEach(function(v){
+    if((ST_CUSTOM || []).indexOf(v) < 0) ST_CUSTOM.push(v);
+    ST_SEL[v] = 1; ST_CUSTOM_FLAG[v] = 1;
+  });
   statusRender();
   // v1.9.49 / PRD v1.4.0：四组新搜索条件回填
   // 户型（静态选项，立即可渲染）
@@ -1152,9 +1168,18 @@ function applyUrlParams(){
       touched = true;
     }
   });
-  // v1.9.46 PRD：房产状态 URL 多值（?public_status=公開中&public_status=申込あり）
-  var stvs = qs.getAll('public_status').filter(function(x){ return x; });
-  if(stvs.length){ ST_SEL = {}; stvs.forEach(function(v){ ST_SEL[v] = 1; }); touched = true; }
+  // v1.9.94 PRD §6.7：房产状态 URL 多值（?occupancy_status=带租约OC&occupancy_status=公開中）。
+  // 枚举值进 ST_SEL；自定义关键词进 ST_CUSTOM + ST_CUSTOM_FLAG。
+  var osv = qs.getAll('occupancy_status').filter(function(x){ return x; });
+  if(osv.length){ ST_SEL = {}; ST_CUSTOM = []; osv.forEach(function(v){ ST_SEL[v] = 1; }); touched = true; }
+  var okv = qs.getAll('occupancy_keyword').filter(function(x){ return x; });
+  if(okv.length){
+    okv.forEach(function(v){
+      if((ST_CUSTOM || []).indexOf(v) < 0) ST_CUSTOM.push(v);
+      ST_SEL[v] = 1; ST_CUSTOM_FLAG[v] = 1;
+    });
+    touched = true;
+  }
   if(touched) msInitAll();
   var d = qs.get('date');
   if(d === 'all'){
@@ -1411,8 +1436,11 @@ function buildParams(page){
   msValues('trade_type').forEach(function(v){ p.append('trade_type', v); });
   // v1.9.82 借地権：土地権利 → 每个选中值重复传一个 land_right（后端 getlist 收，多值 OR）
   msValues('land_right').forEach(function(v){ p.append('land_right', v); });
-  // v1.9.46 PRD：房产状态 → 选中集（公开+手填）作为 public_status 发后端；现状组 Phase 1 灰显不进选中集
-  statusValues().forEach(function(v){ p.append('public_status', v); });
+  // v1.9.94 PRD §6.6：房产状态 → 枚举值发 occupancy_status，自定义词发 occupancy_keyword。
+  statusValues().forEach(function(v){
+    if(ST_CUSTOM_FLAG[v]) p.append('occupancy_keyword', v);
+    else                  p.append('occupancy_status', v);
+  });
   // v1.9.49 / PRD v1.4.0：四组新搜索条件
   msValues('layout_type').forEach(function(v){ p.append('layout_type', v); });
   ['rooms_min','rooms_max','floor_min','floor_max','year_from','year_to','walk_max'].forEach(function(id){
@@ -1576,6 +1604,12 @@ function renderLibHint(date, total){
       extraHtml += '</div>';
     }else{
       extraHtml += '<div class="lh-warn">' + t('search.nodata') + '</div>';
+      // v1.9.94 D7：当前若限定在「今天」却无命中，提示可放宽到全部日期查看。
+      if(date === LIB.today && !ALL_DATES){
+        extraHtml += '<div class="lh-acts">'
+          + '<button class="ghost" onclick="viewAllDates()">' + t('search.lib.viewall') + '</button>'
+          + '</div>';
+      }
     }
   }
   if(ex){
@@ -1587,6 +1621,14 @@ function renderLibHint(date, total){
 function jumpToDate(d){
   var el = document.getElementById('date');
   if(el){ el.value = d; doQuery(1); }
+}
+
+/* v1.9.94 D7：空结果时一键放宽到「全部日期」（与 KPI 卡片 ?date=all 同一机制）。 */
+function viewAllDates(){
+  ALL_DATES = true;                        // 看全库：日期清空、不回填今天
+  var de = document.getElementById('date'); if(de) de.value = '';
+  doQuery(1);
+}
 }
 
 /* ---------- 列表渲染：紧凑 + 核心信息在前的分层排版 ---------- */
@@ -1755,6 +1797,7 @@ function renderFullItem(r, i){
     +     mediaBadges(r)
     +     (r.last_seen_at  ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0,10)) + '</span>' : '')
     +   '</div>'
+    +   qhitHtml(r)   /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
     + '</div>'
     + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
     + '</div>';
@@ -1772,6 +1815,14 @@ function unitPriceInline(r){
   if(sqm)   h += '<span class="k">' + t('search.unit_price_sqm')   + ' ' + sqm   + '</span>';
   if(tsubo) h += '<span class="k">' + t('search.unit_price_tsubo') + ' ' + tsubo + '</span>';
   return h;
+}
+
+/* v1.9.94 PRD §7.1：关键词命中高亮片段。hit_snippet 已由后端转义并包好 <mark>，
+   此处原样插入（不再 esc），label 另行转义。无命中 ⇒ 返回空串（不渲染）。 */
+function qhitHtml(r){
+  if(!r || !r.qhit || !r.qhit.hit_snippet) return '';
+  return '<div class="qhit"><span class="qhit-label">' + esc(t('search.qhit')) + '</span>'
+       + '<span class="qhit-snip">' + r.qhit.hit_snippet + '</span></div>';
 }
 
 /* 单行重设计（UI 经理主导，R-UI-3 / PRD-24）：
@@ -1886,6 +1937,7 @@ function renderCompactItem(r, i){
     +         ' onclick="event.stopPropagation()">' + t('detail.srcpage') + '</a>'
     +   '</div>';
   h += '</div>';  // /qcompact
+  h += qhitHtml(r);  /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
   h += '<div class="qdetail" id="' + id + '" style="display:none"></div>'
      + '</div>';
   return h;

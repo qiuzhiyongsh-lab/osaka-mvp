@@ -120,6 +120,10 @@
       'search.status': '房產狀態', 'search.status_public': '公開狀態', 'search.status_now': '現狀',
       'search.status_none': '未公開/無狀態', 'search.status_add': '添加其他狀態',
       'search.status_add_ph': '輸入狀態名，回車添加', 'search.status_now_tip': 'Phase 2 待啟用',
+      'search.status_lease': '租賃·在租狀態', 'search.status_lease_tip': '點選即可，可多選',
+      'search.status_lease_note': '⚠ 口徑說明：REINS 賣房詳情頁沒有量化的「空室／賃貸中」欄位；唯一可推斷的在租信號是「帶租約OC（オーナーチェンジ）」。全庫約 939 條帶租約，空室僅 7 條、賃貸中 2 條。',
+      'search.lib.viewall': '查看全部日期',
+      'search.qhit': '命中片段',
       'search.limit.50': '50 條', 'search.limit.100': '100 條', 'search.limit.200': '200 條',
       'search.btn': '查詢', 'search.reset': '重置',
       'search.cmp.tip': '勾幾套房 → 底部「對比欄」→ 點「開始對比」可橫向比 2–6 套',
@@ -292,6 +296,10 @@
       'search.status': 'Property status', 'search.status_public': 'Public status', 'search.status_now': 'Current status',
       'search.status_none': 'Unpublished / no status', 'search.status_add': 'Add other status',
       'search.status_add_ph': 'Type a status name, Enter to add', 'search.status_now_tip': 'Phase 2 (coming)',
+      'search.status_lease': 'Lease / occupied status', 'search.status_lease_tip': 'Click to select, multi-select',
+      'search.status_lease_note': '⚠ Data note: REINS sale listings have no quantified "vacant / rented" field. The only inferable signal is "Owner-change (OC)" ≈939 rows; vacant ≈7, rented ≈2.',
+      'search.lib.viewall': 'View all dates',
+      'search.qhit': 'Matched snippet',
       'search.limit.50': '50', 'search.limit.100': '100', 'search.limit.200': '200',
       'search.btn': 'Search', 'search.reset': 'Reset',
       'search.cmp.tip': 'Pick a few → bottom "Compare bar" → "Start compare" to contrast 2–6 homes',
@@ -470,6 +478,10 @@
       'search.status': '物件状況', 'search.status_public': '公開状況', 'search.status_now': '現況',
       'search.status_none': '未公開/状況なし', 'search.status_add': '他の状況を追加',
       'search.status_add_ph': '状況名を入力、Enterで追加', 'search.status_now_tip': 'Phase 2 準備中',
+      'search.status_lease': '賃貸・入居状況', 'search.status_lease_tip': 'クリックで選択、複数可',
+      'search.status_lease_note': '⚠ データ注記：REINS の売買物件詳細に「空室／賃貸中」の定量項目はありません。推測できるのは「オーナーチェンジ（帯租約OC）」約939件のみで、空室は約7件、賃貸中は約2件です。',
+      'search.lib.viewall': '全期間を表示',
+      'search.qhit': '該当箇所',
       'search.limit.50': '50件', 'search.limit.100': '100件', 'search.limit.200': '200件',
       'search.btn': '検索', 'search.reset': 'リセット',
       'search.cmp.tip': '数件チェック → 下部「比較バー」→ 「比較開始」で2～6件を横断比較',
@@ -1138,6 +1150,11 @@
   ZH['search.status']='房产状态'; ZH['search.status_public']='公开状态'; ZH['search.status_now']='现状';
   ZH['search.status_none']='未公开/无状态'; ZH['search.status_add']='添加其他状态';
   ZH['search.status_add_ph']='输入状态名，回车添加'; ZH['search.status_now_tip']='Phase 2 待启用';
+  // v1.9.94：租赁·在租状态组（替代原「现状」组，现已启用）
+  ZH['search.status_lease']='租赁·在租状态'; ZH['search.status_lease_tip']='点选即可，可多选';
+  ZH['search.status_lease_note']='⚠ 口径说明：REINS 卖房详情页没有量化的「空室/賃貸中」字段；唯一可推断的在租信号是「带租约OC（オーナーチェンジ）」。全库约 939 条带租约，空室仅 7 条、賃貸中 2 条。';
+  ZH['search.lib.viewall']='查看全部日期';
+  ZH['search.qhit']='命中片段';
   // v1.9.82 借地権：土地権利 查询条件（zh-CN 必须有条目，否则 t('search.land_right') 显示裸 key）
   ZH['search.land_right']='土地权利'; ZH['search.land_right.ownership']='所有权';
   ZH['search.land_right.leased']='借地权';

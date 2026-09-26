@@ -368,6 +368,14 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .qc-unit{font-weight:700;color:#22304d}
 
 .qdetail{padding:9px 12px 12px;border-top:1px dashed var(--line);background:#fff}
+
+/* v1.9.94 PRD §7.1：关键词命中高亮片段 */
+.qhit{display:flex;gap:8px;align-items:flex-start;margin:4px 10px 6px 11px;padding:4px 8px;background:#fff8e1;border-left:3px solid #f0a500;border-radius:3px;font-size:12px;line-height:1.5;color:#5a4a16}
+.qhit-label{flex:0 0 auto;color:#a06b00;font-weight:600;white-space:nowrap;margin-right:2px}
+.qhit-snip{flex:1 1 auto;word-break:break-all}
+.qhit-snip mark,.qdetail mark{background:#ffe08a;color:#5a4a16;padding:0 1px;border-radius:2px;font-weight:600}
+/* v1.9.94 · 决策点3 = A：租赁状态组的数据口径说明（灰底小字，不抢主视觉） */
+.msp-note{margin:6px 10px 2px 11px;padding:5px 8px;background:#f5f5f5;border-left:3px solid #bbb;border-radius:3px;font-size:11px;line-height:1.55;color:#666}
 .card.list-card{padding:8px 10px}                   /* 结果卡：缩小留白，让行铺满整宽 */
 
 /* 展开后的详细信息：自适应多列（电脑一屏看完，手机两三列） */

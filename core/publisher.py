@@ -72,6 +72,8 @@ FIELD_MAP = [
     # v1.9.60：放行 pdf_url（值 = COS 预签名直链，7 天有效）——线上 PDF 展示需要它。
     #   ⚠ 只放 pdf_url；pdf_path（本机绝对/相对路径）仍永不外传（见下方 NEVER_UPLOAD）。
     ("pdf_url", "pdf_url"),
+    # v1.9.94：房产状态统一维度，推送至线上（publish 侧 store 同步接受并落库）。
+    ("occupancy_status", "occupancy_status"),
 ]
 
 # 明确**不传**的列：本机 PDF 路径（勇哥口径：路径不出门），以及本机专用的下架计数。

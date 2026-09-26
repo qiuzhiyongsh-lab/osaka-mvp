@@ -37,7 +37,7 @@ from core import store as store_mod                   # noqa: E402
 from core.scheduler import Scheduler                  # noqa: E402
 from core.publisher import PublishLoop
 from core import publisher as publisher_mod               # noqa: E402  (v1.9.63 AI 接力回推)                 # noqa: E402
-from core.store import Store                          # noqa: E402
+from core.store import Store, compute_q_hit           # noqa: E402
 from core.wareki import to_ad as wareki_to_ad          # noqa: E402
 from core import accounts as acc_mod                    # noqa: E402  (PRD-19 账户权限)
 from core import account_sync as acc_sync                # noqa: E402  (v1.9.28 账号双向同步)
@@ -2331,6 +2331,10 @@ def api_query():
         # 前端每个选中值重复传一个 public_status / status_now 参数，后端 getlist 收成列表。
         "public_statuses": [s.strip() for s in request.args.getlist("public_status") if s.strip()],
         "status_nows": [s.strip() for s in request.args.getlist("status_now") if s.strip()],
+        # v1.9.94 PRD §6.5/§7.1：房产状态派生维度（枚举=occupancy_status；自定义=自由文本关键词）。
+        # 枚举值（公开组 + 租赁组）重复传 occupancy_status；手填自由词传 occupancy_keyword。
+        "occupancy_statuses": [s.strip() for s in request.args.getlist("occupancy_status") if s.strip()],
+        "occupancy_keywords": [s.strip() for s in request.args.getlist("occupancy_keyword") if s.strip()],
         # v1.9.82 借地権：土地権利 查询条件（多选 OR，与 trade_type 同机制；后端 getlist 收）。
         "land_rights": [s.strip() for s in request.args.getlist("land_right") if s.strip()],
         "date": request.args.get("date", ""),
@@ -2407,6 +2411,16 @@ def api_query():
         else:
             p["tag"] = ""
         out.append(p)
+    # v1.9.94 PRD §7.1：关键词命中高亮（q 与 房产状态自定义关键词 同为自由文本）。
+    #   高亮与"怎么筛"解耦：无论行经 LIKE 还是 FTS 命中，只要字段真含这些词就高亮。
+    #   无关键词 ⇒ 不给 qhit，前端不渲染高亮块（零干扰）。
+    _hit_terms = [t for t in (f["q"].split() + f.get("occupancy_keywords", [])) if t]
+    if _hit_terms:
+        _qhit_map = {}
+        for r in rows:
+            _qhit_map[r["property_no"]] = compute_q_hit(r, _hit_terms)
+        for p in out:
+            p["qhit"] = _qhit_map.get(p["property_no"], {})
     # library：附带本机库概况（最近有数据的日期 / 今天条数 / 上轮运行状态），
     # 让查询页在"今天一条都没有"时能给出可操作的提示，而不是一片空白。
     return jsonify({"date": f["date"], "total": total, "page": page,

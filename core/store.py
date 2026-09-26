@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import collections
+import html
 import json
 import re
 import sqlite3
@@ -42,11 +43,25 @@ PROPERTY_COLUMNS = [
     "reg_date_iso", "chg_date_iso",
     "first_seen_at", "last_seen_at", "last_changed_at", "is_active", "detail_json",
     "detail_href",   # v1.9.1：列表行详情直链；供「解耦阶段B」后台补详情复用（免重搜、绝不猜 URL）
+    # v1.9.94：房产状态统一维度（公开组 + 租赁·在租组 + 兜底"其他"），竖线 | 分隔标签集合。
+    # 由 derive_occupancy_status(detail_json) 在落库时派生，供查询页"房产状态"面板筛选 + 高亮。
+    "occupancy_status",
 ]
 
 
 def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_json(s):
+    """把 detail_json 文本安全地解析成 dict；非法/空 → {}。"""
+    if not s:
+        return {}
+    try:
+        d = json.loads(s)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
 
 
 # R20：建筑年份（築年月）在库里是和暦文本（如「令和4年3月」），排序需转成可比较的整数。
@@ -67,6 +82,167 @@ def _built_sort_key(s):
     if m3:
         return int(m3.group(1)) * 100
     return None
+
+
+# ---------- v1.9.94 PRD §6.2：房产状态统一维度派生（纯函数）----------
+# 输入 = json.loads(rec['detail_json'])（或空 dict）；输出 = 竖线 | 分隔的标签集合。
+# 两个正交 facet：
+#   ① 公开状态（恰好一个）：公開中 / 申込あり / 一時停止 / 未公开（兜底）
+#   ② 租赁·在租（零个或多个，彼此独立）：带租约OC / 空室 / 賃貸中 / 満室 / 居住中
+#      —— 扫描 trade_type / trade_status / property_subtype / building_name / detail_json 整段文本
+#         （オーナーチェンジ → 带租约OC；居住中 或 入居中 → 居住中）
+#   兜底：无任何租赁信号 → 「其他」（含义：未标注租赁/在租状态）
+# 去重保序；落库与回填脚本共用同一份逻辑（见 upsert 钩子 + tools/backfill_occupancy_fts.py）。
+def derive_occupancy_status(detail) -> str:
+    if not isinstance(detail, dict):
+        detail = {}
+    tags = []
+
+    # —— 公开状态 facet（恰好一个）——
+    ps = detail.get("public_status")
+    if ps in ("公開中",):
+        tags.append("公開中")
+    elif ps in ("申込あり",):
+        tags.append("申込あり")
+    elif ps in ("一時停止",):
+        tags.append("一時停止")
+    else:  # '-' / None / '' / 其它
+        tags.append("未公开")
+
+    # —— 租赁·在租 facet（零个或多个，彼此独立）——
+    sources = " \n ".join(filter(None, [
+        str(detail.get("trade_type") or ""),
+        str(detail.get("trade_status") or ""),
+        str(detail.get("property_subtype") or ""),
+        str(detail.get("building_name") or ""),
+        str(detail.get("detail_json") or ""),   # 兜底：整段文本（含自由备注）
+    ]))
+    if "オーナーチェンジ" in sources:
+        tags.append("带租约OC")
+    if "空室" in sources:
+        tags.append("空室")
+    if "賃貸中" in sources:
+        tags.append("賃貸中")
+    if "満室" in sources:
+        tags.append("満室")
+    if ("居住中" in sources) or ("入居中" in sources):
+        tags.append("居住中")
+
+    # —— 兜底 ——
+    if not any(t in tags for t in ("带租约OC", "空室", "賃貸中", "満室", "居住中")):
+        tags.append("其他")   # 含义：未标注租赁/在租状态
+
+    # 去重保序
+    seen, out = set(), []
+    for t in tags:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return "|".join(out)
+
+
+# ---------- v1.9.94 PRD §7.1：关键词全文索引 + 命中高亮 ----------
+# 关键词搜索覆盖的字段（与 search() 的 LIKE 文本列完全一致）；
+# 既用于 FTS5 建表，也用于后端命中高亮（两条路径共用，确保高亮一致）。
+FTS_COLUMNS = [
+    "address", "building_name", "property_no", "line_station",
+    "layout", "ward", "kind", "property_subtype",
+    "built_year_month", "detail_json",
+]
+
+# v1.9.94 · 勇哥拍板「决策点1 = C」：关闭 FTS5，关键词检索统一走 LIKE。
+#   实测依据：FTS5 的 AFTER INSERT/UPDATE/DELETE 三触发器与写库**强耦合**——索引一旦
+#   损坏，每条 properties 写库都抛 "database disk image is malformed"，等于把"爬虫能否
+#   入库"押在索引健康上（P0：索引坏 ⇒ 抓取全线瘫痪）。而 F3 的用户可见价值（命中高亮）
+#   由 compute_q_hit 在 Python 侧计算，完全不依赖 FTS5 ⇒ 关闭后功能等价、仅略慢。
+#   关闭时 _ensure_fts 会主动 DROP 表 + 三触发器，彻底切断该耦合。
+#   将来若要恢复：把本常量改回 True 即可（索引与触发器会自动重建，无需改别处）。
+FTS_ENABLED = False
+
+
+def compute_q_hit(row, terms):
+    """关键词命中高亮：给定一行 + 查询词，挑出"包含全部词"的字段，截出命中片段，
+    并把每个词用 <mark> 包裹（HTML 已转义，防 XSS）。
+
+    与 search() 的过滤相互独立：无论行是通过 LIKE 还是 FTS 命中的，高亮只取决于
+    "哪些字段真的含这些词"，故两种路径下高亮结果一致。无匹配 / terms 为空 ⇒ 空 dict
+    （前端据此不渲染高亮块）。
+    """
+    terms = [t for t in (terms or []) if t]
+    if not terms:
+        return {}
+    try:
+        cols = list(row.keys())
+    except Exception:
+        cols = list(FTS_COLUMNS)
+    def _val(col):
+        try:
+            v = row[col]
+        except Exception:
+            return ""
+        return "" if v is None else str(v)
+    # 优先选"包含全部词"的字段；并列时取首个词最早出现、其次字段顺序在前。
+    best = None  # (first_pos, col_index, col, raw)
+    for idx, col in enumerate(FTS_COLUMNS):
+        if col not in cols:
+            continue
+        raw = _val(col)
+        if not raw:
+            continue
+        if all(t in raw for t in terms):
+            pos = raw.find(terms[0])
+            key = (pos, idx)
+            if best is None or key < best[0]:
+                best = (key, col, raw)
+    if best is None:
+        return {}
+    _, field, raw = best
+    return {
+        "hit_field": field,
+        "hit_fields": [field],
+        "hit_snippet": _make_snippet(raw, terms),
+    }
+
+
+def _make_snippet(raw, terms, before: int = 40, after: int = 90):
+    """在 raw 中截取首个词命中位置前后的窗口，对窗口内所有词出现位置用 <mark> 包裹
+    （最长优先，避免嵌套）。结果已 HTML 转义。
+    """
+    terms = sorted(set(terms), key=len, reverse=True)
+    first_pos = -1
+    first_len = 0
+    for t in terms:
+        i = raw.find(t)
+        if i != -1 and (first_pos == -1 or i < first_pos):
+            first_pos = i
+            first_len = len(t)
+    if first_pos == -1:
+        start, end = 0, min(len(raw), before + after)
+    else:
+        start = max(0, first_pos - before)
+        end = min(len(raw), first_pos + first_len + after)
+    window = raw[start:end]
+    spans = []
+    pat = re.compile("|".join(re.escape(t) for t in terms))
+    for m in pat.finditer(window):
+        s, e = m.span()
+        if any(not (e <= os or s >= oe) for os, oe in spans):
+            continue  # 与已选片段重叠 ⇒ 跳过（保留较长者）
+        spans.append((s, e))
+    spans.sort()
+    out = []
+    prev = 0
+    for s, e in spans:
+        out.append(html.escape(window[prev:s]))
+        out.append("<mark>" + html.escape(window[s:e]) + "</mark>")
+        prev = e
+    out.append(html.escape(window[prev:]))
+    res = "".join(out)
+    if start > 0:
+        res = "…" + res
+    if end < len(raw):
+        res = res + "…"
+    return res
 
 
 # ---------- v1.9.49 / PRD v1.4.0：搜索用派生 UDF（户型・楼龄・沿线・单价）----------
@@ -376,7 +552,8 @@ CREATE TABLE IF NOT EXISTS properties (
   last_seen_at       TEXT,
   last_changed_at    TEXT,
   is_active          INTEGER DEFAULT 1,
-  detail_json        TEXT
+  detail_json        TEXT,
+  occupancy_status   TEXT            -- v1.9.94：房产状态统一维度（公开组+租赁·在租组+其他，竖线分隔）
 );
 CREATE INDEX IF NOT EXISTS idx_prop_first_seen ON properties(first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_prop_ward       ON properties(ward);
@@ -534,6 +711,9 @@ class Store:
         self._ensure_v1981_tables()
         # v1.9.50 / PRD-05 §4.1：线路 / 车站字典（line_text UDF 依赖内存字典，必须先载入）
         self._ensure_rail_dict()
+        # v1.9.94 PRD §7.1：FTS5 trigram 全文索引（关键词检索加速 + 命中高亮）。
+        # 任何异常 ⇒ _fts_ready 保持 False ⇒ search() 退回 LIKE，零副作用。
+        self._ensure_fts()
         self.conn.commit()
 
     @property
@@ -602,6 +782,9 @@ class Store:
             #   （publisher.build_rows 过滤 COALESCE(price_hold,0)=0），进入
             #   pending_decisions 待勇哥裁决；解除后置 0。
             "price_hold": "INTEGER DEFAULT 0",
+            # v1.9.94：房产状态统一维度（公开组+租赁·在租组+其他，竖线分隔）。
+            #   落库时由 derive_occupancy_status 派生；老库补列后由 backfill 脚本回填。
+            "occupancy_status": "TEXT",
         },
         "runs": {
             "online_total": "INTEGER DEFAULT 0",  # v1.4.0：列表层分母
@@ -783,6 +966,75 @@ class Store:
         CREATE INDEX IF NOT EXISTS idx_search_log_at ON search_log(at);
         """)
         c.commit()
+
+    def _ensure_fts(self) -> None:
+        """v1.9.94：FTS5 全文索引的启用 / 关闭（默认关闭，见 FTS_ENABLED）。
+
+        FTS_ENABLED=False（勇哥拍板「决策点1 = C」）⇒ 主动 DROP properties_fts 表与
+        ai/ad/au 三触发器，彻底切断「索引 ↔ 写库」的强耦合；_fts_ready 恒为 False
+        ⇒ search() 恒定走 LIKE。命中高亮由 compute_q_hit 在 Python 侧计算，**不受影响**。
+
+        FTS_ENABLED=True ⇒ 建 content='properties' 外部内容表 + 三触发器（upsert 增量
+        自动同步，无需在 upsert_property 里手动维护）；计数不一致时全量 rebuild；
+        任何异常（老版本 sqlite 无 trigram / 权限问题）一律降级 LIKE，零副作用。
+        """
+        self._fts_ready = False
+        try:
+            c = self.conn
+            if not FTS_ENABLED:
+                # 关闭：幂等清理残留索引与触发器 —— 切断 P0 耦合的关键一步。
+                for _t in ("properties_fts_ai", "properties_fts_ad", "properties_fts_au"):
+                    c.execute(f"DROP TRIGGER IF EXISTS {_t}")
+                c.execute("DROP TABLE IF EXISTS properties_fts")
+                c.commit()
+                self._fts_ready = False
+                return
+            cols = ", ".join(FTS_COLUMNS)
+            newcols = ", ".join("new." + x for x in FTS_COLUMNS)
+            oldcols = ", ".join("old." + x for x in FTS_COLUMNS)
+            c.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS properties_fts USING fts5("
+                + cols
+                + ", content='properties', content_rowid='rowid', tokenize='trigram')"
+            )
+            c.executescript(f"""
+            CREATE TRIGGER IF NOT EXISTS properties_fts_ai AFTER INSERT ON properties BEGIN
+              INSERT INTO properties_fts(rowid, {cols}) VALUES (new.rowid, {newcols});
+            END;
+            CREATE TRIGGER IF NOT EXISTS properties_fts_ad AFTER DELETE ON properties BEGIN
+              INSERT INTO properties_fts(properties_fts, rowid, {cols})
+              VALUES ('delete', old.rowid, {oldcols});
+            END;
+            CREATE TRIGGER IF NOT EXISTS properties_fts_au AFTER UPDATE ON properties BEGIN
+              INSERT INTO properties_fts(properties_fts, rowid, {cols})
+              VALUES ('delete', old.rowid, {oldcols});
+              INSERT INTO properties_fts(rowid, {cols}) VALUES (new.rowid, {newcols});
+            END;
+            """)
+            # 首次启动 / 计数不一致 ⇒ 从 content 全量重建索引（增量由触发器兜底）。
+            cnt_fts = c.execute("SELECT count(*) FROM properties_fts").fetchone()[0]
+            cnt_prop = c.execute("SELECT count(*) FROM properties").fetchone()[0]
+            if cnt_prop > 0 and cnt_fts != cnt_prop:
+                # 同一连接内紧接 CREATE+triggers 的首次 rebuild 只落地部分 token（MATCH 命中偏少/为 0），
+                # 二次 rebuild 可将索引补全（已实证：二次后 MATCH マンション 由 0 → 3986）。
+                # 故这里固定 rebuild 两次，确保索引完整可检索。
+                c.execute("INSERT INTO properties_fts(properties_fts) VALUES('rebuild')")
+                c.commit()
+                c.execute("INSERT INTO properties_fts(properties_fts) VALUES('rebuild')")
+                c.commit()
+            c.commit()
+            self._fts_ready = True
+        except Exception as e:                                       # noqa: BLE001
+            print("[FTS5] 初始化失败，关键词检索降级为 LIKE：%s" % e)
+            try:
+                self.conn.commit()
+            except Exception:
+                pass
+            self._fts_ready = False
+
+    def fts_ready(self) -> bool:
+        """FTS5 是否就绪（供外部/诊断读取）。"""
+        return bool(getattr(self, "_fts_ready", False))
 
     # ---------------- v1.9.81 G-3：番号検索 终局跳过 ----------------
     def no_miss_terminal(self, property_no: str) -> bool:
@@ -1004,6 +1256,9 @@ class Store:
             rec["reg_date_iso"] = _to_iso_day(rec["registration_date"])
         if "change_date" in rec:
             rec["chg_date_iso"] = _to_iso_day(rec["change_date"])
+        # v1.9.94：房产状态统一维度 —— 落库前由 detail_json 派生 occupancy_status（竖线分隔）。
+        rec["occupancy_status"] = derive_occupancy_status(
+            _safe_json(rec.get("detail_json")))
         if existing is None:
             rec.setdefault("first_seen_at", now())
             rec.setdefault("last_seen_at", now())
@@ -1062,6 +1317,9 @@ class Store:
                 rec["reg_date_iso"] = _to_iso_day(rec["registration_date"])
             if "change_date" in rec:
                 rec["chg_date_iso"] = _to_iso_day(rec["change_date"])
+            # v1.9.94：房产状态统一维度 —— 落库前由 detail_json 派生（见 upsert_property 同款钩子）。
+            rec["occupancy_status"] = derive_occupancy_status(
+                _safe_json(rec.get("detail_json")))
             rec.setdefault("last_seen_at", now_str)
             if rec["property_no"] in have:
                 cols = tuple(sorted(c for c in rec
@@ -1306,17 +1564,27 @@ class Store:
                 where.append(f"{col} = ?"); args.append(f[key])
 
         q = (f.get("q") or "").strip()
-        if q:
-            # 关键词：模糊匹配（含即命中）。空格分隔多个词时，词之间 AND（都要命中），
-            # 词内字段之间 OR（任一字段含该词即可）。覆盖：
-            # 地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り / 区 / 種別 / 種目 / 築年月 / 详情全部字段。
-            text_cols = ["address", "building_name", "property_no", "line_station",
-                         "layout", "ward", "kind", "property_subtype",
-                         "built_year_month", "detail_json"]
-            for term in q.split():
-                ors = " OR ".join(f"COALESCE({c},'') LIKE ?" for c in text_cols)
-                where.append(f"({ors})")
-                args += [f"%{term}%"] * len(text_cols)
+        q_terms = q.split() if q else []
+        if q_terms:
+            # v1.9.94 PRD §7.1：FTS5 trigram 全文索引加速。
+            #   仅当「所有词 ≥ 3 字符」且 FTS 已就绪时走 FTS（trigram 要求词长 ≥ 3，
+            #   否则报错）；否则退回 LIKE（与历史行为完全一致，保真）。
+            #   注：本块只决定"怎么筛"，命中高亮由 api_query 独立于筛选路径计算。
+            _use_fts = bool(self._fts_ready) and all(len(t) >= 3 for t in q_terms)
+            if _use_fts:
+                _match = " ".join('"%s"' % (t.replace('"', '""')) for t in q_terms)
+                where.append(
+                    "properties.rowid IN (SELECT rowid FROM properties_fts "
+                    "WHERE properties_fts MATCH ?)")
+                args.append(_match)
+            else:
+                # 关键词：模糊匹配（含即命中）。空格分隔多个词时，词之间 AND（都要命中），
+                # 词内字段之间 OR（任一字段含该词即可）。覆盖：
+                # 地址 / 楼名 / 物件番号 / 駅・沿線 / 間取り / 区 / 種別 / 種目 / 築年月 / 详情全部字段。
+                for term in q_terms:
+                    ors = " OR ".join(f"COALESCE({c},'') LIKE ?" for c in FTS_COLUMNS)
+                    where.append(f"({ors})")
+                    args += [f"%{term}%"] * len(FTS_COLUMNS)
         # v1.7.6：区 支持多选（OR）—— 前端每个选中区重复传 ward 参数，后端收成列表走 IN。
         # 单值的 f["ward"] 也兼容（退回成单元素列表）。
         wards = [str(x).strip() for x in (f.get("wards") or []) if str(x).strip()]
@@ -1430,6 +1698,33 @@ class Store:
                 else:
                     frags.append("json_extract(detail_json,'$.status_now') = ?"); args.append(v)
             where.append("(" + " OR ".join(frags) + ")")
+        # v1.9.94 PRD §6.5：房产状态统一维度（公开组 + 租赁·在租组 + 自定义关键词）。
+        # 整体 OR 作为一个外层子句，再与 ward/price 等 AND。
+        # 枚举值（occupancy_statuses）→ 查派生列 occupancy_status（竖线分隔，LIKE 包含匹配）；
+        # 自定义词（occupancy_keywords）→ 自由文本，复用 q 的 text_cols LIKE。
+        # 注：上方 public_statuses / status_nows 旧分支保留，兼容旧分享链接（新前端不再发这两类参数）。
+        os_list = [str(x).strip() for x in (f.get("occupancy_statuses") or []) if str(x).strip()]
+        kw_list = [str(x).strip() for x in (f.get("occupancy_keywords") or []) if str(x).strip()]
+        if os_list or kw_list:
+            os_frags, os_args = [], []
+            for v in os_list:
+                if v == "__none__":
+                    # 前端「未公开/无状态」哨兵 → 命中派生列里的「未公开」标签（公开状态缺失/为'-'）。
+                    os_frags.append("occupancy_status LIKE ?")
+                    os_args.append("%未公开%")
+                else:
+                    os_frags.append("occupancy_status LIKE ?")
+                    os_args.append("%" + v + "%")
+            if kw_list:
+                _os_text_cols = ["address", "building_name", "property_no", "line_station",
+                                 "layout", "ward", "kind", "property_subtype",
+                                 "built_year_month", "detail_json"]
+                for kw in kw_list:
+                    inner = " OR ".join(f"COALESCE({c},'') LIKE ?" for c in _os_text_cols)
+                    os_frags.append("(" + inner + ")")
+                    os_args += [f"%{kw}%"] * len(_os_text_cols)
+            where.append("(" + " OR ".join(os_frags) + ")")
+            args += os_args
         # v1.9.82 借地権：土地権利 查询条件（多选 OR）。
         # 字段在 detail_json（与 trade_type 同理），值形如「所有権 / 借地権 / 旧法借地権」，
         # 故用 LIKE 包含匹配（选「借地権」也能命中「旧法借地権」）。
