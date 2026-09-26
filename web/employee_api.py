@@ -174,14 +174,25 @@ def register(app):
         if err:
             return err
         page, size = _page_args()
+        # v1.9.95 C9/R42：收藏栏标签墙点击 → 按标签筛选（?tag=<tag_id>）
+        try:
+            tag = int(request.args.get("tag") or 0) or None
+        except (TypeError, ValueError):
+            tag = None
         con = _conn()
         try:
-            total = con.execute("SELECT COUNT(*) c FROM favorites WHERE owner_username=?",
-                                (owner,)).fetchone()["c"]
+            if tag:
+                w = (" FROM favorites f JOIN property_tags pt ON pt.property_no=f.property_no"
+                     " WHERE f.owner_username=? AND pt.tag_id=?")
+                args = (owner, tag)
+            else:
+                w = " FROM favorites WHERE owner_username=?"
+                args = (owner,)
+            total = con.execute("SELECT COUNT(*) c" + w, args).fetchone()["c"]
             rows = con.execute(
-                "SELECT property_no, created_at FROM favorites WHERE owner_username=?"
-                " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
-                (owner, size, (page - 1) * size)).fetchall()
+                "SELECT f.property_no AS property_no, f.created_at AS created_at" + w
+                + " ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?",
+                args + (size, (page - 1) * size)).fetchall()
             nos = [r["property_no"] for r in rows]
             cards = {c["property_no"]: c for c in _prop_cards(nos)}
             items = []
@@ -475,6 +486,11 @@ def register(app):
         scope_all = request.args.get("scope") == "all"
         # v2.0.x：q = 关键字（名称 / 手机号 / 备注），供「添加客户」选择器搜索老客户
         q = str(request.args.get("q") or "").strip()
+        # v1.9.95 C12/R45：客户栏标签墙点击 → 按客户标签筛选（?tag=<tag_id>）
+        try:
+            tag = int(request.args.get("tag") or 0) or None
+        except (TypeError, ValueError):
+            tag = None
         con = _conn()
         try:
             sql = ("SELECT id, owner_username, name, phone, note, created_at,"
@@ -485,6 +501,9 @@ def register(app):
             if not all_scope:
                 sql += " AND owner_username=?"
                 args.append(owner)
+            if tag:
+                sql += " AND id IN (SELECT customer_id FROM customer_tags WHERE tag_id=?)"
+                args.append(tag)
             if q:
                 sql += " AND (name LIKE ? OR phone LIKE ? OR COALESCE(note,'') LIKE ?)"
                 like = "%" + q + "%"
@@ -498,6 +517,11 @@ def register(app):
                     "SELECT t.id, t.name, t.color FROM customer_tags ct"
                     " JOIN tags t ON t.id=ct.tag_id"
                     " WHERE ct.customer_id=? ORDER BY t.id", (it["id"],)).fetchall()]
+                # v1.9.95 C11/R44：关联房源数。口径唯一 = T5 customer_properties
+                # （即「绑房源」动作），PRD §4.2 明确不得用 T7 客户标签间接推导。
+                it["prop_count"] = con.execute(
+                    "SELECT COUNT(*) c FROM customer_properties WHERE customer_id=?",
+                    (it["id"],)).fetchone()["c"]
             return jsonify({"ok": True, "owner": owner,
                             "scope": ("all" if all_scope else "mine"),
                             "items": items, "total": len(items)})
@@ -712,6 +736,67 @@ def register(app):
                 (owner,)).fetchall()
             return jsonify({"ok": True, "owner": owner,
                             "nos": [r["property_no"] for r in rows]})
+        finally:
+            con.close()
+
+    @app.get(PREFIX + "/customers/by-property")
+    def _emp_cust_by_property():
+        """v1.9.95 C10/R43：给定房源番号，返回与它**已关联**的客户列表。
+
+        勇哥：点「已添加客户」要能一眼看到「这套房关联了哪些客户」，
+        而不是只弹出添加框。口径与 _emp_cust_nos 一致：默认只认「我的」客户；
+        管理员带 scope=all 时看全部（W6 隔离）。
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        no = str(request.args.get("no") or "").strip()
+        if not no:
+            return jsonify({"ok": False, "error": "缺少 no"}), 400
+        scope_all = bool(request.args.get("scope") == "all" and _is_admin())
+        con = _conn()
+        try:
+            sql = ("SELECT c.id, c.name, c.phone, c.owner_username, c.note,"
+                   " cp.created_at AS bound_at FROM customers c"
+                   " JOIN customer_properties cp ON cp.customer_id=c.id"
+                   " WHERE cp.property_no=? AND COALESCE(c.deleted,0)=0")
+            args = [no]
+            if not scope_all:
+                sql += " AND c.owner_username=?"
+                args.append(owner)
+            sql += " ORDER BY c.id"
+            rows = con.execute(sql, args).fetchall()
+            return jsonify({"ok": True, "no": no, "owner": owner,
+                            "scope": ("all" if scope_all else "mine"),
+                            "items": [dict(r) for r in rows], "total": len(rows)})
+        finally:
+            con.close()
+
+    @app.get(PREFIX + "/customers/<int:cid>/properties")
+    def _emp_cust_properties(cid):
+        """v1.9.95 C11/R44：某客户关联的房源（**完整房源卡片**）。
+
+        勇哥：客户卡片上点「关联 N 套」就地展开，直接看到推给这个客户的房，
+        样式与房源查询页一致（复用 _prop_cards）。W6 隔离：仅归属人本人 / 管理员可读。
+        计数与列表口径均为 T5 customer_properties（PRD §4.2）。
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        con = _conn()
+        try:
+            row = con.execute(
+                "SELECT owner_username FROM customers WHERE id=? AND COALESCE(deleted,0)=0",
+                (cid,)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "客户不存在"}), 404
+            if row["owner_username"] != owner and not _is_admin():
+                return jsonify({"ok": False, "error": "无权查看他人客户"}), 403
+            nos = [r["property_no"] for r in con.execute(
+                "SELECT property_no FROM customer_properties WHERE customer_id=? ORDER BY id",
+                (cid,)).fetchall()]
+            cards = _prop_cards(nos)
+            return jsonify({"ok": True, "id": cid, "items": cards, "total": len(cards)})
         finally:
             con.close()
 

@@ -54,7 +54,15 @@
 .tagchip:hover{border-color:#3b6fd4}
 .tagchip.on{border-color:#3b6fd4;background:#e8f0fe;color:#2a54a8}
 .tagchip .n{font-size:11px;color:#7a8aa5}
-.tagdel{margin-left:2px;font-size:12px;color:#a94442;cursor:pointer}
+/* v1.9.95 C13/R46：删除「×」默认隐藏；长按(移动)/悬停1s(桌面)才显形（勇哥：标签是重要资产，防误删） */
+.tagdel{display:none;margin-left:2px;font-size:12px;color:#a94442;cursor:pointer}
+.tagchip.armed .tagdel{display:inline}
+.tagchip.armed{border-color:#e08b8b}
+/* v1.9.95 C9/C12：标签墙（收藏栏 / 客户栏）；W11 拍板：折行 + 超出「展开更多」 */
+.tagwall{flex:1 1 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.tagwall .tw-more{font-size:11px;color:#3b6fd4;cursor:pointer;text-decoration:underline}
+.tagwall .tw-empty{font-size:11px;color:#9aa8bf}
+.tagwall .tw-add{font-size:12px;padding:4px 10px;border:1px dashed #c9d4ea;border-radius:999px;color:#3b6fd4;cursor:pointer;background:#fff}
 .drill{margin-top:14px;border:1px solid #e8edf6;border-radius:10px;padding:14px;background:#f9fbff}
 .ccard{border:1px solid #e8edf6;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff}
 .ccard-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -96,6 +104,8 @@
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <h3 style="margin:0" data-i18n="emp.fav.title">我的收藏</h3>
       <span id="favCount" class="emp-mini"></span>
+      <!-- v1.9.95 C9/R41：收藏栏标签墙（勇哥：标签太多时靠它秒级筛选），按物件数降序 -->
+      <div id="favTagWall" class="tagwall"></div>
     </div>
     <div class="emp-row">
       <input id="favNo" class="grow" placeholder="物件番号（如 300139241123）" data-i18n-ph="emp.fav.no_ph">
@@ -144,6 +154,8 @@
   <div class="emp-panel emp-card" id="panelCust">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <h3 style="margin:0" data-i18n="emp.cust.title">客户管理</h3>
+      <!-- v1.9.95 C12/R45：客户模块标签墙（按客户数降序），勇哥 09-26 需求 H -->
+      <div id="custTagWall" class="tagwall"></div>
       {% if is_admin %}<label class="emp-mini"><input type="checkbox" id="custAll" onchange="custLoad()"> <span data-i18n="emp.cust.scope_all">看全部（管理员）</span></label>{% endif %}
     </div>
     <!-- 勇哥 2026-09-26：① 客户名称 + 手机号并排一行 ② 备注单独一行
@@ -249,7 +261,9 @@ function renderPager(box, total, page, size, goFn){
 var favPage = 1, favSize = 50;
 function favLoad(p){
   if(p) favPage = p;
-  api('GET','/api/emp/fav?page='+favPage+'&size='+favSize).then(function(j){
+  /* v1.9.95 C9/R42：收藏栏标签墙选中 → 带 tag 交给服务端筛选 */
+  var tagq = wallTag.fav ? ('&tag='+wallTag.fav) : '';
+  api('GET','/api/emp/fav?page='+favPage+'&size='+favSize+tagq).then(function(j){
     var box=$('favList');
     if(!j || !j.ok){ box.innerHTML='<div class="emptybox">加载失败</div>'; return; }
     $('favCount').textContent = '共 '+(j.total||0)+' 条';
@@ -288,19 +302,73 @@ function favToggle(no){
 }
 
 /* ---------- 标签管理（两类独立） ---------- */
+/* v1.9.95 C13/R46：删除「×」默认隐藏 —— 桌面悬停 1s / 移动长按 0.5s 才显形。
+   勇哥拍板 W12：桌面端用「悬停 1 秒」（与移动端长按 500ms 同语义），理由是标签属重要资产、防误删。 */
+var _armT=null, _armEl=null;
+function armStart(el, ms){
+  clearTimeout(_armT); _armEl=el;
+  _armT=setTimeout(function(){
+    var prev=document.querySelectorAll('.tagchip.armed');
+    for(var i=0;i<prev.length;i++) prev[i].classList.remove('armed');
+    if(_armEl) _armEl.classList.add('armed');
+  }, ms);
+}
+function armCancel(){ clearTimeout(_armT); _armT=null; }
+function armAttrs(){
+  return ' onmouseenter="armStart(this,1000)" onmouseleave="armCancel()"'
+       + ' ontouchstart="armStart(this,500)" ontouchend="armCancel()" ontouchcancel="armCancel()"';
+}
+function tagChipHtml(t, clickJs){
+  return '<span class="tagchip"'+armAttrs()+' onclick="'+clickJs+'">'
+    + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+';margin-right:0"></span>'
+    + esc(t.name)+' <span class="n">'+(t.count||0)+'</span>'
+    + '<span class="tagdel" onclick="event.stopPropagation();tagDelete('+t.id+')" title="删除">×</span></span>';
+}
+/* v1.9.95 C9/C12 + C14：标签墙。W11 拍板：折行显示，超出 12 个收进「展开更多」。
+   C14 口径：收藏墙按【物件数】降序、客户墙按【客户数】降序（后端 count 已按类别给对）。 */
+var WALL_MAX=12, wallOpen={fav:false,cust:false}, wallTag={fav:0,cust:0};
+function tagWallRender(kind, items, boxId, pickFn){
+  var el=$(boxId); if(!el) return;
+  var all=items.slice().sort(function(a,b){ return (b.count||0)-(a.count||0); });
+  var addBtn='<span class="tw-add" onclick="tagWallAdd(\''+kind+'\')">+ 标签</span>';
+  if(!all.length){ el.innerHTML='<span class="tw-empty">暂无标签</span>'+addBtn; return; }
+  var show=(wallOpen[kind]||all.length<=WALL_MAX)?all:all.slice(0,WALL_MAX);
+  var h=show.map(function(t){
+    var on=(wallTag[kind]===t.id)?' on':'';
+    return '<span class="tagchip'+on+'" onclick="'+pickFn+'('+t.id+')" title="点击按此标签筛选">'
+      + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+';margin-right:0"></span>'
+      + esc(t.name)+' <span class="n">'+(t.count||0)+'</span></span>';
+  }).join('');
+  if(!wallOpen[kind] && all.length>WALL_MAX){
+    h+='<span class="tw-more" onclick="wallMore(\''+kind+'\')">展开更多('+(all.length-WALL_MAX)+')</span>';
+  }
+  h+=addBtn;
+  if(wallTag[kind]) h+='<span class="tw-more" onclick="'+pickFn+'(0)">清除筛选</span>';
+  el.innerHTML=h;
+}
+function wallMore(kind){ wallOpen[kind]=true; tagLoad(); }
+/* 「+ 标签」：跳到标签管理 Tab 并聚焦对应输入框（复用既有新建 UI，不另造弹窗） */
+function tagWallAdd(kind){
+  switchTab('Tag');
+  var inp=$(kind==='cust'?'tagCustName':'tagFavName');
+  if(inp) inp.focus();
+}
+function favPickTag(id){ wallTag.fav=id; favPage=1; favLoad(1); tagLoad(); }
+function custPickTag(id){ wallTag.cust=id; custPage=1; custLoad(); tagLoad(); }
 function tagLoad(){
   api('GET','/api/emp/tags').then(function(j){
     if(!j || !j.ok) return;
-    var f=[], c=[];
-    (j.items||[]).forEach(function(t){
-      var chip = '<span class="tagchip" onclick="tagDrill('+t.id+',\''+t.category+'\',1)">'
-        + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+';margin-right:0"></span>'
-        + esc(t.name)+' <span class="n">'+t.count+'</span>'
-        + '<span class="tagdel" onclick="event.stopPropagation();tagDelete('+t.id+')" title="删除">×</span></span>';
-      (t.category==='cust'?c:f).push(chip);
-    });
-    $('tagFavChips').innerHTML = f.length?f.join(''):'<span class="emp-mini">暂无收藏类标签</span>';
-    $('tagCustChips').innerHTML = c.length?c.join(''):'<span class="emp-mini">暂无客户类标签</span>';
+    var fT=[], cT=[];
+    (j.items||[]).forEach(function(t){ (t.category==='cust'?cT:fT).push(t); });
+    $('tagFavChips').innerHTML = fT.length
+      ? fT.map(function(t){ return tagChipHtml(t, "tagDrill("+t.id+",'fav',1)"); }).join('')
+      : '<span class="emp-mini">暂无收藏类标签</span>';
+    $('tagCustChips').innerHTML = cT.length
+      ? cT.map(function(t){ return tagChipHtml(t, "tagDrill("+t.id+",'cust',1)"); }).join('')
+      : '<span class="emp-mini">暂无客户类标签</span>';
+    /* C9 / C12：收藏栏 + 客户栏两处标签墙 */
+    tagWallRender('fav', fT, 'favTagWall', 'favPickTag');
+    tagWallRender('cust', cT, 'custTagWall', 'custPickTag');
   });
 }
 /* 预设色板：16 色（勇哥：不要原生取色器；16/32/最多 64 种由 UI 判断，16 种足够识别） */
@@ -370,7 +438,11 @@ function tagDrillPage(p){ tagDrill(drillTag, drillCat, p); }
 var custPage=1, custSize=50;
 function custLoad(p){
   if(p) custPage=p;
-  var url='/api/emp/customers'+(($('custAll') && $('custAll').checked)?'?scope=all':'');
+  /* v1.9.95 C12/R45：客户标签墙选中 → 带 tag 交给服务端筛选 */
+  var qs=[];
+  if($('custAll') && $('custAll').checked) qs.push('scope=all');
+  if(wallTag.cust) qs.push('tag='+wallTag.cust);
+  var url='/api/emp/customers'+(qs.length?('?'+qs.join('&')):'');
   api('GET',url).then(function(j){
     var box=$('custList');
     if(!j||!j.ok){ box.innerHTML='<div class="emptybox">加载失败</div>'; return; }
@@ -393,6 +465,12 @@ function custCard(c){
   return '<div class="ccard">'
     + '<div class="ccard-top">'
       + '<span class="ccard-name">'+esc(c.name)+'</span>'
+      /* v1.9.95 C11/R44：客户名右侧显示关联房源数（口径=T5 绑房源），点它就展开
+         勇哥：不用跳详情页，卡片内就地展开/收起，房源样式与查询页一致 */
+      + '<a class="lnk" style="font-size:12px;color:#3b6fd4;cursor:pointer"'
+      + ' onclick="custToggleProps('+c.id+')" title="展开/收起该客户关联的房源">'
+      + '关联 <b>'+(c.prop_count||0)+'</b> 套</a>'
+      + '<div id="cprops_'+c.id+'" class="cust-props" style="display:none"></div>'
       + '<span id="ctags_'+c.id+'" style="display:inline-flex;gap:6px;flex-wrap:wrap"></span>'
       + '<a class="lnk" style="font-size:12px;color:#3b6fd4;cursor:pointer" onclick="custTagToggle('+c.id+')">+ 标签</a>'
     + '</div>'
@@ -405,6 +483,20 @@ function custCard(c){
       + (admin?'<button class="btn sm" onclick="custTransfer('+c.id+')">转移</button>':'')
     + '</div>'
   + '</div>';
+}
+/* v1.9.95 C11/R44：客户关联房源就地展开/收起（复用 propCard，样式与查询页一致） */
+function custToggleProps(cid){
+  var box=$('cprops_'+cid); if(!box) return;
+  if(box.style.display==='block'){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML='<div class="emp-mini">加载中…</div>';
+  box.style.display='block';
+  api('GET','/api/emp/customers/'+cid+'/properties').then(function(j){
+    if(!j||!j.ok){ box.innerHTML='<div class="emp-mini">加载失败</div>'; return; }
+    if(!j.items||!j.items.length){ box.innerHTML='<div class="emp-mini">该客户还没有关联房源（可点「绑房源」添加）</div>'; return; }
+    box.innerHTML=j.items.map(propCard).join('')
+      + '<div style="margin-top:8px"><a class="lnk" style="font-size:12px;cursor:pointer"'
+      + ' onclick="custToggleProps('+cid+')">收起</a></div>';
+  });
 }
 function custTagsShow(cid){
   api('GET','/api/emp/customers/'+cid+'/tags').then(function(j){

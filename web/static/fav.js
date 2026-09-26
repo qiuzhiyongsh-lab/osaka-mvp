@@ -83,9 +83,12 @@
   /* 「添加客户」按钮两态：未加 = 蓝字；已加 = **绿底绿框「已添加客户」**（勇哥要求一眼可辨） */
   function custHtml(no) {
     var on = isCust(no);
+    /* v1.9.95 C10/R43：已关联 ⇒ 点开「已关联客户」列表（勇哥：要一眼看出关联了谁，
+       而不是再开一次添加框）；未关联 ⇒ 仍是打开添加选择器。查询页 / 详情页同源，自动同步。 */
     return '<span class="custbtn' + (on ? ' on' : '') + '" data-custbtn="' + no + '"'
-      + ' onclick="Fav.openCustPicker(\'' + no + '\')"'
-      + ' title="' + (on ? '这套房已添加过客户（点击可继续添加）' : '把这个房源关联到客户') + '">'
+      + ' onclick="' + (on ? 'Fav.showCustList(\'' + no + '\')'
+                           : 'Fav.openCustPicker(\'' + no + '\'') + ')"'
+      + ' title="' + (on ? '查看这套房已关联的客户' : '把这个房源关联到客户') + '">'
       + (on ? '已添加客户' : '添加客户') + '</span>';
   }
 
@@ -309,6 +312,58 @@
       .catch(function () { toast('标签保存失败'); });
   }
 
+  /* ---------- v1.9.95 C10/R43：「已添加客户」→ 列出这套房已关联的客户 ----------
+     勇哥：点「已添加客户」要能一眼看到「关联了哪些客户」，而不是只弹添加框。
+     浮层内仍保留「继续添加客户」入口；查询页 / 详情页同源（R48 两页同步）。 */
+  function showCustList(no) {
+    var old = document.getElementById('favCustModal');
+    if (old && old.parentNode) { old.parentNode.removeChild(old); }
+    var box = document.createElement('div');
+    box.id = 'favCustModal';
+    box.style.cssText = 'position:absolute;z-index:10000;background:#fff;border:1px solid #d4dcea;'
+      + 'border-radius:12px;padding:16px;max-width:460px;box-shadow:0 4px 18px rgba(30,50,90,.14)';
+    box.innerHTML = '<div style="font-size:14px;font-weight:700">已关联客户</div>'
+      + '<div id="fcustLinked" style="margin:10px 0;max-height:300px;overflow:auto">'
+      + '<div style="font-size:12px;color:#7a8aa5">加载中…</div></div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'
+      + '<span id="fcustAdd" style="font-size:12px;color:#3b6fd4;cursor:pointer">继续添加客户</span>'
+      + '<span id="fcustClose" style="font-size:12px;color:#7a8aa5;cursor:pointer">关闭</span></div>';
+    document.body.appendChild(box);
+    var r0 = (document.querySelector('.qitem') || document.body).getBoundingClientRect();
+    box.style.left = (window.scrollX + Math.max(12, Math.min(r0.left, 160))) + 'px';
+    box.style.top = (window.scrollY + 90) + 'px';
+
+    function close() { if (box.parentNode) { box.parentNode.removeChild(box); } }
+    document.getElementById('fcustClose').onclick = close;
+    document.getElementById('fcustAdd').onclick = function () { close(); openCustPicker(no); };
+
+    fetch('/api/emp/customers/by-property?no=' + encodeURIComponent(no), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var host = document.getElementById('fcustLinked');
+        if (!host) { return; }
+        if (!j || !j.ok) { host.innerHTML = '<div style="font-size:12px;color:#c0392b">加载失败</div>'; return; }
+        var items = j.items || [];
+        if (!items.length) {
+          host.innerHTML = '<div style="font-size:12px;color:#7a8aa5">暂无关联客户</div>';
+          return;
+        }
+        host.innerHTML = items.map(function (c) {
+          return '<div style="padding:7px 0;border-bottom:1px solid #eef1f6">'
+            + '<b>' + escHtml(c.name || '') + '</b>'
+            + (c.phone ? '　<span style="font-size:12px;color:#6b7c99">' + escHtml(c.phone) + '</span>' : '')
+            + '<div style="font-size:11px;color:#9aa8bf;margin-top:2px">归属 '
+            + escHtml(c.owner_username || '')
+            + (c.bound_at ? '　关联于 ' + escHtml(String(c.bound_at).slice(0, 10)) : '')
+            + '</div></div>';
+        }).join('');
+      })
+      .catch(function () {
+        var host = document.getElementById('fcustLinked');
+        if (host) { host.innerHTML = '<div style="font-size:12px;color:#c0392b">加载失败</div>'; }
+      });
+  }
+
   /* ---------- 添加客户（勇哥 2026-09-26：在「收藏」右侧的快捷入口）----------
      点开后：① 可搜索已有客户（名称 / 手机号 / 备注）并**关联本房源**；② 也可当场新建客户并关联。 */
   function openCustPicker(no) {
@@ -410,7 +465,8 @@
   }
 
   window.Fav = { load: load, renderAll: renderAll, toggle: toggle, isFav: isFav, html: html,
-                 openTagPicker: openTagPicker, openCustPicker: openCustPicker };
+                 openTagPicker: openTagPicker, openCustPicker: openCustPicker,
+                 showCustList: showCustList };   /* v1.9.95 C10 */
 
   document.addEventListener('DOMContentLoaded', function () {
     load();
