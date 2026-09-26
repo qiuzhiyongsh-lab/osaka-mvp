@@ -175,6 +175,16 @@
     timer = setTimeout(renderAll, 60);
   }
 
+  /* v1.9.99：客户弹窗统一清理。showCustList(绿「已关联客户」浮层) 与 openCustPicker(添加框)
+     历史上共用 id #favCustModal，残留一个就会挡住后续点击 ⇒ 「加完客户后其他行点不出」。
+     现拆成两个 id，打开前把两类一并清掉，从根消除该类隐患。 */
+  function killCustModals() {
+    ['favCustModal', 'favCustListModal', 'favCustPickerModal'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.parentNode) { el.parentNode.removeChild(el); }
+    });
+  }
+
   /* ---------- 收藏时就地打标签（勇哥 C-1 / Q5）----------
      只在「该房源还没有任何标签」时自动弹一次；其余时候不打断动线。
      选择器可多选、可当场新建并勾选、可跳过。 */
@@ -318,10 +328,9 @@
      勇哥：点「已添加客户」要能一眼看到「关联了哪些客户」，而不是只弹添加框。
      浮层内仍保留「继续添加客户」入口；查询页 / 详情页同源（R48 两页同步）。 */
   function showCustList(no) {
-    var old = document.getElementById('favCustModal');
-    if (old && old.parentNode) { old.parentNode.removeChild(old); }
+    killCustModals();
     var box = document.createElement('div');
-    box.id = 'favCustModal';
+    box.id = 'favCustListModal';
     box.style.cssText = 'position:absolute;z-index:10000;background:#fff;border:1px solid #d4dcea;'
       + 'border-radius:12px;padding:16px;max-width:460px;box-shadow:0 4px 18px rgba(30,50,90,.14)';
     box.innerHTML = '<div style="font-size:14px;font-weight:700">已关联客户</div>'
@@ -383,15 +392,13 @@
   /* ---------- 添加客户（勇哥 2026-09-26：在「收藏」右侧的快捷入口）----------
      点开后：① 可搜索已有客户（名称 / 手机号 / 备注）并**关联本房源**；② 也可当场新建客户并关联。 */
   function openCustPicker(no) {
-    /* v1.9.95 Fix D（勇哥 2026-09-27 实测「添加客户」偶发弹不出）：
-       showCustList（绿色「已添加客户」浮层）与添加框共用 id #favCustModal。
-       若上一层的 showCustList 浮层没走「关闭/继续添加」清除而残留在 DOM，
-       这里原 `if(getElementById('favCustModal')) return;` 守卫会直接拦截 ⇒ 点蓝色
-       「添加客户」永远没反应。改为：开前先清掉任何残留浮层，保证每次点击都重开。 */
-    var stale = document.getElementById('favCustModal');
-    if (stale && stale.parentNode) { stale.parentNode.removeChild(stale); }
+    /* v1.9.99（勇哥 2026-09-27 再报「加完客户后其他行点不出」）：
+       绿浮层(showCustList) 与添加框(openCustPicker) 改用**不同 id**（favCustListModal /
+       favCustPickerModal），打开前 killCustModals() 把两类弹窗一并清除，
+       从根消除"共用 favCustModal 残留挡住后续点击"这一整类隐患。 */
+    killCustModals();
     var box = document.createElement('div');
-    box.id = 'favCustModal';
+    box.id = 'favCustPickerModal';
     box.style.cssText = 'position:absolute;z-index:10000;background:#fff;border:1px solid #d4dcea;'
       + 'border-radius:12px;padding:16px;max-width:460px;box-shadow:0 4px 18px rgba(30,50,90,.14)';
     box.innerHTML = '<div style="font-size:14px;font-weight:700">添加客户</div>'
@@ -411,7 +418,7 @@
     box.style.top = (window.scrollY + 90) + 'px';
 
     function close() { if (box.parentNode) { box.parentNode.removeChild(box); } }
-    function closeAndKeep(list) { var m = document.getElementById('favCustModal'); if (m && m.parentNode) { m.parentNode.removeChild(m); } }
+    function closeAndKeep() { var m = document.getElementById('favCustPickerModal'); if (m && m.parentNode) { m.parentNode.removeChild(m); } }
 
     document.getElementById('fcustClose').onclick = close;
     var qEl = document.getElementById('fcustQ');
@@ -463,7 +470,7 @@
         var rows = el.querySelectorAll('.fcustrow');
         for (var i = 0; i < rows.length; i++) {
           rows[i].onclick = function () {
-            var m = document.getElementById('favCustModal');
+            var m = document.getElementById('favCustPickerModal');
             bindCust(no, parseInt(this.getAttribute('data-id'), 10), this.getAttribute('data-name'));
             if (m && m.parentNode) { m.parentNode.removeChild(m); }
           };

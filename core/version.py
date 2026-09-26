@@ -9,9 +9,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.98"
-BUILD_AT = "2026-09-27 03:50"
+VERSION = "1.9.99"
+BUILD_AT = "2026-09-27 04:10"
 # ============================================================================
+# v1.9.99（2026-09-27 · 根治"添加客户弹窗第一次能用、之后点别的行点不出"）：
+#   · 🔴 根因（勇哥三测复现）：`showCustList`(绿「已关联客户」浮层) 与 `openCustPicker`
+#     (添加框) **共用同一 id `favCustModal`**。旧版(v1.9.95) `openCustPicker` 首行是
+#     `if(getElementById('favCustModal')) return;` —— 一旦某个绿色浮层因 fetch 失败/未走关闭
+#     而残留在 DOM，后续点任何蓝「添加客户」都会撞守卫直接 return → 永远弹不出。
+#     浏览器缓存旧 fav.js(?v=1.9.95) 时此坑必现。
+#   · 修复：两弹窗**拆成独立 id**（favCustListModal / favCustPickerModal），并新增
+#     `killCustModals()` 在打开前把两类弹窗**一并清除** —— 从根消除"共用 id 残留挡点击"整类隐患。
+#   · 抬版本号强制全站 `?v` 变化 → 浏览器重拉 fav.js（根治缓存旧代码）。
+#
 # v1.9.98（2026-09-27 · 回退 v1.9.97 · 勇哥明确"收藏/客户本就非置顶、要原样显示"）：
 #   · 勇哥确认：列表头部的收藏/已加客户**不是 bug**——全仓从无"收藏置顶"排序代码
 #     （grep app.py/store.py 无 favorites ORDER BY / 置顶）；它们排前面只是因为
