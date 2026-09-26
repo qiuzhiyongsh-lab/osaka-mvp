@@ -21,6 +21,14 @@
 <!-- 字段名小词典（v1.2.0 公共化）：把 detail_json 的英文/日文键翻成当前语言。
      依赖 i18n.js 提供 window.t，故排在它后面；查询页/对比页/详情页三处共用。 -->
 <script src="{{ url_for('static', filename='fieldmap.js') }}?v={{ version }}"></script>
+<!-- v2.0.x 收藏（勇哥 2026-09-26 拍板）：全站通用「心形」收藏按钮，
+     查询页 / 详情页 / 员工业务三处共用。纯定义 + MutationObserver 自动渲染，
+     不产生副作用；未登录时点击由服务端返回提示，不静默失败。 -->
+<script src="{{ url_for('static', filename='fav.js') }}?v={{ version }}"></script>
+<!-- v2.0.x 房源卡片公共渲染（与查询页 renderFullItem 同构）：
+     员工业务的收藏 / 标签下钻复用它，避免"查询页一套、员工业务另一套"的字段漂移
+     （勇哥 2026-09-26：员工业务的收藏显示必须与房源查询完全一致）。 -->
+<script src="{{ url_for('static', filename='prop_card.js') }}?v={{ version }}"></script>
 </head>
 {# v1.7.6：查询页 / 详情页**默认隐藏其他详情**（勇哥要求：默认就是隐藏态）。
    在**服务端**就带上 class，避免"先显示 → 再隐藏"的闪烁；

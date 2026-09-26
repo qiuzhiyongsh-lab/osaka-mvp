@@ -72,6 +72,11 @@
     <a class="btn" href="{{ _pdf_link_b }}"
        target="_blank" data-i18n="detail.openpdf">打开 PDF</a>
     {% else %}<span class="muted">这条没有抓 PDF。</span>{% endif %}
+    <!-- v2.0.x（勇哥要求）：收藏栏在「打开 PDF」与「物件番号」之间（也就是「加入对比」的上方）。
+         渲染由 web/static/fav.js 完成（未登录时点击会由服务端给出提示，不静默失败）。 -->
+    <span class="favslot" data-fav="{{ row.property_no or '' }}"></span>
+    <!-- v2.0.x（勇哥要求）：已收藏右侧的「添加客户」——与查询页同一个组件、同一套功能。 -->
+    <span class="custslot" data-cust="{{ row.property_no or '' }}"></span>
     {% if row.property_no %}
     <!-- v1.7.4 R2（PRD 11 §5.3-2a）：按钮**在物件番号之后**。
          旧版按钮在番号前面，客户看着像"先给我一个入口、番号在后面"，

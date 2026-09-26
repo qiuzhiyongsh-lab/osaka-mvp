@@ -12,6 +12,16 @@
   · 禁止 DROP / 重建
 
 本模块**只读配置、不写业务数据**；被 web/app.py 在模块导入时调用一次（幂等）。
+
+v2.0.x（2026-09-26 勇哥拍板）新增：
+  · `tags.category`：'fav'=收藏类（作用于房源）/ 'cust'=客户类（作用于客户），
+    两类**完全独立**分栏管理。存量行 category 为 NULL → 应用层统一 COALESCE 为 'fav'
+    （勇哥 Q3 拍板：存量标签全部归收藏类）。
+    ⚠ 唯一约束仍为表内的 UNIQUE(owner_username, name) —— 即**标签名全局唯一**（跨类也唯一）。
+    这是刻意为之：SQLite 的 ALTER TABLE 改不了 UNIQUE，而"禁止 DROP / 重建"是铁律；
+    且名称全局唯一可避免"同名两处、删错一个"的混淆。代价＝两类不能有同名标签。
+  · `customer_tags`：客户 ⇄ 客户类标签（与 property_tags 平行，作用于客户）。
+
 """
 from __future__ import annotations
 
@@ -50,14 +60,16 @@ TABLES: list[tuple[str, str]] = [
             UNIQUE(owner_username, property_no)
         )
     """),
+    # v2.0.x：category 进表 + 唯一约束按 (owner, category, name)（两类可同名）
     ("tags", """
         CREATE TABLE IF NOT EXISTS tags (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             owner_username TEXT    NOT NULL,
             name           TEXT    NOT NULL,
             color          TEXT    NULL,
+            category       TEXT    NOT NULL DEFAULT 'fav',
             created_at     TEXT    NOT NULL,
-            UNIQUE(owner_username, name)
+            UNIQUE(owner_username, category, name)
         )
     """),
     ("property_tags", """
@@ -105,12 +117,28 @@ TABLES: list[tuple[str, str]] = [
             changed_at  TEXT    NOT NULL
         )
     """),
+    # v2.0.x · 客户 ⇄ 客户类标签（勇哥：标签管理分「收藏类 / 客户类」，完全独立）
+    ("customer_tags", """
+        CREATE TABLE IF NOT EXISTS customer_tags (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_username TEXT    NOT NULL,
+            customer_id    INTEGER NOT NULL,
+            tag_id         INTEGER NOT NULL,
+            created_at     TEXT    NOT NULL,
+            updated_at     TEXT,
+            UNIQUE(owner_username, customer_id, tag_id)
+        )
+    """),
 ]
 
 INDEXES: list[tuple[str, str]] = [
     ("idx_fav_owner_time", "CREATE INDEX IF NOT EXISTS idx_fav_owner_time ON favorites(owner_username, created_at DESC)"),
     ("idx_cust_owner_time", "CREATE INDEX IF NOT EXISTS idx_cust_owner_time ON customers(owner_username, created_at DESC)"),
     ("idx_cust_phone_norm", "CREATE INDEX IF NOT EXISTS idx_cust_phone_norm ON customers(phone_norm)"),
+    # v2.0.x：标签分栏 + 下钻（按标签查关联对象）的查询热点
+    ("idx_tags_owner_cat", "CREATE INDEX IF NOT EXISTS idx_tags_owner_cat ON tags(owner_username, category)"),
+    ("idx_ptag_tag", "CREATE INDEX IF NOT EXISTS idx_ptag_tag ON property_tags(tag_id)"),
+    ("idx_ctag_tag", "CREATE INDEX IF NOT EXISTS idx_ctag_tag ON customer_tags(tag_id)"),
 ]
 
 # ---- 列增补迁移：{表名: [(列名, 类型)]} ----
@@ -125,9 +153,12 @@ INDEXES: list[tuple[str, str]] = [
 #        `COALESCE(updated_at, created_at)` 兜底（见 employee_api._ts_of）。
 #   ② `deleted` / `deleted_at`（仅 customers）：R-5 缓解措施——客户删除必须**软删**
 #      （CRM 场景"删不掉/删错"都致命），删除只打标记，保留对账轨迹。
+#
+# v2.0.x：`tags.category`（'fav' / 'cust'）。存量为 NULL → 应用层 COALESCE(category,'fav')
+#   （勇哥拍板：现有标签都是房源标签，全部归收藏类）。
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "favorites": [("updated_at", "TEXT")],
-    "tags": [("updated_at", "TEXT")],
+    "tags": [("updated_at", "TEXT"), ("category", "TEXT")],
     "property_tags": [("updated_at", "TEXT")],
     "customer_properties": [("intent", "INTEGER"), ("created_by", "TEXT"), ("updated_at", "TEXT")],
     "customers": [("note", "TEXT"), ("phone_norm", "TEXT"), ("updated_at", "TEXT"),
@@ -150,6 +181,47 @@ def _ensure_columns(cur: sqlite3.Cursor, table: str) -> int:
     return added
 
 
+def _migrate_tags_category_unique(cur: sqlite3.Cursor) -> bool:
+    """把 tags 的唯一约束从 (owner,name) 升级为 (owner,category,name)。
+
+    勇哥 2026-09-26 明确要求「用建新表迁移的方式做」：
+      ① 建 `tags_v2`（新约束）
+      ② 搬数据 —— **保留 id**（否则 property_tags / customer_tags 的 tag_id 引用会全部错位）
+      ③ 旧表 `RENAME TO tags_legacy`（**不 DROP**，数据留底，可人工回滚）
+      ④ `tags_v2` `RENAME TO tags`
+    幂等：已是新结构 → 返回 False；`tags_legacy` 已存在（迁移过一半）→ 返回 False 交人工判断。
+    """
+    row = cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tags'").fetchone()
+    if not row:
+        return False
+    if "UNIQUE(owner_username, category, name)" in " ".join((row[0] or "").split()):
+        return False          # 已是新结构（新库按 TABLES 建表就是新结构）
+    if cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tags_legacy'").fetchone():
+        return False          # 已迁移过一次，不再动
+    # 索引会随表改名一起迁到 tags_legacy；先删掉，稍后由 INDEXES 在新表上重建
+    cur.execute("DROP INDEX IF EXISTS idx_tags_owner_cat")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tags_v2 (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_username TEXT    NOT NULL,
+            name           TEXT    NOT NULL,
+            color          TEXT    NULL,
+            category       TEXT    NOT NULL DEFAULT 'fav',
+            created_at     TEXT    NOT NULL,
+            updated_at     TEXT,
+            UNIQUE(owner_username, category, name)
+        )
+    """)
+    cur.execute(
+        "INSERT OR IGNORE INTO tags_v2"
+        "(id, owner_username, name, color, category, created_at, updated_at)"
+        " SELECT id, owner_username, name, color, COALESCE(category,'fav'),"
+        "        created_at, updated_at FROM tags")
+    cur.execute("ALTER TABLE tags RENAME TO tags_legacy")
+    cur.execute("ALTER TABLE tags_v2 RENAME TO tags")
+    return True
+
+
 def ensure_employee_tables(path: str | os.PathLike | None = None) -> dict:
     """建库建表（幂等）。返回执行摘要，便于启动日志与自检。
 
@@ -168,23 +240,30 @@ def ensure_employee_tables(path: str | os.PathLike | None = None) -> dict:
             cur.execute(ddl)
             if not existed:
                 created.append(name)
-        for _, ddl in INDEXES:
-            cur.execute(ddl)
+        # ⚠ 顺序铁律：**先补列、再建索引**。
+        #    v2.0.x 的 idx_tags_owner_cat 引用的是迁移新增的 tags.category，
+        #    若先建索引 → 旧库上直接 "no such column: category"（实测踩到）。
         migrated = {}
         for table in COLUMN_MIGRATIONS:
             n = _ensure_columns(cur, table)
             if n:
                 migrated[table] = n
+        # v2.0.x：解除「标签名跨类唯一」限制（勇哥 2026-09-26 确认要做）——
+        # 旧 UNIQUE(owner,name) → 新 UNIQUE(owner,category,name)；建新表迁移、旧表留底。
+        rebuilt = _migrate_tags_category_unique(cur)
+        for _, ddl in INDEXES:
+            cur.execute(ddl)
         con.commit()
         cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
                     "AND name IN ('favorites','tags','property_tags','customers',"
-                    "'customer_properties','customer_owner_log')")
+                    "'customer_properties','customer_owner_log','customer_tags')")
         return {
             "ok": True,
             "db": str(p),
             "tables_found": cur.fetchone()[0],
             "tables_created": created,
             "columns_added": migrated,
+            "tags_unique_rebuilt": rebuilt,
         }
     finally:
         con.close()

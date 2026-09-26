@@ -23,6 +23,53 @@
 .danger{color:#c0392b}
 .ok{color:#1e7e34}
 .emp-status{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:4px}
+
+/* ===== v2.0.x 新增：房源卡片 / 标签管理 / 客户卡片 ===== */
+.pcard{border:1px solid #e8edf6;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.pcard.detailed{background:#f9fbff}
+.pcard-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pcard-name{font-size:14px;font-weight:700;color:#22314f}
+.pcard-price{margin-left:auto;font-size:14px;font-weight:700;color:#22314f}
+.pcard-sub{font-size:12px;color:#6b7c99;margin-top:6px;line-height:1.8}
+.pcard-more{border-top:1px dashed #e3e9f5;margin-top:10px;padding-top:10px;font-size:12px;color:#6b7c99;line-height:1.9}
+.pcard-acts{display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
+.pcard-acts a,.pcard-acts .lnk{font-size:12px;color:#3b6fd4;cursor:pointer;text-decoration:none}
+.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid #dfe6f2;background:#f7f9fd;color:#33425f;white-space:nowrap}
+.pill.on{background:#e8f0fe;border-color:#3b6fd4;color:#2a54a8}
+.favbtn{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:6px;border:1px solid #d4dcea;background:#fff;color:#6b7c99;cursor:pointer}
+.favbtn.on{border-color:#e05c6a;background:#fdeef0;color:#c0392b}
+.favbtn svg{width:13px;height:13px}
+.pager{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:#7a8aa5}
+.pager button{font-size:12px;padding:3px 10px;border:1px solid #d4dcea;border-radius:6px;background:#fff;color:#33425f;cursor:pointer}
+.pager button.on{background:#3b6fd4;color:#fff;border-color:#3b6fd4}
+.pager button:disabled{opacity:.45;cursor:default}
+.tagmgr{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0;border:1px solid #e8edf6;border-radius:10px;overflow:hidden}
+.tagcol{padding:14px}
+.tagcol+.tagcol{border-left:1px solid #e8edf6}
+@media (max-width:768px){ .tagcol+.tagcol{border-left:none;border-top:1px solid #e8edf6} }
+.tagcol h4{margin:0 0 2px;font-size:13px;color:#22314f}
+.tagcol .sub{font-size:11px;color:#9aa8bf;margin-bottom:10px}
+.tagchips{display:flex;flex-wrap:wrap;gap:8px}
+.tagchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid #dfe6f2;background:#fff;color:#33425f;cursor:pointer}
+.tagchip:hover{border-color:#3b6fd4}
+.tagchip.on{border-color:#3b6fd4;background:#e8f0fe;color:#2a54a8}
+.tagchip .n{font-size:11px;color:#7a8aa5}
+.tagdel{margin-left:2px;font-size:12px;color:#a94442;cursor:pointer}
+.drill{margin-top:14px;border:1px solid #e8edf6;border-radius:10px;padding:14px;background:#f9fbff}
+.ccard{border:1px solid #e8edf6;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.ccard-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ccard-name{font-size:14px;font-weight:700;color:#22314f}
+.ccard-sub{font-size:12px;color:#6b7c99;margin-top:6px;line-height:1.8}
+.ccard-acts{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn.dangerline{border:1px solid #e08b8b;color:#c0392b;background:#fff} /* 勇哥 B-2：红底白字看不清 → 红描边红字 */
+.tagpick{border-top:1px dashed #e3e9f5;margin-top:10px;padding-top:10px;display:none}
+.tagpick.on{display:block}
+.emptybox{border:1px dashed #dfe6f2;border-radius:10px;padding:18px;text-align:center;color:#9aa8bf;font-size:13px}
+/* v2.0.x 预设色板（勇哥：不要原生取色器，16 色足够） */
+.palette{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;border:1px solid #e8edf6;border-radius:8px;background:#fff}
+.palette .sw{width:22px;height:22px;border-radius:50%;cursor:pointer;border:1px solid rgba(0,0,0,.12)}
+.palette .sw:hover{transform:scale(1.12)}
+.cbtn-dot{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:5px;border:1px solid rgba(0,0,0,.1)}
 </style>
 
 <div class="emp-wrap">
@@ -40,67 +87,79 @@
 
   <div class="emp-tabs">
     <button id="tabFav" class="on" onclick="switchTab('Fav')"><span data-i18n="emp.tab_fav">收藏</span></button>
-    <button id="tabTag" onclick="switchTab('Tag')"><span data-i18n="emp.tab_tag">标签</span></button>
     <button id="tabCust" onclick="switchTab('Cust')"><span data-i18n="emp.tab_cust">客户</span></button>
+    <button id="tabTag" onclick="switchTab('Tag')"><span data-i18n="emp.tab_tag">标签管理</span></button>
   </div>
 
-  <!-- ===================== 收藏 ===================== -->
+  <!-- ===================== 收藏（v2.0.x：卡片化，与房源查询页一致） ===================== -->
   <div class="emp-panel emp-card on" id="panelFav">
-    <h3 style="margin:0 0 10px" data-i18n="emp.fav.title">我的收藏</h3>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <h3 style="margin:0" data-i18n="emp.fav.title">我的收藏</h3>
+      <span id="favCount" class="emp-mini"></span>
+    </div>
     <div class="emp-row">
       <input id="favNo" class="grow" placeholder="物件番号（如 300139241123）" data-i18n-ph="emp.fav.no_ph">
       <button class="btn primary" onclick="favAdd()"><span data-i18n="emp.fav.add">添加收藏</span></button>
     </div>
-    <table class="emp-table">
-      <thead><tr><th data-i18n="emp.fav.no">物件番号</th><th data-i18n="emp.fav.at">收藏时间</th><th></th></tr></thead>
-      <tbody id="favBody"><tr><td colspan="3" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
-    </table>
+    <div id="favList"></div>
+    <div class="pager" id="favPager"></div>
   </div>
 
-  <!-- ===================== 标签 ===================== -->
+  <!-- ===================== 标签管理（v2.0.x：收藏类 / 客户类 左右分栏，窄屏转上下） ===================== -->
   <div class="emp-panel emp-card" id="panelTag">
-    <h3 style="margin:0 0 10px" data-i18n="emp.tag.title">我的标签</h3>
-    <div class="emp-row">
-      <input id="tagName" class="grow" placeholder="标签名（如 重点跟进）" data-i18n-ph="emp.tag.name_ph">
-      <input id="tagColor" type="color" value="#3b6fd4" title="颜色">
-      <button class="btn primary" onclick="tagCreate()"><span data-i18n="emp.tag.create">新建标签</span></button>
+    <h3 style="margin:0 0 10px" data-i18n="emp.tag.mgr_title">标签管理</h3>
+    <p class="hint" data-i18n="emp.tag.mgr_tip">收藏类标签作用于房源、客户类标签作用于客户，两类完全独立。点标签可查看对应对象。</p>
+    <div class="tagmgr">
+      <div class="tagcol">
+        <h4 data-i18n="emp.tag.fav_cat">收藏类标签</h4>
+        <div class="sub" data-i18n="emp.tag.fav_sub">作用于房源（收藏）</div>
+        <div class="tagchips" id="tagFavChips"></div>
+        <!-- 勇哥：文本框缩短一半 + 右侧「选择颜色」（预设色板，非原生取色器） -->
+        <div class="emp-row" style="margin-top:12px;margin-bottom:0">
+          <input id="tagFavName" style="width:170px" placeholder="新建标签" data-i18n-ph="emp.tag.fav_name_ph">
+          <button class="btn sm" type="button" id="tagFavColorBtn" onclick="togglePalette('fav')">
+            <span class="cbtn-dot" style="background:#3b6fd4"></span>选择颜色</button>
+          <button class="btn sm" onclick="tagCreate('fav')"><span data-i18n="emp.tag.create">新建</span></button>
+        </div>
+        <div id="palFav" class="palette" style="display:none"></div>
+      </div>
+      <div class="tagcol">
+        <h4 data-i18n="emp.tag.cust_cat">客户类标签</h4>
+        <div class="sub" data-i18n="emp.tag.cust_sub">作用于客户</div>
+        <div class="tagchips" id="tagCustChips"></div>
+        <!-- 客户类新建：与收藏类同一套设计（短输入框 + 预设色板） -->
+        <div class="emp-row" style="margin-top:12px;margin-bottom:0">
+          <input id="tagCustName" style="width:170px" placeholder="新建标签" data-i18n-ph="emp.tag.cust_name_ph">
+          <button class="btn sm" type="button" id="tagCustColorBtn" onclick="togglePalette('cust')">
+            <span class="cbtn-dot" style="background:#2f9e6f"></span>选择颜色</button>
+          <button class="btn sm" onclick="tagCreate('cust')"><span data-i18n="emp.tag.create">新建</span></button>
+        </div>
+        <div id="palCust" class="palette" style="display:none"></div>
+      </div>
     </div>
-    <table class="emp-table">
-      <thead><tr><th data-i18n="emp.tag.name">标签名</th><th data-i18n="emp.tag.color">颜色</th><th></th></tr></thead>
-      <tbody id="tagBody"><tr><td colspan="3" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
-    </table>
-    <hr style="margin:16px 0;border:none;border-top:1px dashed #e3e9f5">
-    <h4 style="margin:0 0 8px" data-i18n="emp.tag.bind_title">房源 ⇄ 标签</h4>
-    <div class="emp-row">
-      <input id="bindNo" class="grow" placeholder="物件番号" data-i18n-ph="emp.fav.no_ph">
-      <select id="bindTag"></select>
-      <button class="btn" onclick="tagBind(false)"><span data-i18n="emp.tag.bind">绑定</span></button>
-      <button class="btn sm" onclick="tagBind(true)"><span data-i18n="emp.tag.unbind">解绑</span></button>
-      <button class="btn sm" onclick="tagsOf()"><span data-i18n="emp.tag.of">查该房源标签</span></button>
-    </div>
-    <div id="bindResult" class="hint"></div>
+    <div id="tagDrill"></div>
   </div>
 
-  <!-- ===================== 客户 ===================== -->
+  <!-- ===================== 客户（v2.0.x：卡片化重设计 + 客户标签） ===================== -->
   <div class="emp-panel emp-card" id="panelCust">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <h3 style="margin:0" data-i18n="emp.cust.title">客户管理</h3>
       {% if is_admin %}<label class="emp-mini"><input type="checkbox" id="custAll" onchange="custLoad()"> <span data-i18n="emp.cust.scope_all">看全部（管理员）</span></label>{% endif %}
     </div>
+    <!-- 勇哥 2026-09-26：① 客户名称 + 手机号并排一行 ② 备注单独一行
+         ③ 按钮统一叫「保存客户」（新建 / 编辑都用它） -->
     <div class="emp-row">
-      <input id="custName" class="grow" placeholder="客户名称" data-i18n-ph="emp.cust.name_ph">
-      <input id="custPhone" placeholder="手机号" data-i18n-ph="emp.cust.phone_ph">
-      <input id="custNote" class="grow" placeholder="备注" data-i18n-ph="emp.cust.note_ph">
-      <button class="btn primary" onclick="custCreate()"><span data-i18n="emp.cust.create">新建客户</span></button>
+      <input id="custName" style="flex:1;min-width:150px" placeholder="客户名称" data-i18n-ph="emp.cust.name_ph">
+      <input id="custPhone" style="flex:1;min-width:150px" placeholder="手机号" data-i18n-ph="emp.cust.phone_ph">
     </div>
-    <table class="emp-table">
-      <thead><tr>
-        <th data-i18n="emp.cust.name">名称</th><th data-i18n="emp.cust.phone">手机号</th>
-        <th data-i18n="emp.cust.note">备注</th><th data-i18n="emp.cust.owner">归属</th>
-        <th data-i18n="emp.cust.at">登记时间</th><th></th>
-      </tr></thead>
-      <tbody id="custBody"><tr><td colspan="6" class="emp-mini" data-i18n="emp.loading">加载中…</td></tr></tbody>
-    </table>
+    <div class="emp-row">
+      <input id="custNote" class="grow" placeholder="备注" data-i18n-ph="emp.cust.note_ph">
+      <span id="custEditHint" class="emp-mini" style="display:none"></span>
+      <button class="btn primary" id="custSaveBtn" onclick="custSave()"><span data-i18n="emp.cust.save">保存客户</span></button>
+      <button class="btn sm" id="custCancelBtn" style="display:none" onclick="custCancelEdit()">取消编辑</button>
+    </div>
+    <div id="custList"></div>
+    <div class="pager" id="custPager"></div>
   </div>
 
   <div id="empMsg" class="hint"></div>
@@ -141,104 +200,341 @@ function switchTab(name){
   tip.textContent = '最后同步 '+(s.last_sync_at||'尚未')+(s.last_full_at?(' · 全量 '+s.last_full_at):'');
 })();
 
+/* ==================================================================
+   房源卡片渲染 —— 与「房源查询页」同一口径（勇哥：显示内容必须完全一致）
+   字段来源：/api/emp/fav 与 /api/emp/tags/<id>/items 返回的房源字段
+   ================================================================== */
+function heartSvg(filled){
+  var f = filled ? 'currentColor' : 'none';
+  return '<svg viewBox="0 0 24 24" fill="'+f+'" stroke="currentColor" stroke-width="1.8">'
+    +'<path d="M12 20.7l-1.4-1.3C5.4 14.7 2 11.6 2 7.9 2 5 4.2 2.8 7 2.8c1.7 0 3.3.8 4.3 2.1 1-1.3 2.6-2.1 4.3-2.1 2.8 0 5 2.2 5 5.1 0 3.7-3.4 6.8-8.6 11.5L12 20.7z"/></svg>';
+}
+function yen(n){
+  if(n===null||n===undefined||n==='') return '';
+  var v=Number(n); if(!isFinite(v)) return '';
+  if(v>=100000000) return (v/100000000).toFixed(2).replace(/\.00$/,'')+'億円';
+  if(v>=10000) return Math.round(v/10000)+'万円';
+  return v+'円';
+}
+/* 房源卡片 —— **直接复用查询页同构的公共渲染**（web/static/prop_card.js）
+   勇哥 2026-09-26：员工业务的收藏显示必须与「房源查询页」完全一致。
+   字段由后端 `_prop_cards()` → `web/app.py::_row_payload()` 提供（与查询页同源）。 */
+function propCard(r){
+  var no = r.property_no || '';
+  var id = 'pc_'+no;
+  /* 标签行：直接显示已有标签名，可点 × 移除、可 + 添加（勇哥要求） */
+  var tagsHtml = '<div class="pcard-tags" id="'+id+'_tags"'
+    + ' style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px 2px"></div>';
+  var favTime = r.fav_created_at
+    ? '<div class="emp-mini" style="margin-top:6px">收藏于 '+esc(r.fav_created_at)+'</div>' : '';
+  if(window.PropCard){
+    /* expandable:false —— 勇哥：收藏页不需要把详细页面再展开，进来直接打标签即可 */
+    return PropCard.full(r, { id:id, expandable:false, extraHtml:tagsHtml + favTime });
+  }
+  return '<div class="qitem"><div class="qhead"><div class="qrow1">'
+    + '<span class="mono">'+esc(no)+'</span></div></div></div>';
+}
+function renderPager(box, total, page, size, goFn){
+  if(!box) return;
+  var pages = Math.max(1, Math.ceil(total/size));
+  var h = '<span>共 '+total+' 条 · 第 '+page+'/'+pages+' 页（'+size+'/页）</span>';
+  h += '<button onclick="'+goFn+'('+(page-1)+')"'+(page<=1?' disabled':'')+'>上一页</button>';
+  var from = Math.max(1, page-2), to = Math.min(pages, from+4);
+  for(var i=from;i<=to;i++){ h += '<button class="'+(i===page?'on':'')+'" onclick="'+goFn+'('+i+')">'+i+'</button>'; }
+  h += '<button onclick="'+goFn+'('+(page+1)+')"'+(page>=pages?' disabled':'')+'>下一页</button>';
+  box.innerHTML = h;
+}
+
 /* ---------- 收藏 ---------- */
-function favLoad(){
-  api('GET','/api/emp/fav').then(function(j){
-    var b=$('favBody'); if(!j.ok){ b.innerHTML='<tr><td colspan="3" class="emp-mini">加载失败</td></tr>'; return; }
-    if(!j.items.length){ b.innerHTML='<tr><td colspan="3" class="emp-mini">暂无收藏</td></tr>'; return; }
-    b.innerHTML = j.items.map(function(r){
-      return '<tr><td><a class="mono" href="/p/'+encodeURIComponent(r.property_no)+'" target="_blank">'+esc(r.property_no)+'</a></td>'
-        +'<td class="emp-mini">'+esc(r.created_at||'')+'</td>'
-        +'<td><button class="btn sm" onclick="favToggle(\''+esc(r.property_no)+'\')">取消</button></td></tr>';
-    }).join('');
+var favPage = 1, favSize = 50;
+function favLoad(p){
+  if(p) favPage = p;
+  api('GET','/api/emp/fav?page='+favPage+'&size='+favSize).then(function(j){
+    var box=$('favList');
+    if(!j || !j.ok){ box.innerHTML='<div class="emptybox">加载失败</div>'; return; }
+    $('favCount').textContent = '共 '+(j.total||0)+' 条';
+    if(!j.items || !j.items.length){ box.innerHTML='<div class="emptybox">暂无收藏 —— 可在房源查询页 / 详情页点心形图标收藏</div>'; $('favPager').innerHTML=''; return; }
+    box.innerHTML = j.items.map(propCard).join('');
+    /* 勇哥要求：收藏卡片上直接显示标签名（可删可加），不用点开才知道 */
+    j.items.forEach(function(r){ favTagsShow(r.property_no); });
+    renderPager($('favPager'), j.total||0, favPage, favSize, 'favLoad');
   });
 }
-function favAdd(){ var no=($('favNo').value||'').trim(); if(!no){ msg('请输入物件番号',false); return; } favToggle(no, true); }
-function favToggle(no, added){
+/* 收藏卡片上直接显示该房源的标签（勇哥：直接看到标签名，可点 × 删除、可 + 添加） */
+function favTagsShow(no){
+  var box=document.getElementById('pc_'+no+'_tags'); if(!box) return;
+  api('GET','/api/emp/tags/of?property_no='+encodeURIComponent(no)).then(function(j){
+    if(!j||!j.ok){ box.innerHTML=''; return; }
+    var chips=(j.items||[]).map(function(t){
+      return '<span class="pill" style="border-color:'+esc(t.color||'#dfe6f2')+'">'
+        + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+'"></span>'+esc(t.name)
+        + '<span class="tagdel" onclick="tagUnbind(\''+esc(no)+'\','+t.id+')" title="移除该标签">×</span></span>';
+    }).join('');
+    box.innerHTML = chips
+      + '<a class="lnk" style="font-size:12px;color:#3b6fd4;cursor:pointer"'
+      + ' onclick="(window.Fav?Fav.openTagPicker(\''+esc(no)+'\'):null)">+ 标签</a>';
+  });
+}
+function tagUnbind(no, tid){
+  api('POST','/api/emp/tags/bind',{property_no:no, tag_id:tid, unbind:true}).then(function(j){
+    if(j&&j.ok){ msg('已移除标签', true); favTagsShow(no); tagLoad(); }
+  });
+}
+function favAdd(){ var no=($('favNo').value||'').trim(); if(!no){ msg('请输入物件番号',false); return; } favToggle(no); }
+function favToggle(no){
   api('POST','/api/emp/fav/toggle',{property_no:no}).then(function(j){
-    if(j.ok){ msg(added?'已收藏':'已取消收藏', true); $('favNo').value=''; favLoad(); }
+    if(j && j.ok){ msg(j.added?'已收藏':'已取消收藏', true); $('favNo').value=''; favLoad(favPage); }
   });
 }
 
-/* ---------- 标签 ---------- */
+/* ---------- 标签管理（两类独立） ---------- */
 function tagLoad(){
   api('GET','/api/emp/tags').then(function(j){
-    var b=$('tagBody'); var sel=$('bindTag');
-    if(!j.ok){ b.innerHTML='<tr><td colspan="3" class="emp-mini">加载失败</td></tr>'; return; }
-    sel.innerHTML = j.items.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>'; }).join('');
-    if(!j.items.length){ b.innerHTML='<tr><td colspan="3" class="emp-mini">暂无标签</td></tr>'; return; }
-    b.innerHTML = j.items.map(function(t){
-      return '<tr><td><span class="tagdot" style="background:'+esc(t.color||'#ccc')+'"></span>'+esc(t.name)+'</td>'
-        +'<td class="mono">'+esc(t.color||'')+'</td>'
-        +'<td><button class="btn sm danger" onclick="tagDelete('+t.id+')">删除</button></td></tr>';
-    }).join('');
+    if(!j || !j.ok) return;
+    var f=[], c=[];
+    (j.items||[]).forEach(function(t){
+      var chip = '<span class="tagchip" onclick="tagDrill('+t.id+',\''+t.category+'\',1)">'
+        + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+';margin-right:0"></span>'
+        + esc(t.name)+' <span class="n">'+t.count+'</span>'
+        + '<span class="tagdel" onclick="event.stopPropagation();tagDelete('+t.id+')" title="删除">×</span></span>';
+      (t.category==='cust'?c:f).push(chip);
+    });
+    $('tagFavChips').innerHTML = f.length?f.join(''):'<span class="emp-mini">暂无收藏类标签</span>';
+    $('tagCustChips').innerHTML = c.length?c.join(''):'<span class="emp-mini">暂无客户类标签</span>';
   });
 }
-function tagCreate(){
-  var name=($('tagName').value||'').trim(); if(!name){ msg('请输入标签名',false); return; }
-  api('POST','/api/emp/tags',{name:name, color:$('tagColor').value}).then(function(j){
-    if(j.ok){ msg('标签已建', true); $('tagName').value=''; tagLoad(); }
+/* 预设色板：16 色（勇哥：不要原生取色器；16/32/最多 64 种由 UI 判断，16 种足够识别） */
+var PALETTE = ['#3b6fd4','#2f9e6f','#c0392b','#d97706','#7c3aed','#0e7490','#db2777','#64748b',
+               '#2563eb','#16a34a','#dc2626','#ea580c','#9333ea','#0891b2','#e11d48','#4b5563'];
+var pickedColor = { fav:'#3b6fd4', cust:'#2f9e6f' };
+function paletteBox(cat){ return $(cat==='cust'?'palCust':'palFav'); }
+function paletteBtn(cat){ return $(cat==='cust'?'tagCustColorBtn':'tagFavColorBtn'); }
+function togglePalette(cat){
+  var box = paletteBox(cat); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='flex';
+  box.innerHTML = PALETTE.map(function(c){
+    return '<span class="sw" title="'+c+'" style="background:'+c+'"'
+      + ' onclick="pickColor(\''+cat+'\',\''+c+'\')"></span>';
+  }).join('');
+}
+function pickColor(cat, c){
+  pickedColor[cat] = c;
+  var box = paletteBox(cat); if(box){ box.style.display='none'; }
+  var btn = paletteBtn(cat);
+  if(btn){ btn.innerHTML = '<span class="cbtn-dot" style="background:'+c+'"></span>选择颜色'; }
+}
+function tagCreate(cat){
+  var name = (cat==='cust'?$('tagCustName'):$('tagFavName')).value||'';
+  name = String(name).trim();
+  if(!name){ msg('请输入标签名',false); return; }
+  var color = pickedColor[cat] || (cat==='cust'?'#2f9e6f':'#3b6fd4');
+  api('POST','/api/emp/tags',{name:name, color:color, category:cat}).then(function(j){
+    if(j && j.ok){ msg(j.dup?'标签已存在（已复用）':'标签已建', true);
+      (cat==='cust'?$('tagCustName'):$('tagFavName')).value=''; tagLoad(); }
   });
 }
-function tagDelete(id){ api('DELETE','/api/emp/tags/'+id).then(function(j){ if(j.ok){ msg('已删除',true); tagLoad(); } }); }
-function tagBind(unbind){
-  var no=($('bindNo').value||'').trim(); var tid=$('bindTag').value;
-  if(!no){ msg('请输入物件番号',false); return; }
-  api('POST','/api/emp/tags/bind',{property_no:no, tag_id:parseInt(tid,10), unbind:unbind}).then(function(j){
-    if(j.ok){ msg(unbind?'已解绑':'已绑定', true); }
+function tagDelete(id){ if(!confirm('删除该标签？（会同时解除所有关联）')) return;
+  api('DELETE','/api/emp/tags/'+id).then(function(j){ if(j&&j.ok){ msg('已删除',true); tagLoad(); $('tagDrill').innerHTML=''; } }); }
+var drillTag=0, drillCat='fav', drillPage=1, drillSize=50;
+function tagDrill(id, cat, p){
+  drillTag=id; drillCat=cat; if(p) drillPage=p;
+  api('GET','/api/emp/tags/'+id+'/items?page='+drillPage+'&size='+drillSize).then(function(j){
+    var box=$('tagDrill');
+    if(!j||!j.ok){ box.innerHTML=''; return; }
+    var t=j.tag||{};
+    var h='<div class="drill"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<b style="font-size:13px">'+esc(t.name)+'</b>'
+      +'<span class="pill '+(cat==='cust'?'':'on')+'">'+(cat==='cust'?'客户类':'收藏类')+'</span>'
+      +'<span class="emp-mini" style="margin-left:auto">共 '+(j.total||0)+' 个 · 第 '+drillPage+'/'+Math.max(1,Math.ceil((j.total||0)/drillSize))+' 页（'+drillSize+'/页）</span>'
+      +'</div>';
+    if(!j.items||!j.items.length){ h+='<div class="emptybox" style="margin-top:10px">该标签下暂无对象</div>'; }
+    else if(cat==='cust'){
+      h += j.items.map(function(c){
+        return '<div class="pcard" style="margin-top:10px"><div class="pcard-top">'
+          +'<span class="pcard-name">'+esc(c.name)+'</span>'
+          +'<span class="pcard-price" style="font-size:12px;font-weight:400;color:#6b7c99">归属 '+esc(c.owner_username||'')+'</span></div>'
+          +'<div class="pcard-sub">'+esc([c.phone||'', c.note||'', '登记 '+String(c.created_at||'').slice(0,10)].filter(Boolean).join(' ｜ '))+'</div></div>';
+      }).join('');
+    } else {
+      h += '<div style="margin-top:10px">'+j.items.map(propCard).join('')+'</div>';
+    }
+    h += '<div class="pager" id="drillPager"></div></div>';
+    box.innerHTML=h;
+    renderPager($('drillPager'), j.total||0, drillPage, drillSize, 'tagDrillPage');
   });
 }
-function tagsOf(){
-  var no=($('bindNo').value||'').trim(); if(!no){ msg('请输入物件番号',false); return; }
-  api('GET','/api/emp/tags/of?property_no='+encodeURIComponent(no)).then(function(j){
-    if(!j.ok){ $('bindResult').textContent='查询失败'; return; }
-    var names=j.items.map(function(t){ return t.name; });
-    $('bindResult').textContent = names.length ? ('该房源标签：'+names.join('、')) : '该房源暂无标签';
-  });
-}
+function tagDrillPage(p){ tagDrill(drillTag, drillCat, p); }
 
-/* ---------- 客户 ---------- */
-function custLoad(){
-  var url='/api/emp/customers'+($('custAll') && $('custAll').checked?'?scope=all':'');
+/* ---------- 客户（卡片化 + 客户标签） ---------- */
+var custPage=1, custSize=50;
+function custLoad(p){
+  if(p) custPage=p;
+  var url='/api/emp/customers'+(($('custAll') && $('custAll').checked)?'?scope=all':'');
   api('GET',url).then(function(j){
-    var b=$('custBody'); if(!j.ok){ b.innerHTML='<tr><td colspan="6" class="emp-mini">加载失败</td></tr>'; return; }
-    if(!j.items.length){ b.innerHTML='<tr><td colspan="6" class="emp-mini">暂无客户</td></tr>'; return; }
-    b.innerHTML = j.items.map(function(c){
-      var own = {% if is_admin %}true{% else %}(c.owner_username===undefined?true:true){% endif %};
-      var editBtns = '<button class="btn sm" onclick="custEdit('+c.id+')">编辑</button>'
-        +'<button class="btn sm danger" onclick="custDelete('+c.id+')">删除</button>'
-        +'<button class="btn sm" onclick="custBind('+c.id+')">绑房源</button>';
-      {% if is_admin %}editBtns += ' <button class="btn sm" onclick="custTransfer('+c.id+')">转移</button>';{% endif %}
-      return '<tr><td>'+esc(c.name)+'</td><td class="mono">'+esc(c.phone||'')+'</td>'
-        +'<td class="emp-mini">'+esc(c.note||'')+'</td><td class="emp-mini">'+esc(c.owner_username||'')+'</td>'
-        +'<td class="emp-mini">'+esc((c.updated_at||c.created_at||'')+'')+'</td>'
-        +'<td>'+editBtns+'</td></tr>';
+    var box=$('custList');
+    if(!j||!j.ok){ box.innerHTML='<div class="emptybox">加载失败</div>'; return; }
+    if(!j.items||!j.items.length){ box.innerHTML='<div class="emptybox">暂无客户</div>'; $('custPager').innerHTML=''; return; }
+    /* 客户总数由服务端返回（分页一律服务端 SQL） */
+    var total = j.total || j.items.length;
+    /* 缓存客户数据，供「编辑」回填表单（勇哥：编辑要回到客户管理页把原始信息填进去） */
+    window._custCache = {};
+    (j.items||[]).forEach(function(c){ window._custCache[c.id] = c; });
+    var start = (custPage-1)*custSize;
+    var slice = j.items; /* 客户接口当前为全量返回，前端按页切片展示（数据量小时等价） */
+    box.innerHTML = slice.map(custCard).join('');
+    renderPager($('custPager'), total, custPage, custSize, 'custLoad');
+    /* 逐个拉该客户的标签 */
+    slice.forEach(function(c){ custTagsShow(c.id); });
+  });
+}
+function custCard(c){
+  var admin = {% if is_admin %}true{% else %}false{% endif %};
+  return '<div class="ccard">'
+    + '<div class="ccard-top">'
+      + '<span class="ccard-name">'+esc(c.name)+'</span>'
+      + '<span id="ctags_'+c.id+'" style="display:inline-flex;gap:6px;flex-wrap:wrap"></span>'
+      + '<a class="lnk" style="font-size:12px;color:#3b6fd4;cursor:pointer" onclick="custTagToggle('+c.id+')">+ 标签</a>'
+    + '</div>'
+    + '<div class="ccard-sub">'+esc([('手机 '+(c.phone||'未填')), ('归属 '+(c.owner_username||'')), ('登记 '+String(c.created_at||'').slice(0,10)), (c.note||'')].filter(Boolean).join(' ｜ '))+'</div>'
+    + '<div class="tagpick" id="ctagpick_'+c.id+'"></div>'
+    + '<div class="ccard-acts">'
+      + '<button class="btn sm" onclick="custEdit('+c.id+')">编辑</button>'
+      + '<button class="btn sm dangerline" onclick="custDelete('+c.id+')">删除</button>'
+      + '<button class="btn sm" onclick="custBind('+c.id+')">绑房源</button>'
+      + (admin?'<button class="btn sm" onclick="custTransfer('+c.id+')">转移</button>':'')
+    + '</div>'
+  + '</div>';
+}
+function custTagsShow(cid){
+  api('GET','/api/emp/customers/'+cid+'/tags').then(function(j){
+    var box=$('ctags_'+cid); if(!box||!j||!j.ok) return;
+    box.innerHTML = (j.items||[]).map(function(t){
+      return '<span class="pill" style="border-color:'+esc(t.color||'#dfe6f2')+'"><span class="tagdot" style="background:'+esc(t.color||'#ccc')+'"></span>'+esc(t.name)+'</span>';
     }).join('');
   });
 }
-function custCreate(){
-  var name=($('custName').value||'').trim(); if(!name){ msg('请输入客户名称',false); return; }
-  api('POST','/api/emp/customers',{name:name, phone:($('custPhone').value||'').trim(), note:($('custNote').value||'').trim()})
-    .then(function(j){ if(j.ok){ msg('客户已建档', true); $('custName').value=''; $('custPhone').value=''; $('custNote').value=''; custLoad(); } });
+function custTagToggle(cid){
+  var box=$('ctagpick_'+cid); if(!box) return;
+  if(box.className.indexOf('on')>=0){ box.className='tagpick'; box.innerHTML=''; return; }
+  box.className='tagpick on';
+  box.innerHTML='<div class="emp-mini">加载中…</div>';
+  Promise.all([
+    api('GET','/api/emp/tags?category=cust'),
+    api('GET','/api/emp/customers/'+cid+'/tags')
+  ]).then(function(rs){
+    var all=(rs[0]&&rs[0].items)||[], mine={};
+    ((rs[1]&&rs[1].items)||[]).forEach(function(t){ mine[t.id]=1; });
+    var h='<div style="font-size:12px;color:#6b7c99;margin-bottom:8px">选择客户类标签（可当场新建）</div><div class="tagchips">';
+    all.forEach(function(t){
+      h += '<span class="tagchip '+(mine[t.id]?'on':'')+'" onclick="custTagPick('+cid+','+t.id+',this)">'
+        + '<span class="tagdot" style="background:'+esc(t.color||'#ccc')+';margin-right:0"></span>'+esc(t.name)+'</span>';
+    });
+    /* 勇哥：① 输入框短一点（标签不过 8~10 字）② 点标签即生效，**不需要「保存」** */
+    h += '</div><div class="emp-row" style="margin-top:10px;margin-bottom:0">'
+      + '<input id="newctag_'+cid+'" style="width:180px" placeholder="新建标签">'
+      + '<button class="btn sm" onclick="custTagNew('+cid+')">+ 新建</button></div>'
+      + '<div class="emp-mini" style="margin-top:6px">点一下选中即生效；再点一次取消</div>';
+    box.innerHTML=h;
+    box._sel = Object.keys(mine).map(Number);
+  });
 }
+function custTagPick(cid, tid, el){
+  var box=$('ctagpick_'+cid); if(!box) return;
+  var sel = box._sel || [];
+  var i = sel.indexOf(tid);
+  if(i>=0){ sel.splice(i,1); el.className='tagchip'; }   /* 再点一次 = 反选（取消） */
+  else { sel.push(tid); el.className='tagchip on'; }
+  box._sel = sel;
+  /* 勇哥：**点击即生效**（选中/取消都立刻写库），不需要再点「保存」 */
+  api('POST','/api/emp/customers/'+cid+'/tags',{tag_ids:sel}).then(function(j){
+    if(j&&j.ok){ msg('标签已更新', true); custTagsShow(cid); tagLoad(); }
+  });
+}
+function custTagNew(cid){
+  var inp=$('newctag_'+cid); var name=(inp.value||'').trim();
+  if(!name){ msg('请输入标签名',false); return; }
+  api('POST','/api/emp/tags',{name:name, category:'cust'}).then(function(j){
+    if(j&&j.ok){
+      var box=$('ctagpick_'+cid); var sel=(box && box._sel)||[];
+      if(sel.indexOf(j.id)<0){ sel.push(j.id); }
+      inp.value='';
+      /* 勇哥：新建后**直接生效**（无需再点保存） */
+      api('POST','/api/emp/customers/'+cid+'/tags',{tag_ids:sel}).then(function(j2){
+        if(j2&&j2.ok){
+          msg('已新建并生效', true);
+          custTagsShow(cid); tagLoad();
+          custTagToggle(cid); custTagToggle(cid);   /* 重绘，显示新标签与选中态 */
+        }
+      });
+    }
+  });
+}
+/* custTagSave 保留但不再由 UI 调用（点击即生效，不再需要「保存」按钮） */
+function custTagSave(cid){
+  var box=$('ctagpick_'+cid); var sel=(box && box._sel)||[];
+  api('POST','/api/emp/customers/'+cid+'/tags',{tag_ids:sel}).then(function(j){
+    if(j&&j.ok){ msg('客户标签已保存', true); custTagsShow(cid); }
+  });
+}
+/* 保存客户 —— 新建 / 编辑**共用同一个按钮**（勇哥：统一叫「保存客户」） */
+var custEditingId = null;
+function custSave(){
+  var name=($('custName').value||'').trim();
+  if(!name){ msg('请输入客户名称',false); return; }
+  var payload = { name:name, phone:($('custPhone').value||'').trim(), note:($('custNote').value||'').trim() };
+  if(custEditingId){
+    api('PATCH','/api/emp/customers/'+custEditingId, payload).then(function(j){
+      if(j&&j.ok){ msg('客户已保存', true); custCancelEdit(); custLoad(); }
+    });
+  } else {
+    api('POST','/api/emp/customers', payload).then(function(j){
+      if(j&&j.ok){ msg('客户已建档', true); custCancelEdit(); custLoad(); }
+    });
+  }
+}
+/* 编辑 = 把该客户的**原始信息回填到上方表单**（勇哥：回到「客户管理」页填进去让用户改），
+   改完点「保存客户」；不再使用 prompt 弹窗。 */
 function custEdit(id){
-  var name=prompt('客户名称'); if(name===null) return;
-  var note=prompt('备注'); if(note===null) return;
-  api('PATCH','/api/emp/customers/'+id,{name:name, note:note}).then(function(j){ if(j.ok){ msg('已更新',true); custLoad(); } });
+  var c = (window._custCache||{})[id];
+  if(!c){ msg('数据已过期，请刷新后重试', false); return; }
+  custEditingId = id;
+  $('custName').value  = c.name  || '';
+  $('custPhone').value = c.phone || '';
+  $('custNote').value  = c.note  || '';
+  $('custEditHint').style.display = 'inline';
+  $('custEditHint').textContent = '正在编辑：' + (c.name || '');
+  $('custCancelBtn').style.display = 'inline-block';
+  try { $('custName').scrollIntoView({behavior:'smooth', block:'center'}); $('custName').focus(); }
+  catch(e) { $('custName').focus(); }
 }
-function custDelete(id){ if(!confirm('确认删除该客户（软删）？')) return;
-  api('DELETE','/api/emp/customers/'+id).then(function(j){ if(j.ok){ msg('已删除',true); custLoad(); } }); }
+function custCancelEdit(){
+  custEditingId = null;
+  $('custName').value=''; $('custPhone').value=''; $('custNote').value='';
+  $('custEditHint').style.display='none';
+  $('custCancelBtn').style.display='none';
+}
+/* 兼容旧引用（旧按钮曾绑 custCreate） */
+function custCreate(){ custSave(); }
+function custDelete(id){ if(!confirm('确认删除该客户（软删，保留对账轨迹）？')) return;
+  api('DELETE','/api/emp/customers/'+id).then(function(j){ if(j&&j.ok){ msg('已删除',true); custLoad(); } }); }
 function custBind(id){
   var no=prompt('绑定物件番号'); if(!no) return;
-  api('POST','/api/emp/customers/'+id+'/bind',{property_no:no}).then(function(j){ if(j.ok){ msg('已绑定房源',true); } });
+  api('POST','/api/emp/customers/'+id+'/bind',{property_no:no}).then(function(j){ if(j&&j.ok){ msg('已绑定房源',true); } });
 }
 {% if is_admin %}
 function custTransfer(id){
   var to=prompt('转移到用户名'); if(!to) return;
-  api('POST','/api/emp/customers/'+id+'/transfer',{to_username:to}).then(function(j){ if(j.ok){ msg('已转移',true); custLoad(); } });
+  api('POST','/api/emp/customers/'+id+'/transfer',{to_username:to}).then(function(j){ if(j&&j.ok){ msg('已转移',true); custLoad(); } });
 }
 {% endif %}
 
+/* 标签变化后即时刷新当前视图（勇哥：打完标签这里要立刻显示，不该还要手动刷页面） */
+document.addEventListener('fav-tags-changed', function(e){
+  var no = (e && e.detail && e.detail.no) || '';
+  if(no){ favTagsShow(no); }     /* 收藏卡片上的标签行 */
+  tagLoad();                     /* 标签管理里的「N 个」计数 */
+});
 /* 初次进入默认加载收藏 */
 favLoad();
 </script>

@@ -1714,6 +1714,11 @@ function renderFullItem(r, i){
     +     (pending ? '<span class="qtag qtag-pending" title="' + esc(t('row.detail_pending_tip')) + '">'
     +               esc(t('row.detail_pending')) + '</span>' : '')
     +     badge
+    /* v2.0.x（勇哥 2026-09-26 🔴 修复）：**详细视图**同样要有「收藏」与「添加客户」——
+       上一版只改了简洁视图（renderCompactItem），导致详细视图看不到收藏按钮。
+       顺序：加入对比 → 收藏 → 添加客户 → 専任（取引態様）。 */
+    +     '<span class="favslot" data-fav="' + esc(no) + '"></span>'
+    +     '<span class="custslot" data-cust="' + esc(no) + '"></span>'
     +     ttBadge
     +     '<div class="qt">' + qtHtml(r) + '</div>'   /* v1.9.72：地址可点 → 谷歌地图 */
     +     '<div class="qprice">'
@@ -1829,7 +1834,12 @@ function renderCompactItem(r, i){
   h +=   '<div class="qc-ops">'
     +     '<button class="qcmp' + on + '" data-no="' + esc(no) + '"'
     +             ' onclick="toggleCompare(this,event)">'+t('detail.tobank')+'</button>'
-    +     tag + ttBadge
+    /* v2.0.x（勇哥要求）：收藏心形在「加入对比」右侧、「専任」左侧 —— 即状态标之后、取引態様之前。
+       渲染由 web/static/fav.js 完成（动态节点靠 MutationObserver 自动补渲染）。 */
+    +     tag
+    +     '<span class="favslot" data-fav="' + esc(no) + '"></span>'
+    +     '<span class="custslot" data-cust="' + esc(no) + '"></span>'
+    +     ttBadge
     +   '</div>';
   // ② 位置与价格（点击展开）
   h +=   '<div class="qc-click" onclick="toggleDetail(\'' + id + '\')">'

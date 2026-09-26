@@ -46,7 +46,9 @@ MACHINE_PATHS = (PREFIX + "/export",)
 
 # 导出涉及的表（PRD §3.2–§3.6 的 T1–T6）
 EXPORT_TABLES = ("favorites", "tags", "property_tags", "customers",
-                 "customer_properties", "customer_owner_log")
+                 "customer_properties", "customer_owner_log",
+                 # v2.0.x：客户 ⇄ 客户类标签，同样要参与本地回流同步
+                 "customer_tags")
 
 # 各表的"水位线列"：老行 updated_at 可能是 NULL → 用 COALESCE 兜 created_at
 _WATERMARK_SQL = {
@@ -56,6 +58,7 @@ _WATERMARK_SQL = {
     "customers": "COALESCE(updated_at, created_at)",
     "customer_properties": "COALESCE(updated_at, created_at)",
     "customer_owner_log": "changed_at",
+    "customer_tags": "COALESCE(updated_at, created_at)",
 }
 
 
@@ -112,19 +115,99 @@ def register(app):
             return None, (jsonify({"ok": False, "error": "未登录"}), 401)
         return str(me["username"]), None
 
-    # ---------- 通用：查自己的收藏 ----------
+    # ==================================================================
+    # v2.0.x 辅助（勇哥 2026-09-26 拍板：收藏下沉动线 + 标签管理二分）
+    # ==================================================================
+    # 房源卡片字段：与查询页卡片口径一致（员工业务收藏列表要「显示完全一致」）
+    def _prop_cards(nos):
+        """番号批量 → 房源卡片数据。
+
+        🔑 **直接复用查询页的 `W._row_payload()`**（web/app.py:2240）——
+        勇哥 2026-09-26 要求「员工业务的收藏显示要与房源查询完全一致」，
+        而 `_row_payload` 正是查询页把房源行整理成前端形状的唯一出口
+        （解析 detail_json / 算 has_detail / 取 trade_type 首行 / 组装 media / 拼 pdf_url）。
+        用它 = 与查询页**同源**，不再各写一份（此前两套字段已漂移出问题）。
+
+        ⚠ 只读主库；主库线上会被 site_data.json 重灌，这里取当前快照。
+        """
+        nos = [str(n).strip() for n in (nos or []) if str(n).strip()]
+        if not nos:
+            return []
+        try:
+            con = W.STORE.conn
+            ph = ",".join("?" * len(nos))
+            rows = con.execute(
+                "SELECT * FROM properties WHERE property_no IN (%s)" % ph, nos).fetchall()
+            return [W._row_payload(r) for r in rows]
+        except Exception as e:  # noqa: BLE001
+            _log("[emp] 取房源卡片失败：%s: %s" % (type(e).__name__, e))
+            return []
+
+    def _norm_cat(v):
+        """标签分类归一化：'cust'=客户类，其余（含存量 NULL）=收藏类。
+
+        勇哥 Q3 拍板：现有标签都是房源标签 → 存量 NULL 一律按 'fav' 处理。
+        """
+        return "cust" if str(v or "").strip().lower() == "cust" else "fav"
+
+    def _page_args(default_size=50, max_size=200):
+        """统一分页参数解析（勇哥 Q6：50 条/页；一律服务端分页）。"""
+        try:
+            page = max(1, int(request.args.get("page") or 1))
+        except ValueError:
+            page = 1
+        try:
+            size = max(1, min(int(request.args.get("size") or default_size), max_size))
+        except ValueError:
+            size = default_size
+        return page, size
+
+    # ---------- 收藏 ----------
     @app.get(PREFIX + "/fav")
     def _emp_fav_list():
+        """我的收藏（v2.0.x：**返回完整房源卡片** + 50/页服务端分页）。
+
+        勇哥要求「员工业务里的收藏，显示内容与房源查询页完全一致」→
+        这里直接带出房源字段（_prop_cards），前端复用同一套卡片渲染。
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        page, size = _page_args()
+        con = _conn()
+        try:
+            total = con.execute("SELECT COUNT(*) c FROM favorites WHERE owner_username=?",
+                                (owner,)).fetchone()["c"]
+            rows = con.execute(
+                "SELECT property_no, created_at FROM favorites WHERE owner_username=?"
+                " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+                (owner, size, (page - 1) * size)).fetchall()
+            nos = [r["property_no"] for r in rows]
+            cards = {c["property_no"]: c for c in _prop_cards(nos)}
+            items = []
+            for r in rows:
+                d = dict(cards.get(r["property_no"])
+                         or {"property_no": r["property_no"], "gone": True})
+                d["fav_created_at"] = r["created_at"]
+                items.append(d)
+            return jsonify({"ok": True, "owner": owner, "items": items,
+                            "total": total, "page": page, "size": size})
+        finally:
+            con.close()
+
+    @app.get(PREFIX + "/fav/nos")
+    def _emp_fav_nos():
+        """我收藏的全部番号（轻量）。供查询页/详情页一次性标记「已收藏」，
+        避免列表 50 条各发一次请求（R3 风险应对）。"""
         owner, err = _need_owner()
         if err:
             return err
         con = _conn()
         try:
-            rows = con.execute(
-                "SELECT property_no, created_at FROM favorites"
-                " WHERE owner_username=? ORDER BY created_at DESC, id DESC", (owner,)).fetchall()
+            rows = con.execute("SELECT property_no FROM favorites WHERE owner_username=?",
+                               (owner,)).fetchall()
             return jsonify({"ok": True, "owner": owner,
-                            "items": [dict(r) for r in rows]})
+                            "nos": [r["property_no"] for r in rows]})
         finally:
             con.close()
 
@@ -154,22 +237,51 @@ def register(app):
         finally:
             con.close()
 
-    # ---------- 标签 ----------
+    # ---------- 标签（v2.0.x：分「收藏类 fav / 客户类 cust」两类）----------
     @app.get(PREFIX + "/tags")
     def _emp_tag_list():
+        """标签列表。?category=fav|cust 过滤（不传=全部）。
+
+        v2.0.x：每项带 `count` = 该标签关联的对象数
+        （收藏类=房源数 / 客户类=客户数），供标签管理页显示「N 个」。
+        """
         owner, err = _need_owner()
         if err:
             return err
+        cat = str(request.args.get("category") or "").strip()
         con = _conn()
         try:
-            rows = con.execute("SELECT id, name, color, created_at FROM tags"
-                               " WHERE owner_username=? ORDER BY id", (owner,)).fetchall()
-            return jsonify({"ok": True, "owner": owner, "items": [dict(r) for r in rows]})
+            rows = con.execute(
+                "SELECT id, name, color, COALESCE(category,'fav') AS category, created_at,"
+                " COALESCE(updated_at, created_at) AS updated_at FROM tags"
+                " WHERE owner_username=? ORDER BY id", (owner,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                if d["category"] == "cust":
+                    d["count"] = con.execute(
+                        "SELECT COUNT(*) c FROM customer_tags ct JOIN customers c"
+                        " ON c.id=ct.customer_id WHERE ct.tag_id=? AND COALESCE(c.deleted,0)=0",
+                        (d["id"],)).fetchone()["c"]
+                else:
+                    d["count"] = con.execute(
+                        "SELECT COUNT(*) c FROM property_tags WHERE tag_id=?",
+                        (d["id"],)).fetchone()["c"]
+                out.append(d)
+            if cat:
+                want = _norm_cat(cat)
+                out = [d for d in out if d["category"] == want]
+            return jsonify({"ok": True, "owner": owner, "items": out})
         finally:
             con.close()
 
     @app.post(PREFIX + "/tags")
     def _emp_tag_create():
+        """新建标签。body: {name, color?, category?: 'fav'|'cust'}（默认 fav）。
+
+        ⚠ 名称**全局唯一**（表内 UNIQUE(owner,name)）：同名直接复用已有标签，
+        不新建（SQLite 改不了 UNIQUE，且"禁止 DROP/重建"是铁律）。
+        """
         owner, err = _need_owner()
         if err:
             return err
@@ -177,17 +289,56 @@ def register(app):
         name = str(d.get("name") or "").strip()
         if not name:
             return jsonify({"ok": False, "error": "标签名不能为空"}), 400
+        cat = _norm_cat(d.get("category"))
         con = _conn()
         try:
-            old = con.execute("SELECT id FROM tags WHERE owner_username=? AND name=?",
-                              (owner, name)).fetchone()
+            # 唯一约束是 (owner, category, name) → **同类同名**才算重复；
+            # 收藏类与客户类**可以同名**（v2.0.x 建新表迁移解除旧限制）
+            old = con.execute("SELECT id, COALESCE(category,'fav') AS category FROM tags"
+                              " WHERE owner_username=? AND name=? AND COALESCE(category,'fav')=?",
+                              (owner, name, cat)).fetchone()
             if old:
-                return jsonify({"ok": True, "id": old["id"], "dup": True})
-            cur = con.execute("INSERT INTO tags(owner_username, name, color, created_at, updated_at)"
-                              " VALUES(?,?,?,?,?)",
-                              (owner, name, d.get("color"), _now(), _now()))
+                return jsonify({"ok": True, "id": old["id"], "dup": True,
+                                "category": old["category"]})
+            cur = con.execute("INSERT INTO tags(owner_username, name, color, category,"
+                              " created_at, updated_at) VALUES(?,?,?,?,?,?)",
+                              (owner, name, d.get("color"), cat, _now(), _now()))
             con.commit()
-            return jsonify({"ok": True, "id": cur.lastrowid})
+            return jsonify({"ok": True, "id": cur.lastrowid, "category": cat})
+        finally:
+            con.close()
+
+    @app.patch(PREFIX + "/tags/<int:tag_id>")
+    def _emp_tag_update(tag_id):
+        """标签改名 / 改色（W6 同款边界：只能改自己的）。"""
+        owner, err = _need_owner()
+        if err:
+            return err
+        d = _json()
+        con = _conn()
+        try:
+            row = con.execute("SELECT id FROM tags WHERE id=? AND owner_username=?",
+                              (tag_id, owner)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "标签不存在或不是你的"}), 404
+            sets, vals = [], []
+            if "name" in d and str(d.get("name") or "").strip():
+                sets.append("name=?")
+                vals.append(str(d["name"]).strip())
+            if "color" in d:
+                sets.append("color=?")
+                vals.append(d.get("color"))
+            if not sets:
+                return jsonify({"ok": False, "error": "没有可更新字段"}), 400
+            sets.append("updated_at=?")
+            vals.append(_now())
+            vals.append(tag_id)
+            try:
+                con.execute("UPDATE tags SET %s WHERE id=?" % ",".join(sets), vals)
+                con.commit()
+            except sqlite3.IntegrityError:
+                return jsonify({"ok": False, "error": "同名标签已存在"}), 409
+            return jsonify({"ok": True, "id": tag_id})
         finally:
             con.close()
 
@@ -225,10 +376,13 @@ def register(app):
             return jsonify({"ok": False, "error": "缺少 property_no"}), 400
         con = _conn()
         try:
-            tk = con.execute("SELECT id FROM tags WHERE id=? AND owner_username=?",
-                             (tag_id, owner)).fetchone()
+            tk = con.execute("SELECT id, COALESCE(category,'fav') AS category FROM tags"
+                             " WHERE id=? AND owner_username=?", (tag_id, owner)).fetchone()
             if not tk:
                 return jsonify({"ok": False, "error": "标签不存在或不是你的"}), 404
+            if tk["category"] != "fav":
+                return jsonify({"ok": False,
+                                "error": "这是客户类标签，不能绑到房源（两类完全分开）"}), 400
             if d.get("unbind"):
                 con.execute("DELETE FROM property_tags WHERE owner_username=? AND property_no=?"
                             " AND tag_id=?", (owner, no, tag_id))
@@ -260,6 +414,57 @@ def register(app):
         finally:
             con.close()
 
+    @app.get(PREFIX + "/tags/<int:tag_id>/items")
+    def _emp_tag_items(tag_id):
+        """点标签下钻（勇哥 C-4）：收藏类→列出房源卡片；客户类→列出客户。
+
+        **50/页服务端分页**（勇哥 Q6；且按铁律「统计/分页一律服务端 SQL」）。
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        page, size = _page_args()
+        con = _conn()
+        try:
+            t = con.execute("SELECT id, name, color, COALESCE(category,'fav') AS category"
+                            " FROM tags WHERE id=? AND owner_username=?",
+                            (tag_id, owner)).fetchone()
+            if not t:
+                return jsonify({"ok": False, "error": "标签不存在或不是你的"}), 404
+            cat = t["category"]
+            if cat == "cust":
+                total = con.execute(
+                    "SELECT COUNT(*) c FROM customer_tags ct JOIN customers c"
+                    " ON c.id=ct.customer_id WHERE ct.tag_id=? AND COALESCE(c.deleted,0)=0",
+                    (tag_id,)).fetchone()["c"]
+                rows = con.execute(
+                    "SELECT c.id, c.name, c.phone, c.note, c.owner_username, c.created_at,"
+                    " COALESCE(c.updated_at, c.created_at) AS updated_at"
+                    " FROM customer_tags ct JOIN customers c ON c.id=ct.customer_id"
+                    " WHERE ct.tag_id=? AND COALESCE(c.deleted,0)=0"
+                    " ORDER BY updated_at DESC, c.id DESC LIMIT ? OFFSET ?",
+                    (tag_id, size, (page - 1) * size)).fetchall()
+                items = [dict(r) for r in rows]
+            else:
+                total = con.execute("SELECT COUNT(*) c FROM property_tags WHERE tag_id=?",
+                                    (tag_id,)).fetchone()["c"]
+                rows = con.execute(
+                    "SELECT property_no, created_at FROM property_tags WHERE tag_id=?"
+                    " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+                    (tag_id, size, (page - 1) * size)).fetchall()
+                nos = [r["property_no"] for r in rows]
+                cards = {c["property_no"]: c for c in _prop_cards(nos)}
+                items = []
+                for r in rows:
+                    d = dict(cards.get(r["property_no"])
+                             or {"property_no": r["property_no"], "gone": True})
+                    d["fav_created_at"] = r["created_at"]
+                    items.append(d)
+            return jsonify({"ok": True, "tag": dict(t), "category": cat, "items": items,
+                            "total": total, "page": page, "size": size})
+        finally:
+            con.close()
+
     # ---------- 客户 ----------
     @app.get(PREFIX + "/customers")
     def _emp_cust_list():
@@ -268,21 +473,34 @@ def register(app):
         if err:
             return err
         scope_all = request.args.get("scope") == "all"
+        # v2.0.x：q = 关键字（名称 / 手机号 / 备注），供「添加客户」选择器搜索老客户
+        q = str(request.args.get("q") or "").strip()
         con = _conn()
         try:
-            if scope_all and _is_admin():
-                rows = con.execute(
-                    "SELECT id, owner_username, name, phone, note, created_at,"
-                    " COALESCE(updated_at, created_at) AS updated_at FROM customers"
-                    " WHERE COALESCE(deleted,0)=0"
-                    " ORDER BY updated_at DESC, id DESC").fetchall()
-                return jsonify({"ok": True, "scope": "all", "items": [dict(r) for r in rows]})
-            rows = con.execute(
-                "SELECT id, owner_username, name, phone, note, created_at,"
-                " COALESCE(updated_at, created_at) AS updated_at FROM customers"
-                " WHERE owner_username=? AND COALESCE(deleted,0)=0"
-                " ORDER BY updated_at DESC, id DESC", (owner,)).fetchall()
-            return jsonify({"ok": True, "owner": owner, "items": [dict(r) for r in rows]})
+            sql = ("SELECT id, owner_username, name, phone, note, created_at,"
+                   " COALESCE(updated_at, created_at) AS updated_at FROM customers"
+                   " WHERE COALESCE(deleted,0)=0")
+            args = []
+            all_scope = bool(scope_all and _is_admin())
+            if not all_scope:
+                sql += " AND owner_username=?"
+                args.append(owner)
+            if q:
+                sql += " AND (name LIKE ? OR phone LIKE ? OR COALESCE(note,'') LIKE ?)"
+                like = "%" + q + "%"
+                args += [like, like, like]
+            sql += " ORDER BY updated_at DESC, id DESC LIMIT 200"
+            rows = con.execute(sql, args).fetchall()
+            items = [dict(r) for r in rows]
+            # v2.0.x：附上每个客户的标签（勇哥：在「添加客户」里要能看到客户**已有标签**）
+            for it in items:
+                it["tags"] = [dict(x) for x in con.execute(
+                    "SELECT t.id, t.name, t.color FROM customer_tags ct"
+                    " JOIN tags t ON t.id=ct.tag_id"
+                    " WHERE ct.customer_id=? ORDER BY t.id", (it["id"],)).fetchall()]
+            return jsonify({"ok": True, "owner": owner,
+                            "scope": ("all" if all_scope else "mine"),
+                            "items": items, "total": len(items)})
         finally:
             con.close()
 
@@ -415,6 +633,85 @@ def register(app):
                         (cid, no, d.get("intent"), _now(), owner, _now()))
             con.commit()
             return jsonify({"ok": True, "customer_id": cid, "property_no": no})
+        finally:
+            con.close()
+
+    @app.get(PREFIX + "/customers/<int:cid>/tags")
+    def _emp_cust_tags(cid):
+        """某客户已打的标签（客户类）。"""
+        owner, err = _need_owner()
+        if err:
+            return err
+        con = _conn()
+        try:
+            row = con.execute("SELECT id FROM customers WHERE id=? AND owner_username=?",
+                              (cid, owner)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "客户不存在或不是你的"}), 404
+            rows = con.execute(
+                "SELECT t.id, t.name, t.color FROM customer_tags ct JOIN tags t ON t.id=ct.tag_id"
+                " WHERE ct.customer_id=? AND ct.owner_username=? ORDER BY t.id",
+                (cid, owner)).fetchall()
+            return jsonify({"ok": True, "items": [dict(r) for r in rows]})
+        finally:
+            con.close()
+
+    @app.post(PREFIX + "/customers/<int:cid>/tags")
+    def _emp_cust_tags_set(cid):
+        """给客户设标签（**覆盖式**）。body: {tag_ids:[...]}
+
+        建新标签走 `POST /api/emp/tags`（category=cust），这里只管绑定关系。
+        ⚠ 只接受**客户类**标签，收藏类会被忽略（勇哥：两类完全分开、无相关性）。
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        d = _json()
+        try:
+            ids = [int(x) for x in (d.get("tag_ids") or [])]
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "tag_ids 非法"}), 400
+        con = _conn()
+        try:
+            row = con.execute("SELECT id FROM customers WHERE id=? AND owner_username=?",
+                              (cid, owner)).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "客户不存在或不是你的"}), 404
+            valid = {r["id"] for r in con.execute(
+                "SELECT id FROM tags WHERE owner_username=?"
+                " AND COALESCE(category,'fav')='cust'", (owner,)).fetchall()}
+            keep = [i for i in ids if i in valid]
+            con.execute("DELETE FROM customer_tags WHERE customer_id=? AND owner_username=?",
+                        (cid, owner))
+            for i in keep:
+                con.execute("INSERT OR IGNORE INTO customer_tags"
+                            "(owner_username, customer_id, tag_id, created_at, updated_at)"
+                            " VALUES(?,?,?,?,?)", (owner, cid, i, _now(), _now()))
+            con.commit()
+            return jsonify({"ok": True, "customer_id": cid, "bound": keep})
+        finally:
+            con.close()
+
+    @app.get(PREFIX + "/cust/nos")
+    def _emp_cust_nos():
+        """我已关联过客户的房源番号集合（轻量）。
+
+        勇哥 2026-09-26：查询页/详情页的「添加客户」按钮要能**一眼看出这套房加过客户**
+        → 前端一次性拉这个集合做选中态（避免列表 50 条各查一次）。
+        （一个房源可关联多个客户，这里只要「至少关联了一个我的客户」即算已添加。）
+        """
+        owner, err = _need_owner()
+        if err:
+            return err
+        con = _conn()
+        try:
+            rows = con.execute(
+                "SELECT DISTINCT cp.property_no FROM customer_properties cp"
+                " JOIN customers c ON c.id=cp.customer_id"
+                " WHERE c.owner_username=? AND COALESCE(c.deleted,0)=0",
+                (owner,)).fetchall()
+            return jsonify({"ok": True, "owner": owner,
+                            "nos": [r["property_no"] for r in rows]})
         finally:
             con.close()
 
