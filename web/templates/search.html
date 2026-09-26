@@ -335,8 +335,6 @@
   <div class="row" style="margin-top:8px">
     <!-- 起>止 自动交换的提示（v1.7.4 功能保留；原挂在已删除的「日期快捷」行上，挪到这里） -->
     <span class="muted" id="date-swap-hint" style="align-self:center;display:none;color:#a15c00"></span>
-    <!-- v1.9.97：日期语义提示 —— 只填「起」＝只看那一天（勇哥 2026-09-27「换日期列表不变」） -->
-    <span class="muted" id="date-hint" style="align-self:center" data-i18n="search.date_hint"></span>
   </div>
   <div class="row" style="margin-top:10px">
     <button data-i18n="search.btn" onclick="doQuery(1)">查询</button>
@@ -1426,12 +1424,7 @@ function buildParams(page){
 
   if(dfrom || dto){
     if(dfrom) p.set('date_from', dfrom);
-    // v1.9.97：只填「起」＝查**该日单日**（勇哥 2026-09-27 三次追问「换日期前 5 条不变」）。
-    //   旧行为只发 date_from → 后端按开区间 (reg>=D OR chg>=D) 算，09/15、09/17、09/22
-    //   互为**包含关系**，换日期只砍尾部、头部恒定（那批是 09-26 最新登记的，永远排最前）。
-    //   补 date_to=起 → 变成 (reg=D OR chg=D)，换哪天就真的只看哪天。
-    //   （要查「从某日起」的区间，把「止」也填上即可 —— 见日期行右侧提示。）
-    p.set('date_to', dto || dfrom);
+    if(dto)   p.set('date_to', dto);
   } else if(ALL_DATES){
     p.set('date', 'all');
   } else {
@@ -1531,18 +1524,9 @@ async function doQuery(page, noSave){
     PAGES = j.pages || 1;
     LIB = j.library || null;
     window.CUR_DATE = j.date || '';       // v1.7.0：供行内「登録/変更」标判断
-    // v1.4.0：看全库时后端返回 date=''（不按日期过滤），要显示成「全部日期」。
-    // v1.9.97 修：区间/单日模式下后端同样返回 date='' → 旧逻辑一律写成「全部日期」，
-    //   与下方筛选摘要（如「2026-09-22」）**自相矛盾**，勇哥据此以为「筛选没生效」。
-    //   现在直接按输入框回显真实日期（单日＝那一个日期；区间＝起 ~ 止）。
-    var _df = (document.getElementById('date') || {}).value || '';
-    var _dt = (document.getElementById('date_to') || {}).value || '';
-    var dlabel;
-    if(ALL_DATES) dlabel = t('search.all_dates');
-    else if(_df && _dt && _dt !== _df) dlabel = _df + ' ~ ' + _dt;
-    else if(_df) dlabel = _df;
-    else if(_dt) dlabel = _dt;
-    else dlabel = j.date || t('search.all_dates');
+    // v1.4.0：看全库时后端返回 date=''（不按日期过滤），要显示成「全部日期」，
+    // 否则摘要会写成"日期  共 N 条"，看着像漏了筛选条件。
+    var dlabel = (ALL_DATES || !j.date) ? t('search.all_dates') : j.date;
     sum.textContent = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT,
                     rows: (j.rows ? j.rows.length : 0)});
     // R20：工具条显示 + 当前排序回显

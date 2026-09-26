@@ -405,14 +405,7 @@ def _tsubo_backfill(rec: dict) -> dict:
 
 # R20：9 个排序键 → SQL 表达式（服务端 SQL 排序；空值排最后；番号作稳定次级键）。
 _SORT_COLS = {
-    # v1.9.97：`updated`（UI 标签「更新時間」）原实现 = COALESCE(last_seen_at, first_seen_at)
-    #   =「**我方最后一次抓取**扫到它的时间」—— 名不副实：每次抓取都会刷新，导致
-    #   「最后被抓到的一批」永远钉在列表头部，与房源自身是否更新无关
-    #   （勇哥 2026-09-27 实测：选 09/15 / 09/17 / 09/22 三个日期，前 5 条逐条相同）。
-    #   现改为真正的**房源最新平台日期** = MAX(登録日, 変更日)：用 '' 参与比较保证单边缺值时
-    #   取另一边；两边都缺 → NULL → 由外层 NULLS LAST 兜到末尾（不会窜到最前）。
-    "updated":    ("CASE WHEN COALESCE(chg_date_iso,'') >= COALESCE(reg_date_iso,'') "
-                   "THEN chg_date_iso ELSE reg_date_iso END"),
+    "updated":    "COALESCE(last_seen_at, first_seen_at)",
     "price":      "price",
     "area":       "COALESCE(exclusive_area, land_area, building_area)",
     "unit_sqm":   "unit_price_sqm",
