@@ -1250,6 +1250,14 @@ def _needs_detail(existing) -> bool:
     """
     if existing is None:
         return True
+    # 2026-09-26 修复（v1.9.94）：store.get_property 返回 sqlite3.Row，而下方
+    # 规则③/④用 existing.get("pdate_checked") —— Row 没有 .get() 方法（只有下标 []），
+    # 会抛 AttributeError，导致「今日日期同步」整轮中断。统一归一化为 dict 以兼容两种入参。
+    if not isinstance(existing, dict):
+        try:
+            existing = {k: existing[k] for k in existing.keys()}
+        except Exception:                                    # noqa: BLE001
+            existing = {}
     try:
         raw = existing["detail_json"]
     except Exception:                                        # noqa: BLE001
