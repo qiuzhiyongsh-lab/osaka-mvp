@@ -186,7 +186,9 @@ def register(app):
                      " WHERE f.owner_username=? AND pt.tag_id=?")
                 args = (owner, tag)
             else:
-                w = " FROM favorites WHERE owner_username=?"
+                # ⚠ 必须同样给别名 f —— 下面 SELECT/ORDER BY 都引用 f.*，
+                #    漏别名会报 "no such column: f.id" ⇒ 收藏列表整体 500（2026-09-27 已踩）。
+                w = " FROM favorites f WHERE f.owner_username=?"
                 args = (owner,)
             total = con.execute("SELECT COUNT(*) c" + w, args).fetchone()["c"]
             rows = con.execute(

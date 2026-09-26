@@ -58,8 +58,12 @@ from pathlib import Path
 LOG_PREFIX = "[员工同步]"
 _FLOCK = threading.Lock()
 
+# ⚠ 顺序：tags 必须先于 property_tags / customer_tags（引用其 id）；customers 先于
+#   customer_properties / customer_tags。缺表会导致该表**永不回写本地**。
+#   v1.9.95 修复：原表漏了 `customer_tags` —— 导出端一直有它（pulled 计数可见），
+#   但本地导入端 TABLES 不含 ⇒ **客户标签「拉了不写」**，线上/线下永不同步。
 TABLES = ("favorites", "tags", "property_tags", "customers",
-          "customer_properties", "customer_owner_log")
+          "customer_properties", "customer_tags", "customer_owner_log")
 
 _FULL_INTERVAL_H = 24          # 全量对账最小间隔（小时）
 _TIMEOUT = 30                  # HTTP 超时（秒）

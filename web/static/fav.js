@@ -86,8 +86,10 @@
     /* v1.9.95 C10/R43：已关联 ⇒ 点开「已关联客户」列表（勇哥：要一眼看出关联了谁，
        而不是再开一次添加框）；未关联 ⇒ 仍是打开添加选择器。查询页 / 详情页同源，自动同步。 */
     return '<span class="custbtn' + (on ? ' on' : '') + '" data-custbtn="' + no + '"'
-      + ' onclick="' + (on ? 'Fav.showCustList(\'' + no + '\')'
-                           : 'Fav.openCustPicker(\'' + no + '\'') + ')"'
+      /* ⚠ 防呆：若 showCustList 缺失/版本没更新到，回退到添加框 —— 保证「点了必有反应」 */
+      + ' onclick="' + (on
+            ? '(window.Fav&&Fav.showCustList?Fav.showCustList:Fav.openCustPicker)'
+            : 'Fav.openCustPicker') + '(\'' + no + '\')"'
       + ' title="' + (on ? '查看这套房已关联的客户' : '把这个房源关联到客户') + '">'
       + (on ? '已添加客户' : '添加客户') + '</span>';
   }
