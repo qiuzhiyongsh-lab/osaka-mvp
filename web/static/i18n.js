@@ -902,6 +902,7 @@
   ZH['sort.now']='当前：{k} {d}';
   ZH['view.toggle']='详细 ⇄ 简洁'; ZH['filter.edit']='修改条件 ▾'; ZH['filter.collapse']='收起条件 ▴';
   ZH['search.today_short']='今天'; ZH['search.date_swap']='起止日期已自动调换';
+  ZH['search.date_hint']='只填「起」＝只看那一天；填两格＝查区间';
   ZH['search.date_caliber.any']='登録日或変更日';
   ZH['search.date_caliber.change']='変更日（平台变更）';
   ZH['search.date_caliber.reg']='登録日（平台新建）';
@@ -942,6 +943,7 @@
   DICT['zh-TW']['sort.dir_tip']='降序：數值/日期 由大到小（新→舊）；升序：由小到大（舊→新）';
   DICT['zh-TW']['sort.now']='目前：{k} {d}';
   DICT['zh-TW']['search.today_short']='今天'; DICT['zh-TW']['search.date_swap']='起止日期已自動調換';
+  DICT['zh-TW']['search.date_hint']='只填「起」＝只看那一天；填兩格＝查區間';
   DICT['zh-TW']['search.date_caliber.any']='登録日或変更日';
   DICT['zh-TW']['search.date_caliber.change']='変更日（平台變更）';
   DICT['zh-TW']['search.date_caliber.reg']='登録日（平台新建）';
@@ -959,6 +961,7 @@
   DICT['en']['sort.dir_tip']='Desc = large to small (new to old); Asc = small to large (old to new)';
   DICT['en']['sort.now']='Now: {k} {d}';
   DICT['en']['search.today_short']='Today'; DICT['en']['search.date_swap']='Start/end date swapped';
+  DICT['en']['search.date_hint']='Fill "from" only = that single day; fill both = a range';
   DICT['en']['search.date_caliber.any']='Reg or change date';
   DICT['en']['search.date_caliber.change']='Change date (platform)';
   DICT['en']['search.date_caliber.reg']='Registration date (platform)';
@@ -976,6 +979,7 @@
   DICT['ja']['sort.dir_tip']='降順：数値/日付を大きい順（新しい順）／昇順：小さい順（古い順）';
   DICT['ja']['sort.now']='現在：{k} {d}';
   DICT['ja']['search.today_short']='今日'; DICT['ja']['search.date_swap']='開始日と終了日を入れ替えました';
+  DICT['ja']['search.date_hint']='「開始」のみ＝当日だけ／両方＝期間で検索';
   DICT['ja']['search.date_caliber.any']='登録日または変更日';
   DICT['ja']['search.date_caliber.change']='変更日（プラットフォーム）';
   DICT['ja']['search.date_caliber.reg']='登録日（プラットフォーム）';
