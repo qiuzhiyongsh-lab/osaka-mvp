@@ -197,8 +197,10 @@ function switchTab(name){
     $('panel'+n).className = 'emp-panel emp-card'+(n===name?' on':'');
   });
   if(name==='Fav') favLoad();
-  if(name==='Tag') tagLoad();
   if(name==='Cust') custLoad();
+  /* v1.9.95 修复（勇哥 2026-09-27 实测）：标签墙显示在「收藏 / 客户」Tab 顶部，
+     所以 tagLoad() 不能只挂在 Tag 分支 —— 否则默认进「收藏」Tab 时标签墙永远空白。 */
+  tagLoad();
 }
 
 /* ---------- 回流状态 ---------- */
@@ -241,11 +243,53 @@ function propCard(r){
     ? '<div class="emp-mini" style="margin-top:6px">收藏于 '+esc(r.fav_created_at)+'</div>' : '';
   if(window.PropCard){
     /* expandable:false —— 勇哥：收藏页不需要把详细页面再展开，进来直接打标签即可 */
-    return PropCard.full(r, { id:id, expandable:false, extraHtml:tagsHtml + favTime });
+    /* v1.9.95 Fix C：onCompare:true ⇒ 「加入对比」不再空操作（prop_card.js 里 _cmp 默认 null） */
+    return PropCard.full(r, { id:id, expandable:false, onCompare:true, extraHtml:tagsHtml + favTime });
   }
   return '<div class="qitem"><div class="qhead"><div class="qrow1">'
     + '<span class="mono">'+esc(no)+'</span></div></div></div>';
 }
+
+/* ===== v1.9.95 Fix C：员工业务页的「加入对比」=====
+   勇哥 2026-09-27：收藏列表 / 客户展开的房源里点「加入对比」没反应。
+   根因：prop_card.js 的对比按钮 onclick = onCompare ? PropCard._cmp(no) : void 0，
+   而 emp 页没传 onCompare、_cmp 默认也是 null ⇒ 空操作。
+   这里复用**全站共用的全局 CompareBox**（app.js 提供、localStorage 共享）：
+   加入后顶部导航「房源对比」的角标会亮，点它即可进 /compare。 */
+function cmpItemOf(no){
+  var box = document.querySelector('.qitem[data-no="'+CSS.escape(no)+'"]');
+  var it = { no:no, addr:'', name:'', sub:'', ward:'', area:'', price:null, pdf:false };
+  if(!box) return it;
+  it.name = box.getAttribute('data-nm') || '';
+  it.sub  = box.getAttribute('data-sub') || '';
+  it.addr = box.getAttribute('data-addr') || '';
+  it.ward = box.getAttribute('data-ward') || '';
+  it.area = box.getAttribute('data-area') || '';
+  return it;
+}
+function cmpToggleEmp(no){
+  if(!window.CompareBox) return;
+  if(CompareBox.has(no)){
+    CompareBox.remove(no);
+  }else{
+    var r = CompareBox.add(cmpItemOf(no));
+    if(!r.ok){
+      if(r.reason === 'full'){ alert('最多同时对比 ' + CompareBox.MAX + ' 套'); }
+      return;
+    }
+  }
+  markCmpEmp();
+}
+function markCmpEmp(){
+  if(!window.CompareBox) return;
+  document.querySelectorAll('.qcmp').forEach(function(b){
+    var no = b.getAttribute('data-no'); var on = CompareBox.has(no);
+    b.classList.toggle('on', on);
+    b.textContent = on ? t('cmp.added_short') : t('detail.tobank');
+  });
+}
+if(window.PropCard){ window.PropCard._cmp = cmpToggleEmp; }
+if(window.CompareBox){ CompareBox.onChange(function(){ markCmpEmp(); }); }
 function renderPager(box, total, page, size, goFn){
   if(!box) return;
   var pages = Math.max(1, Math.ceil(total/size));

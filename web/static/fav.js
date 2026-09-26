@@ -369,7 +369,13 @@
   /* ---------- 添加客户（勇哥 2026-09-26：在「收藏」右侧的快捷入口）----------
      点开后：① 可搜索已有客户（名称 / 手机号 / 备注）并**关联本房源**；② 也可当场新建客户并关联。 */
   function openCustPicker(no) {
-    if (document.getElementById('favCustModal')) return;
+    /* v1.9.95 Fix D（勇哥 2026-09-27 实测「添加客户」偶发弹不出）：
+       showCustList（绿色「已添加客户」浮层）与添加框共用 id #favCustModal。
+       若上一层的 showCustList 浮层没走「关闭/继续添加」清除而残留在 DOM，
+       这里原 `if(getElementById('favCustModal')) return;` 守卫会直接拦截 ⇒ 点蓝色
+       「添加客户」永远没反应。改为：开前先清掉任何残留浮层，保证每次点击都重开。 */
+    var stale = document.getElementById('favCustModal');
+    if (stale && stale.parentNode) { stale.parentNode.removeChild(stale); }
     var box = document.createElement('div');
     box.id = 'favCustModal';
     box.style.cssText = 'position:absolute;z-index:10000;background:#fff;border:1px solid #d4dcea;'

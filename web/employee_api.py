@@ -640,7 +640,11 @@ def register(app):
 
     @app.post(PREFIX + "/customers/<int:cid>/bind")
     def _emp_cust_bind(cid):
-        """客户 ⇄ 意向房源。body: {property_no, intent?}"""
+        """客户 ⇄ 意向房源。body: {property_no, intent?, unbind?}
+
+        v1.9.95 C11 补充：`unbind=true` 时**解除**该客户与此房源的关联
+        （勇哥：客户卡片展开的房源里点「已添加客户」= 取消该客户对这套房的关联）。
+        """
         owner, err = _need_owner()
         if err:
             return err
@@ -653,6 +657,12 @@ def register(app):
             row = con.execute("SELECT id FROM customers WHERE id=?", (cid,)).fetchone()
             if not row:
                 return jsonify({"ok": False, "error": "客户不存在"}), 404
+            if d.get("unbind"):
+                con.execute("DELETE FROM customer_properties"
+                            " WHERE customer_id=? AND property_no=?", (cid, no))
+                con.commit()
+                return jsonify({"ok": True, "customer_id": cid, "property_no": no,
+                                "unbound": True})
             con.execute("INSERT OR IGNORE INTO customer_properties"
                         "(customer_id, property_no, intent, created_at, created_by, updated_at)"
                         " VALUES(?,?,?,?,?,?)",
