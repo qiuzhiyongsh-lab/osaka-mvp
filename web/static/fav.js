@@ -357,8 +357,22 @@
             + '<div style="font-size:11px;color:#9aa8bf;margin-top:2px">归属 '
             + escHtml(c.owner_username || '')
             + (c.bound_at ? '　关联于 ' + escHtml(String(c.bound_at).slice(0, 10)) : '')
+            + '　<span class="fcust-unbind" data-cid="' + (c.id || 0) + '" data-name="'
+            + escHtml(c.name || '') + '" style="color:#c0392b;cursor:pointer">取消关联</span>'
             + '</div></div>';
         }).join('');
+        /* v1.9.96（勇哥 #9-②）：每个已关联客户行带「取消关联」——直接 DELETE 该客户与此房源的绑定。
+           多客户场景下一行一行解，避免「一键全解」误伤。 */
+        var ub = host.querySelectorAll('.fcust-unbind');
+        for (var i = 0; i < ub.length; i++) {
+          ub[i].onclick = function () {
+            unbindCust(no, parseInt(this.getAttribute('data-cid'), 10), this.getAttribute('data-name'));
+          };
+        }
+        /* 按钮选中态与服务端对齐：还有客户=绿「已添加客户」，全清=蓝「添加客户」 */
+        if (items.length) { if (!CUSTNOS) { CUSTNOS = {}; } CUSTNOS[no] = 1; }
+        else { if (CUSTNOS) { delete CUSTNOS[no]; } }
+        renderAll();
       })
       .catch(function () {
         var host = document.getElementById('fcustLinked');
@@ -470,6 +484,19 @@
         toast('已关联到客户「' + (name || '') + '」');
       } else { alert('⚠ ' + ((j && j.error) || '关联失败')); }
     });
+  }
+
+  /* v1.9.96（勇哥 #9-②）：取消「客户 ⇄ 房源」关联。 */
+  function unbindCust(no, cid, name) {
+    if (!confirm('确定取消「' + (name || '') + '」与这套房的关联？')) return;
+    fetch('/api/emp/customers/' + cid + '/bind', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property_no: no, unbind: true })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.ok) { toast('已取消关联「' + (name || '') + '」'); showCustList(no); }
+      else { alert('⚠ ' + ((j && j.error) || '取消失败')); }
+    }).catch(function () { alert('⚠ 网络错误，取消失败'); });
   }
 
   window.Fav = { load: load, renderAll: renderAll, toggle: toggle, isFav: isFav, html: html,
