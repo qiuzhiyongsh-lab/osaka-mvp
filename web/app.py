@@ -336,6 +336,15 @@ def _access_guard():
     #   见 web/employee_api.py 顶部「隔离契约」。
     if path == "/api/emp/export":
         return None
+    # v1.9.100：非破坏性发版刷新通道（/api/admin/selfrestart / /api/admin/selfupdate）——
+    #   机器对机器，凭 X-Publish-Token 校验（_relay_token_ok，与 /api/ingest 同款）；
+    #   接口自身再锁一层（没对令牌时自己 401）。豁免理由同 /api/ingest：本地发版脚本
+    #   没有、也不该有浏览器账户会话。**用途**：重新部署到同一目录后磁盘已是新代码、
+    #   但 Flask 进程仍跑旧模块时，原地重启进程加载新代码 —— **绝不删应用、绝不换子域**
+    #   （子域只在平台「新建 app」时分配，本通道绝不做新建动作）。这是 2026-09-27 勇哥拍板
+    #   「永久避免删应用/换地址」的核心手段。
+    if path in ("/api/admin/selfrestart", "/api/admin/selfupdate"):
+        return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
     emergency_ok = bool(code) and (
@@ -3179,6 +3188,60 @@ def _run_specified_download(opts, trial: bool = False):
         TEST_RESULT["specified_download"] = {"status": "error", "at": _now(),
                                              "message": str(e)}
         log("✗ 指定日期下载异常：" + str(e))
+
+
+# ===================================================================
+# v1.9.100 非破坏性发版刷新通道（2026-09-27 勇哥拍板·永久避免删应用/换子域）
+# 设计：线上 app 永远只「重新部署到同一目录」（workbuddy_sites_deploy 复用沙箱、
+#   链接不变）。若重新部署后 running_version 未变（进程仍跑旧模块），调本接口
+#   让进程原地 execv 重启加载新代码。绝不删应用、绝不换子域、无需用户在 UI 操作。
+# 守卫：X-Publish-Token；没对令牌接口自身 401（见 _access_guard 豁免）。
+# ===================================================================
+@app.route("/api/admin/selfrestart", methods=["POST"])
+def api_admin_selfrestart():
+    if not _relay_token_ok():
+        return jsonify(ok=False, error="forbidden"), 403
+    import os as _os, sys as _sys, threading as _th
+    from core import version as _ver
+    from core import config as _cfgmod
+
+    def _restart():
+        _th.Event().wait(0.4)
+        _os.execv(_sys.executable, _sys.argv)        # 原地重启：同 PID、新模块
+
+    _th.Thread(target=_restart, daemon=True).start()
+    return jsonify(ok=True, restarting=True, version=_ver.VERSION,
+                   note="进程将在约 0.4s 后原地重启以加载新代码（不发新沙箱、不改子域）")
+
+
+@app.route("/api/admin/selfupdate", methods=["POST"])
+def api_admin_selfupdate():
+    """可选回退：当平台重新部署未替换磁盘文件时，从 selfupdate_url 拉新代码包原地解压+重启。
+    默认不启用（publish.selfupdate_url / OSAKA_SELFUPDATE_URL 未设则不提供此能力）。
+    同样绝不删应用、绝不换子域。"""
+    if not _relay_token_ok():
+        return jsonify(ok=False, error="forbidden"), 403
+    import os as _os, sys as _sys, threading as _th
+    import urllib.request as _ureq, zipfile as _zf, io as _io
+    from pathlib import Path as _Path
+
+    url = (CFG.get("publish") or {}).get("selfupdate_url") or os.environ.get("OSAKA_SELFUPDATE_URL") or ""
+    if not url:
+        return jsonify(ok=False, error="selfupdate_url 未配置"), 400
+
+    def _pull():
+        _th.Event().wait(0.3)
+        try:
+            _data = _ureq.urlopen(url, timeout=60).read()
+            _z = _zf.ZipFile(_io.BytesIO(_data))
+            _root = str(_Path(__file__).resolve().parent.parent)   # app_local 根
+            _z.extractall(_root)
+            _os.execv(_sys.executable, _sys.argv)
+        except Exception as _e:                                    # noqa: BLE001
+            print("[selfupdate] 失败：%s" % _e, flush=True)
+
+    _th.Thread(target=_pull, daemon=True).start()
+    return jsonify(ok=True, pulling=True, note="将从 %s 拉取代码包并原地重启" % url)
 
 
 def create_app():

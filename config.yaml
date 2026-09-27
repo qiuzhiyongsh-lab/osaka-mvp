@@ -44,6 +44,20 @@ ai_read_scope:
 - 売一戸建
 - 売マンション
 - 売土地
+publish:
+  enabled: true
+  mode: auto
+  endpoint: ''
+  token: ''
+  ingest_token: ''
+  month_scope: ''
+  scope_caliber: download
+  batch_size: 200
+  auto_enabled: true
+  interval_minutes: 10
+  full_repush_hours: 24
+  date_from: ''
+  date_to: ''
 site:
   name: reins
   base_url: https://system.reins.jp
@@ -115,18 +129,8 @@ crawl:
     inline_fail_threshold: 5
   inline_detail: true
   main_round_enabled: false
-  # v1.9.82 D1 解耦：阶段B（补详情+PDF）独立开关，默认开。
-  #   历史：v1.9.6/1.9.7 已让阶段B 在 main_round=false 时仍跑（run_round 的 elif 降级分支
-  #   调 _backfill_details_pdfs）；本开关把它从「隐式跟随主轮降级」升级为「显式独立可控」。
-  #   主轮仍 false（勇哥 U3 拍板不动）；stage_b_enabled=false 时才会真正关掉补详情/PDF。
   stage_b_enabled: true
-  # v1.9.82 RB-1：500 件上限应对。默认关 = 只告警不细分（PRD 建议「告警先做」）。
-  #   开 = 检索撞 500 件上限时，自动按 REINS 可筛维度（地域/価格帯）拆细重试。
-  #   ⚠ 拆细重试会增请求、有风控风险，未经验证前默认关；开启需真机 e2e 复核。
   auto_split_on_limit: false
-  # v1.9.82 借地権：土地権利筛选开关（勇哥 09-25：新增开关 + 查询条件，但「暂先不抓」）。
-  #   ownership = 勾「所有権のみ」（保持现状，不抓借地権）；all = 不勾（REINS 返回全部含借地権）。
-  #   ⚠ all 路径需在真机复核 REINS 是否真返回借地権（B⑰ 沙箱禁公网），默认 ownership 零行为变化。
   rights_filter: ownership
   backfill_cap: 300
   backfill_max_minutes: 20
@@ -186,20 +190,6 @@ selectors:
 demo:
   daily_new: 60
   daily_change: 18
-publish:
-  enabled: true
-  mode: auto
-  endpoint: ''
-  token: ''
-  ingest_token: ''
-  month_scope: ''
-  scope_caliber: download
-  batch_size: 200
-  auto_enabled: true
-  interval_minutes: 10
-  full_repush_hours: 24
-  date_from: ''
-  date_to: ''
 ai:
   api_key: ''
   model: doubao-seed-1.6
@@ -208,3 +198,5 @@ public:
   access_code: ''
 accounts:
   auth_enabled: true
+cos: {}
+crawler: {}

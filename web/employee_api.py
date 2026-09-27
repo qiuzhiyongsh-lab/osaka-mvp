@@ -35,6 +35,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import datetime
@@ -93,6 +94,20 @@ def register(app):
         con = sqlite3.connect(str(es.db_path()), timeout=20)
         con.row_factory = sqlite3.Row
         return con
+
+    def _log_action(emp_username, action, target_type, target_id, detail=None):
+        """F7（定稿）：记录员工操作日志（弱依赖，失败仅警告，不阻断主业务）。"""
+        try:
+            c2 = sqlite3.connect(str(es.db_path()), timeout=20)
+            c2.execute(
+                "INSERT INTO emp_action_log(emp_username, action, target_type, target_id,"
+                " detail_json, created_at) VALUES(?,?,?,?,?,?)",
+                (emp_username, action, target_type, str(target_id),
+                 json.dumps(detail or {}, ensure_ascii=False), _now()))
+            c2.commit()
+            c2.close()
+        except Exception as _e:
+            _log("emp_action_log 写入失败(弱依赖，忽略): %s" % _e)
 
     def _me():
         return W._current_user()
@@ -240,10 +255,12 @@ def register(app):
             if row:
                 con.execute("DELETE FROM favorites WHERE id=?", (row["id"],))
                 con.commit()
+                _log_action(owner, "uncollect", "property", no, {"property_no": no})
                 return jsonify({"ok": True, "added": False, "property_no": no})
             con.execute("INSERT INTO favorites(owner_username, property_no, created_at, updated_at)"
                         " VALUES(?,?,?,?)", (owner, no, _now(), _now()))
             con.commit()
+            _log_action(owner, "collect", "property", no, {"property_no": no})
             return jsonify({"ok": True, "added": True, "property_no": no})
         except sqlite3.IntegrityError:
             return jsonify({"ok": True, "added": True, "property_no": no})
@@ -400,11 +417,15 @@ def register(app):
                 con.execute("DELETE FROM property_tags WHERE owner_username=? AND property_no=?"
                             " AND tag_id=?", (owner, no, tag_id))
                 con.commit()
+                _log_action(owner, "tag_del", "tag", tag_id,
+                            {"tag_id": tag_id, "property_no": no, "category": tk["category"]})
                 return jsonify({"ok": True, "bound": False})
             con.execute("INSERT OR IGNORE INTO property_tags"
                         "(owner_username, property_no, tag_id, created_at, updated_at)"
                         " VALUES(?,?,?,?,?)", (owner, no, tag_id, _now(), _now()))
             con.commit()
+            _log_action(owner, "tag_add", "tag", tag_id,
+                        {"tag_id": tag_id, "property_no": no, "category": tk["category"]})
             return jsonify({"ok": True, "bound": True})
         finally:
             con.close()
@@ -654,13 +675,22 @@ def register(app):
             return jsonify({"ok": False, "error": "缺少 property_no"}), 400
         con = _conn()
         try:
-            row = con.execute("SELECT id FROM customers WHERE id=?", (cid,)).fetchone()
+            row = con.execute(
+                "SELECT id, owner_username, COALESCE(deleted,0) AS deleted"
+                " FROM customers WHERE id=?", (cid,)).fetchone()
             if not row:
                 return jsonify({"ok": False, "error": "客户不存在"}), 404
+            if row["deleted"] == 1:
+                return jsonify({"ok": False, "error": "客户已删除"}), 404
+            # F4（定稿）：归属校验（W6）—— 仅归属员工可绑/解；管理员对他人客户只读
+            if row["owner_username"] != owner:
+                return jsonify({"ok": False, "error": "只能操作自己的客户"}), 403
             if d.get("unbind"):
                 con.execute("DELETE FROM customer_properties"
                             " WHERE customer_id=? AND property_no=?", (cid, no))
                 con.commit()
+                _log_action(owner, "unbind", "customer", cid,
+                            {"customer_id": cid, "property_no": no})
                 return jsonify({"ok": True, "customer_id": cid, "property_no": no,
                                 "unbound": True})
             con.execute("INSERT OR IGNORE INTO customer_properties"
@@ -668,6 +698,8 @@ def register(app):
                         " VALUES(?,?,?,?,?,?)",
                         (cid, no, d.get("intent"), _now(), owner, _now()))
             con.commit()
+            _log_action(owner, "bind", "customer", cid,
+                        {"customer_id": cid, "property_no": no})
             return jsonify({"ok": True, "customer_id": cid, "property_no": no})
         finally:
             con.close()

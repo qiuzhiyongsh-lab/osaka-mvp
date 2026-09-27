@@ -9,8 +9,32 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.99"
-BUILD_AT = "2026-09-27 04:10"
+VERSION = "1.9.100"
+BUILD_AT = "2026-09-27 11:10"
+# ============================================================================
+# v1.9.100（2026-09-27 · 定稿：客户关联管理 F2–F7 全量落地 · 标签醒目化双视角）：
+#   依据《osaka_mvp_customer_link_prd.md》v2.0 定稿（勇哥 6 图需求 + 4 项增订 Q1–Q4）。
+#   · F1（前序 1.9.96/1.9.99 已根治）：「已添加客户」重击闪烁 —— 根因 = innerHTML 序列化
+#     时 `&&` 转义为 `&amp;&amp;` → 字符串相等守卫失效 → MutationObserver 自激励重绘。
+#     本版再用「状态令牌」(cno+':on'/':off') 替代字符串比较，从根消除自激励。
+#   · F2 悬浮直接展示关联客户（勇哥：不要"查看这套房相关的客户"提示，要直接看实际谁）：
+#     custHtml 去掉 title；新增 showCustPreview（mouseover 委托 + 500ms 延迟）+ hidePreview，
+#     custClick 分流（已关联→showCustList / 未关联→openCustPicker）。
+#   · F3 取消关联（删除客户）入口 + 防误删：搜索/收藏页「已关联客户」浮层逐客户「取消关联」
+#     （调 POST /api/emp/customers/<cid>/bind {unbind:true}）；confirm 文案升级列出客户名+
+#     房源番号（红色警示）；收藏页卡片补 custslot 入口（F3.3）。
+#   · F4（W6 管理员边界）：_emp_cust_bind 先查 owner_username + COALESCE(deleted,0)；
+#     deleted=1→404、owner≠当前用户→403（管理员对他人客户只读、仅归属员工可绑/解）。
+#   · F6 标签醒目化（勇哥：管理者与员工都要一眼看清、状态分明、不会看漏）：
+#     fav.js injectStyle .favbtn/.custbtn 1px→2px（on 态红/绿加粗）；
+#     emp.html .pill/.pill.on/.favbtn/.favbtn.on/.tagchip/.tagchip.on/.tagchip.armed 全改 2px；
+#     style.css .qcmp/.qcmp.on 1px→2px。线上+线下所有小标签位置统一加粗边线。
+#   · F7 全功能操作日志：employee_schema 新增 emp_action_log 表 + idx_emp_action_log_who；
+#     employee_api 新增弱依赖 _log_action，6 处埋点（collect/uncollect/tag_add/tag_del/bind/unbind），
+#     失败仅 warning 不阻断主流程。
+#   · 改动文件：core/employee_schema.py、core/version.py、web/employee_api.py、
+#     web/static/fav.js、web/templates/emp.html、web/static/style.css。
+#
 # ============================================================================
 # v1.9.99（2026-09-27 · 根治"添加客户弹窗第一次能用、之后点别的行点不出"）：
 #   · 🔴 根因（勇哥三测复现）：`showCustList`(绿「已关联客户」浮层) 与 `openCustPicker`

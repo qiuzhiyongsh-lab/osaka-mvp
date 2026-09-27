@@ -319,7 +319,7 @@ def check_ops():
     # ⑦ 线上健康（四黄金信号里最要紧的两个：可用性 + 错误）
     try:
         import urllib.request
-        with urllib.request.urlopen("https://osaka-house-v2.app.workbuddy.host/api/ping",
+        with urllib.request.urlopen("https://596332161f7f4d27865a50c8b4cf5b9b.app.workbuddy.host/api/ping",
                                     timeout=20) as resp:
             ok = resp.status == 200
         rec("OPS", "线上可用性", GREEN if ok else RED,

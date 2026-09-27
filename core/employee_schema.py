@@ -129,6 +129,19 @@ TABLES: list[tuple[str, str]] = [
             UNIQUE(owner_username, customer_id, tag_id)
         )
     """),
+    # F7（2026-09-27 定稿）：全功能操作日志（收藏/标签/客户关联）—— 谁/何时/做了什么/对象
+    #   纯 append-only；弱依赖（写入失败仅记日志，不阻断主业务）。
+    ("emp_action_log", """
+        CREATE TABLE IF NOT EXISTS emp_action_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            emp_username TEXT    NOT NULL,
+            action       TEXT    NOT NULL,
+            target_type  TEXT    NOT NULL,
+            target_id    TEXT,
+            detail_json  TEXT,
+            created_at   TEXT    NOT NULL
+        )
+    """),
 ]
 
 INDEXES: list[tuple[str, str]] = [
@@ -139,6 +152,7 @@ INDEXES: list[tuple[str, str]] = [
     ("idx_tags_owner_cat", "CREATE INDEX IF NOT EXISTS idx_tags_owner_cat ON tags(owner_username, category)"),
     ("idx_ptag_tag", "CREATE INDEX IF NOT EXISTS idx_ptag_tag ON property_tags(tag_id)"),
     ("idx_ctag_tag", "CREATE INDEX IF NOT EXISTS idx_ctag_tag ON customer_tags(tag_id)"),
+    ("idx_emp_action_log_who", "CREATE INDEX IF NOT EXISTS idx_emp_action_log_who ON emp_action_log(emp_username, created_at)"),
 ]
 
 # ---- 列增补迁移：{表名: [(列名, 类型)]} ----

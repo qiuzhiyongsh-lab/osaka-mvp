@@ -34,10 +34,10 @@
 .pcard-more{border-top:1px dashed #e3e9f5;margin-top:10px;padding-top:10px;font-size:12px;color:#6b7c99;line-height:1.9}
 .pcard-acts{display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
 .pcard-acts a,.pcard-acts .lnk{font-size:12px;color:#3b6fd4;cursor:pointer;text-decoration:none}
-.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid #dfe6f2;background:#f7f9fd;color:#33425f;white-space:nowrap}
-.pill.on{background:#e8f0fe;border-color:#3b6fd4;color:#2a54a8}
-.favbtn{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:6px;border:1px solid #d4dcea;background:#fff;color:#6b7c99;cursor:pointer}
-.favbtn.on{border-color:#e05c6a;background:#fdeef0;color:#c0392b}
+.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;border:2px solid #c4d0e6;background:#f7f9fd;color:#33425f;white-space:nowrap}
+.pill.on{background:#e8f0fe;border-color:#2a54a8;color:#2a54a8}
+.favbtn{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:6px;border:2px solid #b9c6e0;background:#fff;color:#6b7c99;cursor:pointer}
+.favbtn.on{border-color:#d23b4a;background:#fdeef0;color:#c0392b}
 .favbtn svg{width:13px;height:13px}
 .pager{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:#7a8aa5}
 .pager button{font-size:12px;padding:3px 10px;border:1px solid #d4dcea;border-radius:6px;background:#fff;color:#33425f;cursor:pointer}
@@ -50,14 +50,14 @@
 .tagcol h4{margin:0 0 2px;font-size:13px;color:#22314f}
 .tagcol .sub{font-size:11px;color:#9aa8bf;margin-bottom:10px}
 .tagchips{display:flex;flex-wrap:wrap;gap:8px}
-.tagchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid #dfe6f2;background:#fff;color:#33425f;cursor:pointer}
+.tagchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 11px;border-radius:999px;border:2px solid #c4d0e6;background:#fff;color:#33425f;cursor:pointer}
 .tagchip:hover{border-color:#3b6fd4}
-.tagchip.on{border-color:#3b6fd4;background:#e8f0fe;color:#2a54a8}
+.tagchip.on{border:2px solid #2a54a8;background:#e8f0fe;color:#2a54a8}
 .tagchip .n{font-size:11px;color:#7a8aa5}
 /* v1.9.95 C13/R46：删除「×」默认隐藏；长按(移动)/悬停1s(桌面)才显形（勇哥：标签是重要资产，防误删） */
 .tagdel{display:none;margin-left:2px;font-size:12px;color:#a94442;cursor:pointer}
 .tagchip.armed .tagdel{display:inline}
-.tagchip.armed{border-color:#e08b8b}
+.tagchip.armed{border:2px solid #d96161}
 /* v1.9.95 C9/C12：标签墙（收藏栏 / 客户栏）；W11 拍板：折行 + 超出「展开更多」 */
 .tagwall{flex:1 1 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
 .tagwall .tw-more{font-size:11px;color:#3b6fd4;cursor:pointer;text-decoration:underline}
@@ -244,7 +244,9 @@ function propCard(r){
   if(window.PropCard){
     /* expandable:false —— 勇哥：收藏页不需要把详细页面再展开，进来直接打标签即可 */
     /* v1.9.95 Fix C：onCompare:true ⇒ 「加入对比」不再空操作（prop_card.js 里 _cmp 默认 null） */
-    return PropCard.full(r, { id:id, expandable:false, onCompare:true, extraHtml:tagsHtml + favTime });
+    return PropCard.full(r, { id:id, expandable:false, onCompare:true,
+      extraHtml: tagsHtml + favTime
+        + '<span class="custslot" data-cust="'+no+'"></span>' });
   }
   return '<div class="qitem"><div class="qhead"><div class="qrow1">'
     + '<span class="mono">'+esc(no)+'</span></div></div></div>';

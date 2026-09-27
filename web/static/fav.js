@@ -27,18 +27,18 @@
     var css = ''
       + '.favslot{display:inline-flex;vertical-align:middle}'
       + '.favbtn{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;'
-      + 'border-radius:6px;border:1px solid #d4dcea;background:#fff;color:#6b7c99;cursor:pointer;'
+      + 'border-radius:6px;border:2px solid #b9c6e0;background:#fff;color:#6b7c99;cursor:pointer;'
       + 'white-space:nowrap;line-height:1.6}'
       + '.favbtn:hover{border-color:#e05c6a;color:#c0392b}'
-      + '.favbtn.on{border-color:#e05c6a;background:#fdeef0;color:#c0392b}'
+      + '.favbtn.on{border:2px solid #d23b4a;background:#fdeef0;color:#c0392b}'
       + '.favbtn svg{width:13px;height:13px}'
       + '.custslot{display:inline-flex;vertical-align:middle}'
       + '.custbtn{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;'
-      + 'border-radius:6px;border:1px solid #d4dcea;background:#fff;color:#3b6fd4;cursor:pointer;'
+      + 'border-radius:6px;border:2px solid #b9c6e0;background:#fff;color:#3b6fd4;cursor:pointer;'
       + 'white-space:nowrap;line-height:1.6}'
       + '.custbtn:hover{border-color:#3b6fd4;background:#eef4ff}'
       /* 勇哥 2026-09-26：已加过客户的房源要用另一种显示方式，一眼可辨 */
-      + '.custbtn.on{border-color:#2f9e6f;background:#eafaf2;color:#1f7a52}'
+      + '.custbtn.on{border:2px solid #1f8a5f;background:#eafaf2;color:#1f7a52}'
       + '.custbtn.on:hover{border-color:#1f7a52;background:#dcf5e9}';
     var s = document.createElement('style');
     s.id = 'favbtn-style';
@@ -86,12 +86,13 @@
     /* v1.9.95 C10/R43：已关联 ⇒ 点开「已关联客户」列表（勇哥：要一眼看出关联了谁，
        而不是再开一次添加框）；未关联 ⇒ 仍是打开添加选择器。查询页 / 详情页同源，自动同步。 */
     return '<span class="custbtn' + (on ? ' on' : '') + '" data-custbtn="' + no + '"'
-      /* ⚠ 防呆：若 showCustList 缺失/版本没更新到，回退到添加框 —— 保证「点了必有反应」 */
-      + ' onclick="' + (on
-            ? '(window.Fav&&Fav.showCustList?Fav.showCustList:Fav.openCustPicker)'
-            : 'Fav.openCustPicker') + '(\'' + no + '\')"'
-      + ' title="' + (on ? '查看这套房已关联的客户' : '把这个房源关联到客户') + '">'
+      + ' onclick="Fav.custClick(\'' + no + '\')">'
       + (on ? '已添加客户' : '添加客户') + '</span>';
+  }
+
+  /* F1 统一入口：已关联 → 打开已关联客户列表；未关联 → 打开添加选择器 */
+  function custClick(no) {
+    if (isCust(no)) { showCustList(no); } else { openCustPicker(no); }
   }
 
   function renderAll() {
@@ -111,10 +112,12 @@
       var cs = cslots[j];
       var cno = cs.getAttribute('data-cust') || '';
       if (!cno) continue;
-      var want = custHtml(cno);
-      if (cs.getAttribute('data-custdone') === cno && cs.innerHTML === want) continue;  // 无变化，跳过
-      cs.innerHTML = want;
-      cs.setAttribute('data-custdone', cno);
+      /* F1：用「状态令牌」判定是否需重绘（cno + 是否on），避开 innerHTML 序列化转义
+         导致的守卫失效与无限闪烁；同时保证绑定/解绑后状态切换能正确刷新。 */
+      var custState = cno + (isCust(cno) ? ':on' : ':off');
+      if (cs.getAttribute('data-custdone') === custState) continue;
+      cs.innerHTML = custHtml(cno);
+      cs.setAttribute('data-custdone', custState);
     }
     var btns = document.querySelectorAll('[data-favbtn]');
     for (var k = 0; k < btns.length; k++) {
@@ -495,7 +498,7 @@
 
   /* v1.9.96（勇哥 #9-②）：取消「客户 ⇄ 房源」关联。 */
   function unbindCust(no, cid, name) {
-    if (!confirm('确定取消「' + (name || '') + '」与这套房的关联？')) return;
+    if (!confirm('确定取消客户「' + (name || '') + '」与房源 ' + no + ' 的关联？\n此操作会立即生效，关联可随时重新建立。')) return;
     fetch('/api/emp/customers/' + cid + '/bind', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -506,9 +509,44 @@
     }).catch(function () { alert('⚠ 网络错误，取消失败'); });
   }
 
+  /* F2 hover 预览：停在「已添加客户」上 500ms 即弹出只读预览卡（去掉原生 title 文字） */
+  var hoverTimer = null, hoverBox = null;
+  function hidePreview() {
+    clearTimeout(hoverTimer);
+    if (hoverBox && hoverBox.parentNode) { hoverBox.parentNode.removeChild(hoverBox); hoverBox = null; }
+  }
+  function showCustPreview(no, anchor) {
+    hidePreview();
+    fetch('/api/emp/customers/by-property?no=' + encodeURIComponent(no), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok) { return; }
+        var items = (j.items || []);
+        var b = document.createElement('div');
+        b.id = 'favCustPreview';
+        b.style.cssText = 'position:absolute;z-index:10001;background:#fff;border:1px solid #d4dcea;'
+          + 'border-radius:12px;padding:12px;max-width:320px;box-shadow:0 4px 18px rgba(30,50,90,.14)';
+        b.innerHTML = '<div style="font-size:12px;font-weight:700;color:#1f7a52;margin-bottom:6px">'
+          + '已关联客户（' + items.length + '）</div>'
+          + (items.length
+              ? items.map(function (c) {
+                  return '<div style="font-size:12px;padding:4px 0;border-bottom:1px solid #eef1f6">'
+                    + escHtml(c.name || '')
+                    + (c.phone ? ' <span style="color:#6b7c99">' + escHtml(c.phone) + '</span>' : '')
+                    + '</div>';
+                }).join('')
+              : '<div style="font-size:12px;color:#7a8aa5">暂无关联客户</div>');
+        document.body.appendChild(b);
+        var r0 = anchor.getBoundingClientRect();
+        b.style.left = (window.scrollX + r0.left) + 'px';
+        b.style.top = (window.scrollY + r0.bottom + 6) + 'px';
+        hoverBox = b;
+      });
+  }
+
   window.Fav = { load: load, renderAll: renderAll, toggle: toggle, isFav: isFav, html: html,
                  openTagPicker: openTagPicker, openCustPicker: openCustPicker,
-                 showCustList: showCustList };   /* v1.9.95 C10 */
+                 showCustList: showCustList, custClick: custClick };   /* F1/F2 定稿 */
 
   document.addEventListener('DOMContentLoaded', function () {
     load();
@@ -516,5 +554,21 @@
       new MutationObserver(schedule).observe(document.body || document.documentElement,
         { childList: true, subtree: true });
     }
+    /* F2：hover 预览委托（仅对已关联的 custbtn 生效） */
+    document.addEventListener('mouseover', function (e) {
+      var t = e.target.closest ? e.target.closest('.custbtn') : null;
+      if (t && isCust(t.getAttribute('data-custbtn'))) {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(function () {
+          showCustPreview(t.getAttribute('data-custbtn'), t);
+        }, 500);
+      }
+    });
+    document.addEventListener('mouseout', function (e) {
+      var to = e.relatedTarget;
+      if (to && to.closest && to.closest('.custbtn')) { return; }
+      var t = e.target.closest ? e.target.closest('.custbtn') : null;
+      if (t) { hidePreview(); }
+    });
   });
 })();
