@@ -9,8 +9,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.101"
-BUILD_AT = "2026-09-27 11:10"
+VERSION = "1.9.102"
+BUILD_AT = "2026-09-28 01:30"
 # ============================================================================
 # v1.9.100（2026-09-27 · 定稿：客户关联管理 F2–F7 全量落地 · 标签醒目化双视角）：
 #   依据《osaka_mvp_customer_link_prd.md》v2.0 定稿（勇哥 6 图需求 + 4 项增订 Q1–Q4）。

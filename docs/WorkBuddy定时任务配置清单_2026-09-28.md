@@ -253,7 +253,9 @@ schtasks /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 ^
 - **注册结果**：`成功创建计划任务 "osaka_hotsnap"`，下次运行 **2026/9/28 02:06**，模式「就绪」。
 - 🟡 **发现一个体验问题**：任务为「只使用交互方式」+ `python.exe` ⇒ **每小时会弹一次黑窗口**（白天用机器会烦）。
   解法：脚本改为**写日志文件**（`pythonw` 无 stdout，print 会抛异常）+ 改用 **`pythonw.exe`** 运行。
-  - 勇哥再做一次：双击 `tools\切换为无窗口模式.bat`（先 `/Change`，失败则 `/Delete`+`/Create`）
+  - ⚠️ **第二版也翻车了**：`schtasks /Change` 会**要求输入账号密码**并在批处理里卡死（`请输入 25374 的密码:`），而 `/Create` **不需要密码**（首次注册成功即证明）。
+    ⇒ 最终改为**幂等版**：`/Delete /F` → `/Create /F`（pythonw），**可重复双击，不会卡住**。`注册…bat` 与 `切换…bat` 内容已统一。
+  - 勇哥再做一次：双击 `tools\切换为无窗口模式.bat`（或 `注册每小时热层快照.bat`，两者现完全相同）
   - 日志：`.backups/hot/snapshot.log`（超 2000 行自动只保留后 1000 行）
   - pythonw 实测（01:08）：无任何窗口，日志 `run end: OK`，customers=8 / favorites=15 / property_tags=36
   - 撤销：`schtasks /Delete /TN "osaka_hotsnap" /F`

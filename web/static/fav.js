@@ -233,7 +233,7 @@
     all.forEach(function (t) {
       var on = !!sel[t.id];
       h += '<span class="ftpchip" data-id="' + t.id + '" style="font-size:12px;padding:5px 11px;'
-        + 'border-radius:999px;cursor:pointer;border:1px solid ' + (on ? '#3b6fd4' : '#dfe6f2') + ';'
+        + 'border-radius:999px;cursor:pointer;border:2px solid ' + (on ? '#3b6fd4' : '#c4d0e6') + ';'
         + 'background:' + (on ? '#e8f0fe' : '#fff') + ';color:' + (on ? '#2a54a8' : '#33425f') + '">'
         + escHtml(t.name) + '</span>';
     });

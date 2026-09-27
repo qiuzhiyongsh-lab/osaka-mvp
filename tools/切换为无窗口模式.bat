@@ -1,10 +1,12 @@
 @echo off
-REM ---- osaka-mvp hourly snapshot: switch to windowless mode (pythonw) ----
+REM ---- osaka-mvp hourly snapshot: create / repair (windowless, pythonw) ----
+REM ---- idempotent: safe to run again and again ----
+REM ---- NOTE: never use ">" inside echo text (cmd treats it as redirection) ----
 echo ============================================
-echo  osaka-mvp: switch to WINDOWLESS mode
+echo  osaka-mvp hourly snapshot  (WINDOWLESS)
 echo --------------------------------------------
-echo  pythonw.exe instead of python.exe
-echo  => mei xiao shi bu zai dan hei chuang kou
+echo  pythonw.exe : no black window every hour
+echo  log file    : .backups hot snapshot.log
 echo ============================================
 echo.
 
@@ -22,18 +24,22 @@ if not exist "%SCRIPT%" (
     exit /b 1
 )
 
-echo [1/2] change task command to pythonw ...
-%SystemRoot%\System32\schtasks.exe /Change /TN "osaka_hotsnap" /TR "\"%PYW%\" \"%SCRIPT%\""
+echo [1/3] remove old task (if any) ...
+%SystemRoot%\System32\schtasks.exe /Delete /TN "osaka_hotsnap" /F
+
+echo [2/3] create task with pythonw ...
+%SystemRoot%\System32\schtasks.exe /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 /TR "\"%PYW%\" \"%SCRIPT%\"" /F
 if errorlevel 1 (
-    echo Change failed - recreate task ...
-    %SystemRoot%\System32\schtasks.exe /Delete /TN "osaka_hotsnap" /F
-    %SystemRoot%\System32\schtasks.exe /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 /TR "\"%PYW%\" \"%SCRIPT%\"" /F
+    echo.
+    echo [FAILED] could not create task. Try as Administrator.
+    pause
+    exit /b 1
 )
 
 echo.
-echo [2/2] result:
+echo [3/3] result:
 %SystemRoot%\System32\schtasks.exe /Query /TN "osaka_hotsnap" /FO LIST
 echo.
-echo log file: C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\.backups\hot\snapshot.log
+echo done. Ready / jiu xu means success.
 echo.
 pause

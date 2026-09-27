@@ -1,19 +1,20 @@
 @echo off
-REM ---- osaka-mvp hourly hot snapshot / register to Windows Task Scheduler ----
+REM ---- osaka-mvp hourly snapshot: create / repair (windowless, pythonw) ----
+REM ---- idempotent: safe to run again and again ----
+REM ---- NOTE: never use ">" inside echo text (cmd treats it as redirection) ----
 echo ============================================
-echo  osaka-mvp hourly hot snapshot - register
+echo  osaka-mvp hourly snapshot  (WINDOWLESS)
 echo --------------------------------------------
-echo  zuo yong: mei xiao shi dui employee.db + ai_pdf_store.db
-echo            zuo yi ci yuan zi kuai zhao (VACUUM INTO),
-echo            bu ting ji / bu ying xiang 8765
+echo  pythonw.exe : no black window every hour
+echo  log file    : .backups hot snapshot.log
 echo ============================================
 echo.
 
-set PY=C:\Users\25374\AppData\Local\Programs\Python\Python313\python.exe
+set PYW=C:\Users\25374\AppData\Local\Programs\Python\Python313\pythonw.exe
 set SCRIPT=C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\tools\hourly_hot_snapshot.py
 
-if not exist "%PY%" (
-    echo [ERROR] python not found: %PY%
+if not exist "%PYW%" (
+    echo [ERROR] pythonw not found: %PYW%
     pause
     exit /b 1
 )
@@ -23,13 +24,22 @@ if not exist "%SCRIPT%" (
     exit /b 1
 )
 
-%SystemRoot%\System32\schtasks.exe /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 /TR "\"%PY%\" \"%SCRIPT%\"" /F
+echo [1/3] remove old task (if any) ...
+%SystemRoot%\System32\schtasks.exe /Delete /TN "osaka_hotsnap" /F
+
+echo [2/3] create task with pythonw ...
+%SystemRoot%\System32\schtasks.exe /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 /TR "\"%PYW%\" \"%SCRIPT%\"" /F
+if errorlevel 1 (
+    echo.
+    echo [FAILED] could not create task. Try as Administrator.
+    pause
+    exit /b 1
+)
 
 echo.
-echo ---- jie guo fu he (result) ----
+echo [3/3] result:
 %SystemRoot%\System32\schtasks.exe /Query /TN "osaka_hotsnap" /FO LIST
 echo.
-echo kan dao "zhuang tai: yi zhun jiu xu" huo "Ready" ji cheng gong.
-echo che xiao:  schtasks /Delete /TN "osaka_hotsnap" /F
+echo done. Ready / jiu xu means success.
 echo.
 pause
