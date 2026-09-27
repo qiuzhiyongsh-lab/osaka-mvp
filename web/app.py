@@ -34,6 +34,7 @@ from core import version as ver                        # noqa: E402
 from core.auth import Auth, friendly_error            # noqa: E402
 from core.crawler import probe_query, reins_bukken_search   # noqa: E402
 from core import store as store_mod                   # noqa: E402
+from core import feature_flags as ff_mod               # noqa: E402  v1.9.101
 from core.scheduler import Scheduler                  # noqa: E402
 from core.publisher import PublishLoop
 from core import publisher as publisher_mod               # noqa: E402  (v1.9.63 AI 接力回推)                 # noqa: E402
@@ -3618,6 +3619,53 @@ def api_accounts_state():
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
     return jsonify({"ok": True, "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "count": len(rows), "accounts": rows})
+
+
+# ============================================================
+# v1.9.101 Feature Flag 渐进式交付 · 运行时开关
+#   - 公开只读 GET /api/feature_flags：前端据此隐藏/显示灰度功能（无鉴权，仅布尔）。
+#   - 机器对机器 GET/POST /api/admin/feature_flags：凭 X-Publish-Token 读取/改写开关。
+# ============================================================
+
+@app.get("/api/feature_flags")
+def api_feature_flags():
+    """【公开·只读】返回当前所有 flag 的布尔字典，供前端运行时门控（如灰度隐藏某按钮）。
+    失败安全：DB/表异常时回落 DEFAULTS，绝不抛 500 阻断页面。"""
+    try:
+        flags = {f["name"]: f["enabled"] for f in ff_mod.list_flags(STORE.conn)}
+    except Exception:  # noqa: BLE001
+        flags = {name: default for name, (default, _d) in ff_mod.DEFAULTS.items()}
+    return jsonify({"ok": True, "flags": flags})
+
+
+@app.get("/api/admin/feature_flags")
+def api_admin_feature_flags_get():
+    """【机器通道·X-Publish-Token】列出全部 flag（含默认值/说明/运行覆盖）。"""
+    if not _sync_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    return jsonify({"ok": True, "flags": ff_mod.list_flags(STORE.conn)})
+
+
+@app.post("/api/admin/feature_flags")
+def api_admin_feature_flags_post():
+    """【机器通道·X-Publish-Token】改写某个 flag 的运行值（渐进式交付开关）。"""
+    if not _sync_token_ok():
+        return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+    body = request.get_json(force=True, silent=True) or {}
+    name = str(body.get("name") or "").strip()
+    enabled = body.get("enabled")
+    if not name:
+        return jsonify({"ok": False, "error": "name 必填"}), 400
+    if not isinstance(enabled, bool):
+        return jsonify({"ok": False, "error": "enabled 必须是布尔"}), 400
+    try:
+        res = ff_mod.set_flag(STORE.conn, name, bool(enabled), str(body.get("note") or ""))
+    except KeyError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+    log(f"🚩 Feature Flag 已改写：{name} -> {enabled}")
+    return jsonify({"ok": True, "flag": res})
 
 
 @app.post("/api/accounts/sync-now")

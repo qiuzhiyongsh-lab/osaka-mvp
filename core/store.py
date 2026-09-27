@@ -21,6 +21,7 @@ from typing import Any, Iterable
 import unicodedata
 
 from . import catalog
+from . import feature_flags as ff_mod
 from . import wareki as wareki_mod
 
 # 主档字段（也是导出的 18+ 列）
@@ -714,6 +715,8 @@ class Store:
         # v1.9.94 PRD §7.1：FTS5 trigram 全文索引（关键词检索加速 + 命中高亮）。
         # 任何异常 ⇒ _fts_ready 保持 False ⇒ search() 退回 LIKE，零副作用。
         self._ensure_fts()
+        # v1.9.101：Feature Flag 渐进式交付基础设施（运行时开关表，幂等播种）。
+        ff_mod.ensure_feature_flags(self.conn)
         self.conn.commit()
 
     @property

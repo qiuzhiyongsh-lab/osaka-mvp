@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.100"
+VERSION = "1.9.101"
 BUILD_AT = "2026-09-27 11:10"
 # ============================================================================
 # v1.9.100（2026-09-27 · 定稿：客户关联管理 F2–F7 全量落地 · 标签醒目化双视角）：

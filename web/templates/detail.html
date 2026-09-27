@@ -232,6 +232,18 @@ var CUR_PRICE = {{ (row.price or 0)|int }};
 var CUR_PDF   = {{ 'true' if (row.pdf_path or (row['pdf_url'] if 'pdf_url' in row.keys() else None)) else 'false' }};
 var IS_PUBLIC = {{ 'true' if public else 'false' }};  {# v1.9.63：线上站 AI 生成走「本地接力」 #}
 
+/* v1.9.101 Feature Flag PoC：运行时门控「REINS 物件番号検索」按钮。
+   默认开；flag 关闭则灰度隐藏（零回归：接口缺失/出错一律保持显示）。 */
+(function(){
+  try {
+    fetch('/api/feature_flags').then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(j && j.ok && j.flags && j.flags.detail_show_reins_search === false){
+        document.querySelectorAll('.qbtn-reins').forEach(function(e){ e.style.display = 'none'; });
+      }
+    }).catch(function(){});
+  } catch(e){}
+})();
+
 function refreshCmp(){
   var n  = CompareBox.count();
   var on = CompareBox.has(CUR_NO);
