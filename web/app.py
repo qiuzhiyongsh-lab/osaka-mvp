@@ -346,6 +346,13 @@ def _access_guard():
     #   「永久避免删应用/换地址」的核心手段。
     if path in ("/api/admin/selfrestart", "/api/admin/selfupdate"):
         return None
+    # v1.9.103（F1）：房源对账端点同样是**机器对机器**通道（本地 tools/reconcile_push.py
+    #   → 线上只读拉番号集合），凭 X-Publish-Token 校验（_relay_token_ok，与 /api/ingest 同款）。
+    #   豁免理由与 /api/emp/export 一致：本机脚本没有、也不该有浏览器账户会话；
+    #   且本端点**只读**（仅 SELECT），没带对令牌时接口自己就 401，等于多一层锁。
+    #   ⚠ 不豁免的后果（2026-09-29 实测踩到）：守卫会先返回 401，端点即便部署也永远打不通。
+    if path == "/api/reconcile":
+        return None
 
     code = (CFG.get("public") or {}).get("access_code") or ""
     emergency_ok = bool(code) and (
@@ -453,6 +460,35 @@ def api_ping():
 def api_selfcheck():
     """免登录版本漂移自检：running（进程当前）vs disk（磁盘最新）。"""
     return jsonify({"ok": True, "ts": _now(), "pid": os.getpid(), **ver.runtime_versions()})
+
+
+@app.get("/api/reconcile")
+def api_reconcile():
+    """F1（2026-09-29）：机器对账端点 —— **只读**，凭 X-Publish-Token。
+
+    用途：供本地 `tools/reconcile_push.py` 拉线上番号集合，与本地 diff，
+    量化「线上缺失 / 线上多余 / 字段漂移 / 重复行」四类差异。
+    背景：2026-09-28 数据漂移事故中，本地只能靠两张截图肉眼比对，
+    差异长到约 300 条才被发现 —— 本端点即根治「看不见」。
+
+    安全：仅 GET、仅 SELECT，**不做任何写操作**；未带对令牌 → 401。
+    可选参数：`?day=YYYY-MM-DD` 只返回该日（登録/変更）的番号摘要。
+    """
+    if not _relay_token_ok():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    day = (request.args.get("day") or "").strip()
+    keys = ("property_no", "reg_date_iso", "chg_date_iso", "last_changed_at",
+            "price", "is_active", "updated_at")
+    sel = ("SELECT property_no, reg_date_iso, chg_date_iso, last_changed_at, price, "
+           "is_active, COALESCE(last_seen_at, first_seen_at) AS updated_at FROM properties")
+    con = STORE.conn
+    if day:
+        rows = con.execute(sel + " WHERE substr(reg_date_iso,1,10)=? "
+                                 "OR substr(chg_date_iso,1,10)=?", (day, day)).fetchall()
+    else:
+        rows = con.execute(sel).fetchall()
+    out = [dict(zip(keys, tuple(r))) for r in rows]
+    return jsonify({"ok": True, "count": len(out), "day": day or None, "rows": out})
 
 
 @app.post("/api/ingest")
