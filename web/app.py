@@ -97,6 +97,11 @@ AI_GEN_JOB: dict = {             # 手动「正式生成」进度（设置页轮
     "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
     "current": "", "started_at": "", "finished_at": "", "error": "",
     "stage": "",
+    # v1.9.103（PRD-34）：日期段 + 暂停/停止 + 按日处理
+    #   control      : run=正常跑 / pause=份边界挂起 / stop=份边界终止
+    #   day_current  : 当前正在处理的日期（YYYY-MM-DD）
+    #   days_total   : 本次共几天   days_done : 已跑完几天
+    "control": "run", "day_current": "", "days_total": 0, "days_done": 0,
 }
 # v1.9.47：手动/自动双通道互斥。_AI_GEN_LOCK 保证「检查 running + 置位 running」
 # 在同一把锁内原子完成，杜绝 TOCTOU 竞态（日志曾实证：6 秒内同批任务被启动两次 →
@@ -1220,32 +1225,46 @@ def api_ai_settings():
                     "cloud_fallback": bool((cfg.get("local_extract") or {}).get("fallback_model"))})
 
 
-def _ai_generate_candidates(date: str | None, only_today: bool, force: bool) -> list[str]:
-    """按「PDF 下载时间 + 種目范围 + 跳过已生成」圈定待生成番号（手动「正式生成」用）。
+def _ai_generate_candidates(date_from: str | None, date_to: str | None,
+                            only_today: bool, force: bool) -> list[tuple[str, str]]:
+    """按「PDF 下载日期段 + 種目范围 + 跳过已生成」圈定待生成（手动「正式生成」用）。
 
-    - 日期口径（q-0）：以 PDF 落盘 mtime 作为「下载时间」；only_today=只取今天，
-      date=只取指定日期，二者皆否=不限日期（处理全部匹配 PDF）。
+    v1.9.103（PRD-34）：单日期 → **日期段**（起/止，两端含），返回 (日期, 番号) 列表，
+    按**日期升序**——供 worker 按日处理（处理完一天再进下一天）。
+
+    - 日期口径（q-0）：以 PDF 落盘 mtime 作为「下载时间」。
+      only_today=今天；date_from/date_to=区间（两端含）；两者皆空=不限日期。
+      起>止时自动调换（前端也有一道，此处为服务端兜底）。
     - 種目范围：复用 AI 读取范围的 ai_read_scope（空=全部種目）。
     - 跳过已生成（q-1）：未勾强制重跑时，AI_STORE 已有记录的房源直接跳过。
-    - 防爆炸：超过单轮上限只取前 N，其余交给自动通道/再次点击。
+    - 防爆炸：超过单轮上限按日期升序只取前 N，其余交给自动通道/再次点击。
     """
     att = PATHS["attachments"]
     rk = CFG.get("ai_read_scope") or []
-    target = None
-    if only_today:
-        target = datetime.now().date()
-    elif date:
+
+    def _pdate(s: str | None):
+        """把 'YYYY-MM-DD' 解析成 date；空/非法一律 None（=该侧不限）。"""
+        if not s:
+            return None
         try:
-            target = datetime.strptime(date, "%Y-%m-%d").date()
+            return datetime.strptime(str(s).strip(), "%Y-%m-%d").date()
         except ValueError:
-            target = None
-    cands: list[str] = []
+            return None
+
+    d_from, d_to = _pdate(date_from), _pdate(date_to)
+    if only_today:
+        d_from = d_to = datetime.now().date()
+    if d_from and d_to and d_from > d_to:      # 起>止 → 调换（与前端一致）
+        d_from, d_to = d_to, d_from
+    cands: list[tuple[str, str]] = []
     for p in att.glob("*.pdf"):
         try:
-            mtime = datetime.fromtimestamp(p.stat().st_mtime)
+            mtime = datetime.fromtimestamp(p.stat().st_mtime).date()
         except Exception:                                       # noqa: BLE001
             continue
-        if target and mtime.date() != target:
+        if d_from and mtime < d_from:
+            continue
+        if d_to and mtime > d_to:
             continue
         no = p.stem
         if rk:
@@ -1255,13 +1274,21 @@ def _ai_generate_candidates(date: str | None, only_today: bool, force: bool) -> 
                 continue
         if not force and AI_STORE.get(no) is not None:
             continue
-        cands.append(no)
+        cands.append((mtime.strftime("%Y-%m-%d"), no))
+    cands.sort(key=lambda x: x[0])             # 日期升序（D7：从早到晚补）
     cap = int((CFG.get("schedule_ai") or {}).get("max_per_run", 300))
     return cands[:cap]
 
 
-def _ai_generate_worker(candidates: list[str], force: bool) -> None:
-    """后台线程：逐份跑 AI 抽取，实时更新 AI_GEN_JOB 进度。"""
+def _ai_generate_worker(day_groups: list[tuple[str, list[str]]], force: bool) -> None:
+    """后台线程：**按日**逐份跑 AI 抽取，实时更新 AI_GEN_JOB 进度。
+
+    v1.9.103（PRD-34）：
+    - **按日推进**——处理完一天再进下一天（勇哥要求）。
+    - **协作式取消**：每份之间检查 AI_GEN_JOB["control"]；pause=当前份跑完后挂起，
+      stop=当前份跑完后终止。**不打断单份**（避免 AI 结果半写）。
+    - 暂停/停止只作用于本任务，不触碰抓取轮 / 自动生成调度 / 上传定时器。
+    """
     import importlib
     ai_pipeline = importlib.import_module("core.ai_pipeline")
     le = CFG.get("local_extract") or {}
@@ -1271,36 +1298,57 @@ def _ai_generate_worker(candidates: list[str], force: bool) -> None:
     cfg["fallback_model"] = bool(cfg.get("fallback_model")) and bool(cfg.get("prefer_local", True))
     cloud_budget = int(le.get("fallback_max_per_run", 50))
     done = 0
-    for no in candidates:
-        AI_GEN_JOB["current"] = no
-        try:
-            allow_cloud = AI_GEN_JOB["cloud"] < cloud_budget
-            r = ai_pipeline.run_one(no, PATHS, cfg, AI_STORE,
-                                    force=force, allow_cloud=allow_cloud,
-                                    main_store=STORE)
-            if r.get("ok") and not r.get("skipped"):
-                ai_pipeline.save_fields(AI_STORE, no, r)
-            if r.get("ok"):
-                if r.get("skipped"):
-                    AI_GEN_JOB["skip"] += 1
-                elif r.get("cloud_used"):
-                    AI_GEN_JOB["cloud"] += 1
+    AI_GEN_JOB["days_total"] = len(day_groups)
+    AI_GEN_JOB["days_done"] = 0
+    for _day, nos in day_groups:
+        if AI_GEN_JOB.get("control") == "stop":
+            break
+        AI_GEN_JOB["day_current"] = _day
+        _day_finished = True
+        for no in nos:
+            # 份边界：pause 时挂起等待（0.5s 粒度），stop 时退出本天
+            while AI_GEN_JOB.get("control") == "pause":
+                time.sleep(0.5)
+            if AI_GEN_JOB.get("control") == "stop":
+                _day_finished = False
+                break
+            AI_GEN_JOB["current"] = no
+            try:
+                allow_cloud = AI_GEN_JOB["cloud"] < cloud_budget
+                r = ai_pipeline.run_one(no, PATHS, cfg, AI_STORE,
+                                        force=force, allow_cloud=allow_cloud,
+                                        main_store=STORE)
+                if r.get("ok") and not r.get("skipped"):
+                    ai_pipeline.save_fields(AI_STORE, no, r)
+                if r.get("ok"):
+                    if r.get("skipped"):
+                        AI_GEN_JOB["skip"] += 1
+                    elif r.get("cloud_used"):
+                        AI_GEN_JOB["cloud"] += 1
+                    else:
+                        AI_GEN_JOB["local"] += 1
                 else:
-                    AI_GEN_JOB["local"] += 1
-            else:
+                    AI_GEN_JOB["fail"] += 1
+                    log(f"[AI生成] {no} 失败：{r.get('error')}")
+            except Exception as e:                                  # noqa: BLE001
                 AI_GEN_JOB["fail"] += 1
-                log(f"[AI生成] {no} 失败：{r.get('error')}")
-        except Exception as e:                                  # noqa: BLE001
-            AI_GEN_JOB["fail"] += 1
-            log(f"[AI生成] {no} 异常：{type(e).__name__}: {e}")
-        done += 1
-        AI_GEN_JOB["done"] = done
+                log(f"[AI生成] {no} 异常：{type(e).__name__}: {e}")
+            done += 1
+            AI_GEN_JOB["done"] = done
+        if _day_finished:
+            AI_GEN_JOB["days_done"] += 1
+    stopped = AI_GEN_JOB.get("control") == "stop"
     AI_GEN_JOB["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     AI_GEN_JOB["running"] = False
-    AI_GEN_JOB["stage"] = ""
-    log(f"[AI生成] 完成：{AI_GEN_JOB['done']}/{AI_GEN_JOB['total']} "
+    AI_GEN_JOB["stage"] = "已停止" if stopped else ""
+    # 收尾复位：control 归 run、day_current 清空，保证下一次干净启动
+    AI_GEN_JOB["control"] = "run"
+    AI_GEN_JOB["day_current"] = ""
+    log(f"[AI生成] {'已停止（用户点停止）' if stopped else '完成'}："
+        f"{AI_GEN_JOB['done']}/{AI_GEN_JOB['total']} "
         f"本地{AI_GEN_JOB['local']} 云端{AI_GEN_JOB['cloud']} "
-        f"跳过{AI_GEN_JOB['skip']} 失败{AI_GEN_JOB['fail']}")
+        f"跳过{AI_GEN_JOB['skip']} 失败{AI_GEN_JOB['fail']} "
+        f"天数{AI_GEN_JOB['days_done']}/{AI_GEN_JOB['days_total']}")
 
 
 @app.get("/api/ai/schedule/status")
@@ -1315,8 +1363,11 @@ def api_ai_schedule_status():
 def api_ai_generate():
     """手动「正式生成」：按设置页圈定的范围批量跑 AI 抽取，后台执行 + 进度轮询。
 
-    body: {"date": "YYYY-MM-DD"|null, "only_today": bool, "force": bool}
+    v1.9.103（PRD-34）：date 单值 → **date_from / date_to 日期段**（两端含）。
+    body: {"date_from": "YYYY-MM-DD"|null, "date_to": "YYYY-MM-DD"|null,
+           "only_today": bool, "force": bool}
     默认只补缺失（有 PDF 但无 AI 解读的房源），勾 force 才整范围重跑。
+    圈定后按日期分组，**逐日处理**（处理完一天再进下一天）。
 
     v1.9.47：先原子占位（_ai_gen_try_start 在锁内检查+置位 running），再圈定候选；
     并发点击只会有一个占位成功，其余直接 409（带人话文案 + 来源 + 进度）。
@@ -1332,11 +1383,12 @@ def api_ai_generate():
             "job": AI_GEN_JOB,
         }), 409
     body = request.get_json(force=True, silent=True) or {}
-    date = body.get("date") or None
+    date_from = (body.get("date_from") or "").strip() or None
+    date_to = (body.get("date_to") or "").strip() or None
     only_today = bool(body.get("only_today"))
     force = bool(body.get("force"))
     try:
-        cands = _ai_generate_candidates(date, only_today, force)
+        cands = _ai_generate_candidates(date_from, date_to, only_today, force)
     except Exception as e:                                  # noqa: BLE001
         AI_GEN_JOB["running"] = False
         AI_GEN_JOB["stage"] = ""
@@ -1350,22 +1402,71 @@ def api_ai_generate():
         return jsonify({"ok": True,
                         "message": "没有需要生成的房源（范围内无匹配 PDF，或均已生成）",
                         "count": 0, "job": AI_GEN_JOB})
+    # v1.9.103：按日期分组 → 逐日处理（升序，处理完一天再进下一天）
+    _groups: dict[str, list[str]] = {}
+    for _d, _no in cands:
+        _groups.setdefault(_d, []).append(_no)
+    day_groups = sorted(_groups.items())
     AI_GEN_JOB.update({
         "trigger": "manual", "total": len(cands), "done": 0,
         "local": 0, "cloud": 0, "skip": 0, "fail": 0, "pending": 0,
         "current": "", "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "finished_at": "", "error": "", "stage": "抽取中",
+        "control": "run", "days_total": len(day_groups), "days_done": 0,
+        "day_current": day_groups[0][0] if day_groups else "",
     })
-    threading.Thread(target=_ai_generate_worker, args=(cands, force),
+    threading.Thread(target=_ai_generate_worker, args=(day_groups, force),
                      daemon=True, name="ai-generate").start()
-    log(f"[AI生成] 启动：范围={len(cands)} 份（only_today={only_today} "
-        f"date={date} force={force}）")
+    log(f"[AI生成] 启动：范围={len(cands)} 份 / {len(day_groups)} 天"
+        f"（date_from={date_from} date_to={date_to} "
+        f"only_today={only_today} force={force}）")
     return jsonify({"ok": True, "count": len(cands), "job": AI_GEN_JOB})
 
 
 @app.get("/api/ai/generate/status")
 def api_ai_generate_status():
     """轮询手动「正式生成」进度。"""
+    return jsonify({"ok": True, "job": AI_GEN_JOB})
+
+
+@app.post("/api/ai/generate/control")
+def api_ai_generate_control():
+    """v1.9.103（PRD-34）：暂停 / 继续 / 停止「正式生成」。
+
+    body: {"action": "pause"|"resume"|"stop"}
+    - pause ：份边界挂起（当前这份跑完才停），已跑完的结果保留。
+    - resume：从暂停处继续。
+    - stop  ：份边界终止；已跑完的份保留，剩余不再跑。
+    ⚠ 仅本地设置页使用：线上被 PUBLIC_HIDDEN_APIS 的 "/api/ai/generate" 前缀匹配挡掉（403）。
+    ⚠ 只改 AI_GEN_JOB 自身，不触碰抓取轮 / 自动生成调度 / 上传定时器。
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    action = (body.get("action") or "").strip()
+    running = bool(AI_GEN_JOB.get("running"))
+    if action == "pause":
+        if not running:
+            return jsonify({"ok": False, "message": "当前没有在跑的任务",
+                            "job": AI_GEN_JOB}), 409
+        AI_GEN_JOB["control"] = "pause"
+        AI_GEN_JOB["stage"] = "已暂停"
+    elif action == "resume":
+        if AI_GEN_JOB.get("control") != "pause":
+            return jsonify({"ok": False, "message": "当前不是暂停状态",
+                            "job": AI_GEN_JOB}), 409
+        AI_GEN_JOB["control"] = "run"
+        AI_GEN_JOB["stage"] = "抽取中"
+    elif action == "stop":
+        if not running:
+            return jsonify({"ok": False, "message": "当前没有在跑的任务",
+                            "job": AI_GEN_JOB}), 409
+        AI_GEN_JOB["control"] = "stop"
+        AI_GEN_JOB["stage"] = "停止中"
+    else:
+        return jsonify({"ok": False, "message": "未知动作（应为 pause/resume/stop）",
+                        "job": AI_GEN_JOB}), 400
+    log(f"[AI生成] 控制：{action}（done={AI_GEN_JOB.get('done')}/"
+        f"{AI_GEN_JOB.get('total')} 天{AI_GEN_JOB.get('days_done')}/"
+        f"{AI_GEN_JOB.get('days_total')}）")
     return jsonify({"ok": True, "job": AI_GEN_JOB})
 
 

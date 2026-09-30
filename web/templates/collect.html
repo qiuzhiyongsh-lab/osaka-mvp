@@ -330,19 +330,24 @@
   <!-- B. 正式生成（仿第 4 步 下载条件：日期 + 按钮） -->
   <div class="sub" style="margin:16px 0 4px;font-weight:600">② 正式生成（手动，立即跑）</div>
   <div class="row" style="margin-bottom:10px">
-    <label class="field"><span>PDF 下载日期</span>
-      <input id="aiGenDate" type="date" value="{{ today }}"></label>
+    <label class="field"><span>PDF 下载日期 起</span>
+      <input id="aiGenDateFrom" type="date" value="{{ today }}"></label>
+    <label class="field"><span>PDF 下载日期 止</span>
+      <input id="aiGenDateTo" type="date" value="{{ today }}"></label>
     <label class="chk"><input type="checkbox" id="aiGenOnlyToday" checked
-      onclick="document.getElementById('aiGenDate').disabled=this.checked"> 仅当天下载</label>
+      onclick="toggleAiGenToday(this.checked)"> 仅当天下载</label>
     <label class="chk"><input type="checkbox" id="aiGenForce"> 强制重跑（忽略已生成）</label>
   </div>
-  <p class="muted" style="margin:0 0 10px">按「PDF 落盘日期」圈定待生成房源（默认只处理今天的下载）。只补缺失；勾「强制重跑」才整范围重跑。</p>
+  <p class="muted" style="margin:0 0 10px">按「PDF 落盘日期」圈定待生成房源：<b>起/止都填=该日期段（两端含）；都留空=不限日期</b>。<b>按日期从早到晚逐日处理，处理完一天再进下一天</b>。只补缺失；勾「强制重跑」才整范围重跑。</p>
   <div class="row">
     <button id="aiGenBtn" onclick="aiGenerate()">正式生成</button>
+    <!-- v1.9.103（PRD-34）：暂停 / 继续 / 停止，仅在任务运行中显示 -->
+    <button id="aiGenPauseBtn" class="ghost" style="display:none" onclick="aiGenControl('pause')">暂停</button>
+    <button id="aiGenStopBtn" class="ghost" style="display:none" onclick="aiGenControl('stop')">停止</button>
     <span class="muted" id="aiGenMsg"></span>
   </div>
   <pre id="aiGenProgress" style="display:block;max-height:200px;overflow:auto;background:#f6f7f9;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:10px"></pre>
-  <script>window.__aiSched = {{ (ai_sched or {}) | tojson }};</script>
+  <script>window.__today = {{ today | tojson }}; window.__aiSched = {{ (ai_sched or {}) | tojson }};</script>
 </div>
 
 <!-- ============ v1.5.6：上传到线上 ============ -->
@@ -494,16 +499,63 @@ async function loadAISchedStatus(){
   }catch(e){ /* 忽略：设置页其他功能不受影响 */ }
 }
 var _aiGenTimer = null;
+/* v1.9.103（PRD-34）：「仅当天下载」快捷勾选 —— 勾上=起止锁定今天并禁用，取消=可自由选。 */
+function toggleAiGenToday(on){
+  var f = document.getElementById('aiGenDateFrom'), t = document.getElementById('aiGenDateTo');
+  if(!f || !t) return;
+  if(on){ var td = window.__today || f.value || ''; f.value = td; t.value = td; }
+  f.disabled = !!on; t.disabled = !!on;
+}
+/* v1.9.103：暂停 / 继续 / 停止 —— 只作用于 AI 生成任务，不影响抓取与上传。 */
+function aiGenControl(action){
+  postJSON('/api/ai/generate/control', {action: action}).then(function(j){
+    var m = document.getElementById('aiGenMsg');
+    if(!(j && j.ok)){ if(m) m.textContent = '操作失败：' + ((j && j.message) || ''); return; }
+    if(m){
+      if(action === 'pause')  m.textContent = '已暂停（可点「继续」接着跑）';
+      if(action === 'resume') m.textContent = '已继续';
+      if(action === 'stop')   m.textContent = '正在停止…（当前这份跑完后停下）';
+    }
+  }).catch(function(e){
+    var m = document.getElementById('aiGenMsg');
+    if(m) m.textContent = '操作出错：' + (e && e.message ? e.message : e);
+  });
+}
+/* v1.9.103：按任务状态同步三个按钮的显示与文案。 */
+function syncAiGenButtons(job){
+  var gb = document.getElementById('aiGenBtn');
+  var pb = document.getElementById('aiGenPauseBtn');
+  var sb = document.getElementById('aiGenStopBtn');
+  var running = !!(job && job.running);
+  var paused  = !!(job && job.control === 'pause');
+  if(pb){
+    pb.style.display = running ? '' : 'none';
+    pb.textContent = paused ? '继续' : '暂停';
+    pb.onclick = function(){ aiGenControl(paused ? 'resume' : 'pause'); };
+  }
+  if(sb){ sb.style.display = running ? '' : 'none'; }
+  if(gb && !running){ gb.disabled = false; gb.classList.remove('disabled'); }
+}
 function aiGenerate(){
   var onlyToday = document.getElementById('aiGenOnlyToday').checked;
   var force = document.getElementById('aiGenForce').checked;
-  var date = document.getElementById('aiGenDate').value || null;
+  /* v1.9.103：日期段（起/止），起>止自动调换（与查询页一致） */
+  var dfEl = document.getElementById('aiGenDateFrom');
+  var dtEl = document.getElementById('aiGenDateTo');
+  var from = dfEl ? (dfEl.value || null) : null;
+  var to   = dtEl ? (dtEl.value || null) : null;
+  var swapped = false;
+  if(from && to && from > to){
+    var s = from; from = to; to = s; swapped = true;
+    if(dfEl) dfEl.value = from;
+    if(dtEl) dtEl.value = to;
+  }
   var gb = document.getElementById('aiGenBtn');
   var m = document.getElementById('aiGenMsg');
   /* v1.9.47：点击即禁用按钮 + 提示圈定中，避免连点造成重复抽取（TOCTOU 竞态）。*/
   if(gb){ gb.disabled = true; gb.classList.add('disabled'); }
-  if(m) m.textContent = '正在圈定候选房源…';
-  postJSON('/api/ai/generate', {date: date, only_today: onlyToday, force: force}).then(function(j){
+  if(m) m.textContent = '正在圈定候选房源…' + (swapped ? '（起止日期已自动调换）' : '');
+  postJSON('/api/ai/generate', {date_from: from, date_to: to, only_today: onlyToday, force: force}).then(function(j){
     if(m) m.textContent = (j && j.ok) ? ('已启动，共 ' + (j.count || 0) + ' 份') : ('失败：' + ((j && j.error) || (j && j.message) || ''));
     if(j && j.ok){
       /* v1.9.40/1.9.47：跑起来就禁用按钮（后端也有原子防重入），避免连点 */
@@ -537,12 +589,16 @@ function startAIGenPoll(){
   _aiGenTimer = setInterval(function(){
     fetch('/api/ai/generate/status').then(function(r){ return r.json(); }).then(function(j){
       var job = (j && j.job) || {};
+      syncAiGenButtons(job);              /* v1.9.103：暂停/继续/停止按钮随状态刷新 */
       var box = document.getElementById('aiGenProgress');
       if(box){
         box.textContent =
           '总 ' + (job.total || 0) + ' ｜ 已完成 ' + (job.done || 0) +
           ' ｜ 本地 ' + (job.local || 0) + ' ｜ 云端 ' + (job.cloud || 0) +
           ' ｜ 跳过 ' + (job.skip || 0) + ' ｜ 失败 ' + (job.fail || 0) +
+          /* v1.9.103：按日进度 —— 第几天/共几天 + 当前日期 */
+          (job.days_total ? ('\n按日进度：第 ' + ((job.days_done || 0) + 1) + '/' + job.days_total + ' 天'
+                             + (job.day_current ? ('（当前 ' + job.day_current + '）') : '')) : '') +
           (job.stage ? ('\n阶段：' + job.stage) : '') +
           (job.running ? ('\n当前：' + (job.current || '')) : '') +
           (job.finished_at ? ('\n完成于 ' + job.finished_at) : '');
@@ -567,7 +623,10 @@ fetch('/api/ai/generate/status').then(function(r){ return r.json(); }).then(func
   if(job.running){
     var gb3 = document.getElementById('aiGenBtn');
     if(gb3){ gb3.disabled = true; gb3.classList.add('disabled'); }
+    syncAiGenButtons(job);              /* v1.9.103：刷新回来也要恢复暂停/停止按钮 */
     startAIGenPoll();
+  } else {
+    syncAiGenButtons(job);
   }
 }).catch(function(){});
 /* ---------- v1.5.6 上传到线上 ---------- */
