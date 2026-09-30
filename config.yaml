@@ -32,7 +32,7 @@ schedule_ai:
   enabled: true
   timezone: local
   window:
-    start: '23:00'
+    start: 01:00
     end: 06:00
   max_per_run: 1000
   workers: 2
