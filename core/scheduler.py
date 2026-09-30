@@ -292,15 +292,58 @@ class Scheduler:
 
     def trigger_specified_download(self, opts: dict, trial: bool = False) -> dict:
         """指定日期正式下载：在 exclusive 内跑（暂停当天下载 + 挡其它触发），
-        跑完自动 resume。返回 run_round_options 的统计字典。
+        跑完自动 resume。返回统计字典。
+
+        v1.9.104（PRD-36）：支持**多天日期段**（date_from/date_to）—— 外层逐日循环，
+        处理完一天再进下一天；每日之间 + 每检索轮之间支持**暂停 / 停止**。
         trial=True 时限制抓取量（用于「试下载」/安全验证，不刷爆 REINS 配额）。
         """
         if self._busy.is_set():
             return {"status": "busy", "message": "已有任务在跑，请稍后"}
-        with self.exclusive("指定日期下载"):
-            from .crawler import run_round_options
-            return run_round_options(self.store, self.cfg, opts,
-                                     progress_cb=self._log, trial=trial)
+        from . import crawler as crawler_mod
+        dates = crawler_mod.spec_dates_from_opts(opts)
+        job = crawler_mod.SPEC_DL_JOB
+        job.update({"running": True, "control": "run", "days_total": len(dates),
+                    "days_done": 0, "day_current": (dates[0] or "") if dates else "",
+                    "phase": "启动"})
+        agg: dict = {"run_id": "", "mode": "specified", "scanned": 0, "fetched": 0,
+                     "new": 0, "changed": 0, "pdf_saved": 0, "errors": [],
+                     "status": "ok", "source": "live", "stopped": False,
+                     "days_total": len(dates), "days_done": 0}
+        try:
+            with self.exclusive("指定日期下载"):
+                for i, d in enumerate(dates):
+                    # 日边界：暂停挂起 / 停止退出
+                    while job.get("control") == "pause":
+                        time.sleep(0.5)
+                    if job.get("control") == "stop":
+                        agg["stopped"] = True
+                        self._log("■ 已停止（用户点「停止」）：剩余 %d 天不再执行"
+                                  % (len(dates) - i))
+                        break
+                    job["day_current"] = d or ""
+                    if len(dates) > 1:
+                        self._log("===== 第 %d/%d 天：%s =====" % (i + 1, len(dates), d))
+                    o = dict(opts)
+                    if d:
+                        o["date"] = d          # 逐日：把当天日期喂给 crawler（口径不变）
+                    res = crawler_mod.run_round_options(
+                        self.store, self.cfg, o, progress_cb=self._log, trial=trial)
+                    agg["run_id"] = res.get("run_id") or agg["run_id"]
+                    for k in ("scanned", "fetched", "new", "changed", "pdf_saved"):
+                        agg[k] = int(agg.get(k) or 0) + int(res.get(k) or 0)
+                    agg["errors"] += (res.get("errors") or [])[:5]
+                    if res.get("status") == "error":
+                        agg["status"] = "error"
+                        break
+                    if res.get("stopped"):
+                        agg["stopped"] = True
+                        break
+                    agg["days_done"] = i + 1
+                    job["days_done"] = i + 1
+        finally:
+            job.update({"running": False, "phase": "", "day_current": ""})
+        return agg
 
     # ---------------- 主循环 ----------------
     def _loop(self):

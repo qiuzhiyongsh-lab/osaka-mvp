@@ -9,8 +9,24 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.103"
-BUILD_AT = "2026-10-01 01:25"
+VERSION = "1.9.104"
+BUILD_AT = "2026-10-01 02:35"
+# ============================================================================
+# v1.9.104（2026-10-01 · PRD-36：下载条件「指定日期」→ 多天日期段 + 暂停/停止）：
+#   勇哥要求"跟刚才设置 AI 整理数据的方式一样"（2026-10-01 02:26）。
+#   · F1 前端（collect.html 第 4 步）：指定日期 单值 → **起 / 止** 两个 date；
+#     止留空 = 只跑起那天（保持旧单日语义）；起>止 自动调换。
+#   · F2 后端（web/app.py::_opts_from_body）：新增 date_from / date_to；"date" 保留
+#     旧语义（缺省时回退 date_from），老调用不破坏。
+#   · F3 逐日（core/scheduler.py::trigger_specified_download）：外层**按日循环**，
+#     处理完一天再进下一天（与 AI 正式生成一致）；聚合各天统计后返回。
+#   · F4 暂停/停止：core/crawler.py 新增 SPEC_DL_JOB 控制态；crawler 在「種目组×日期轮」
+#     边界做**协作式检查**（pause 原地挂起 0.5s 轮询 / stop 跳出）；scheduler 在「日边界」
+#     再查一次；web 新增 POST /api/download/control（pause/resume/stop）。
+#     仅改指定下载自身，**不触碰自动更新调度 / 上传定时器**。
+#   · F5 展示：/api/status 增 spec_dl（running/control/day_current/days_total/days_done/
+#     phase）；前端显示「按日进度：第 k/N 天（当前 YYYY-MM-DD）」+ 暂停/停止按钮。
+#   · 单次日期段上限 31 天（SPEC_DL_MAX_DAYS），防一次圈太多。
 # ============================================================================
 # v1.9.103（2026-10-01 · PRD-34：AI 读取时间「正式生成」—— 日期段 + 暂停/停止 + 按日处理）：
 #   依据《docs/PRD/34_AI读取时间正式生成_日期段与暂停停止_PRD稿_2026-10-01.md》（勇哥 4 点需求）。

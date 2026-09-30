@@ -3993,6 +3993,59 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
     return {"fetched": done, "skipped": skipped}
 
 
+# ============================================================================
+# v1.9.104（PRD-36）：指定日期下载的「多天日期段 + 暂停/停止」
+#   与「AI 正式生成」同款交互（date_from/date_to + pause/resume/stop）。
+#   单一实例：指定下载在 scheduler 的 exclusive 内跑，同一时刻只有一条。
+#   · scheduler 负责 day_current / days_total / days_done / running（逐日循环）
+#   · crawler 只读 control（在「種目组×日期轮」边界检查）并写 phase
+# ============================================================================
+SPEC_DL_JOB: dict = {
+    "running": False, "control": "run",          # run | pause | stop
+    "day_current": "", "days_total": 0, "days_done": 0,
+    "phase": "",
+}
+SPEC_DL_MAX_DAYS = 31          # 单次日期段上限（防止一次圈太多天）
+
+
+def spec_dl_set(action: str) -> None:
+    """设置下载控制态（供 web 端点调用）：pause / resume / stop。"""
+    if action == "resume":
+        SPEC_DL_JOB["control"] = "run"
+    elif action in ("pause", "stop"):
+        SPEC_DL_JOB["control"] = action
+
+
+def spec_dl_snapshot() -> dict:
+    """给前端轮询的只读快照。"""
+    return dict(SPEC_DL_JOB)
+
+
+def spec_dates_from_opts(opts: dict) -> list:
+    """把 opts 的日期段解析成「逐日」列表（v1.9.104 / PRD-36）。
+
+    - date_from 与 date_to → 区间内每一天（**两端含**），上限 SPEC_DL_MAX_DAYS 天
+    - 只有一边            → 取该单日
+    - 都没有              → [opts.get("date")]（保持旧语义：单日或 None=不限日期）
+    起 > 止 时自动调换。
+    """
+    def _p(s):
+        try:
+            return datetime.strptime(str(s).strip(), "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return None
+
+    df, dt_ = _p(opts.get("date_from")), _p(opts.get("date_to"))
+    if df or dt_:
+        a = df or dt_
+        b = dt_ or df
+        if a > b:
+            a, b = b, a
+        n = min((b - a).days, SPEC_DL_MAX_DAYS - 1)
+        return [(a + timedelta(days=k)).strftime("%Y-%m-%d") for k in range(n + 1)]
+    return [opts.get("date") or None]
+
+
 def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -> dict:
     """按用户手动选项实时连 REINS 查询 → 入库 + PDF。供「指定日期下载」使用。
 
@@ -4002,6 +4055,8 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
     """
     log = progress_cb or (lambda *_a, **_k: None)
     run_id = store.start_run("specified-download")
+    # v1.9.104（PRD-36）：进入下载即复位控制态，避免上一轮的 pause/stop 残留
+    SPEC_DL_JOB["control"] = "run"
     # v1.7.0：把本轮目标日期写进断点表，供概览矩阵按「日期+轴」从 properties 实算分子
     try:
         store.save_crawl_state(run_id, target_date=opts.get("date") or "")
@@ -4009,7 +4064,7 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
         log("· target_date 记录失败（不影响抓取）：" + type(_e).__name__ + ": " + str(_e))
     stats = {"run_id": run_id, "mode": "specified", "scanned": 0, "fetched": 0,
              "new": 0, "changed": 0, "pdf_saved": 0, "errors": [], "status": "ok",
-             "source": "live"}
+             "stopped": False, "source": "live"}
     try:
         log("▶ 指定日期下载：开始（手动选项实时连 REINS）")
         sel = cfg["selectors"]
@@ -4079,8 +4134,20 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
                     worker = None
             seen: set = set()
             nav_done = False   # 第 1 个检索页已由 open_authed_page 打开，不重复导航
+            _stopped = False   # v1.9.104（PRD-36）：用户点「停止」后跳出双层循环
             for gi, g in enumerate(groups, 1):
+                if _stopped:
+                    break
                 for di, rfields in enumerate(rounds, 1):
+                    # v1.9.104（PRD-36）：协作式暂停/停止 —— 每个「種目组 × 日期轮」边界检查
+                    #   pause = 原地挂起（0.5s 粒度轮询）；stop = 跳出、本轮剩余检索不再执行
+                    while SPEC_DL_JOB.get("control") == "pause":
+                        time.sleep(0.5)
+                    if SPEC_DL_JOB.get("control") == "stop":
+                        _stopped = True
+                        stats["stopped"] = True
+                        log("■ 已停止（用户点「停止」）：本轮剩余检索不再执行")
+                        break
                     o = dict(opts)
                     o["kind"] = g["kind"]
                     o["subtypes"] = g["subtypes"]
@@ -4090,6 +4157,7 @@ def run_round_options(store, cfg, opts, progress_cb=None, trial: bool = False) -
                            + g["kind"] + "×" + "·".join(g["subtypes"]))
                     if len(rfields) > 1:
                         tag += " / 日期：" + "、".join(rfields)
+                    SPEC_DL_JOB["phase"] = tag      # v1.9.104：给前端展示的实时阶段
                     log("—— " + tag + " ——")
                     # v1.6.3：打条件横幅，确认 房屋类型/区域/日期轴 与用户选择一致
                     _today = opts.get("date")

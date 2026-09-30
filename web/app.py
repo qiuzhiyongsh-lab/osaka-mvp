@@ -33,6 +33,7 @@ from core import credentials as creds_mod              # noqa: E402
 from core import version as ver                        # noqa: E402
 from core.auth import Auth, friendly_error            # noqa: E402
 from core.crawler import probe_query, reins_bukken_search   # noqa: E402
+from core import crawler as crawler_mod                 # noqa: E402  (v1.9.104 指定下载控制)
 from core import store as store_mod                   # noqa: E402
 from core import feature_flags as ff_mod               # noqa: E402  v1.9.101
 from core.scheduler import Scheduler                  # noqa: E402
@@ -2321,7 +2322,9 @@ def _now() -> str:
 def api_status():
     _refresh_cfg()
     return jsonify({"sched": SCHED.status(), "stats": STORE.stats(),
-                    "busy": SCHED.status()["busy"], "test": dict(TEST_RESULT)})
+                    "busy": SCHED.status()["busy"], "test": dict(TEST_RESULT),
+                    # v1.9.104（PRD-36）：指定下载的实时「按日进度 + 控制态」
+                    "spec_dl": crawler_mod.spec_dl_snapshot()})
 
 
 @app.get("/api/phase")
@@ -3247,7 +3250,11 @@ def _opts_from_body(body: dict) -> dict:
         "price_min": body.get("price_min") or "", "price_max": body.get("price_max") or "",
         "area_min": body.get("area_min") or "", "area_max": body.get("area_max") or "",
         "line": s("line"), "station": s("station"),
-        "date_type": dts[0], "date_types": dts, "date": s("date"),
+        "date_type": dts[0], "date_types": dts,
+        # v1.9.104（PRD-36）：多天日期段（起/止，两端含）。保留 "date" 语义：
+        #   只给「起」时退化成单日（= date_from），老调用只传 date 也照旧可用。
+        "date": s("date") or s("date_from") or "",
+        "date_from": s("date_from"), "date_to": s("date_to"),
         # 土地権利/借地権種類 = 所有権のみ（默认勾上，与线上口径一致；
         # 抓不到该控件时 crawler 自动退回「指定なし ＝ 全部」）
         "ownership_only": bool(body.get("ownership_only", True)),
@@ -3281,18 +3288,60 @@ def api_download_specified():
         return jsonify({"status": "busy", "message": "已有任务在跑，请稍后"}), 409
     body = request.get_json(force=True, silent=True) or {}
     opts = _opts_from_body(body)
-    if not opts["date"]:
+    # v1.9.104（PRD-36）：日期段（起/止）或单日「起」至少填一个
+    if not (opts.get("date_from") or opts.get("date")):
         return jsonify({"status": "error",
-                        "message": "指定日期下载必须填写「指定日期」（YYYY-MM-DD）"}), 400
+                        "message": "指定日期下载必须填写「指定日期（起）」（YYYY-MM-DD）"}), 400
     if not opts["kind"]:
         return jsonify({"status": "error",
                         "message": "指定日期下载必须选择「物件種別」（必填）"}), 400
     trial = bool(body.get("trial", False))
     _bg(lambda: _run_specified_download(opts, trial=trial))
+    _days = crawler_mod.spec_dates_from_opts(opts)
+    _span = ("%s ~ %s（共 %d 天，逐日处理）" % (_days[0], _days[-1], len(_days))
+             if _days and _days[0] and len(_days) > 1
+             else ("指定日 %s" % (_days[0] if _days and _days[0] else "不限")))
     return jsonify({"status": "started",
-                    "message": ("已开始指定日期试下载（暂停当天下载，完成后自动恢复）"
+                    "message": ("已开始指定日期试下载（" + _span + "；暂停当天下载，完成后自动恢复）"
                                 if trial else
-                                "已开始指定日期下载（暂停当天下载，完成后自动恢复）")})
+                                "已开始指定日期下载（" + _span + "；暂停当天下载，完成后自动恢复）")})
+
+
+@app.post("/api/download/control")
+def api_download_control():
+    """v1.9.104（PRD-36）：暂停 / 继续 / 停止「指定日期下载」。
+
+    body: {"action": "pause"|"resume"|"stop"}
+    · pause ：在当前「種目组×日期轮」跑完后挂起（0.5s 粒度轮询），已完成结果保留。
+    · resume：从暂停处继续。
+    · stop  ：终止；已完成结果保留，剩余天/轮不再执行。
+    ⚠ 只改指定下载自身状态，不触碰自动更新调度 / 上传定时器。
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    action = (body.get("action") or "").strip()
+    job = crawler_mod.SPEC_DL_JOB
+    running = bool(job.get("running"))
+    if action == "pause":
+        if not running:
+            return jsonify({"status": "error", "message": "当前没有在跑的下载",
+                            "job": crawler_mod.spec_dl_snapshot()}), 409
+        crawler_mod.spec_dl_set("pause")
+    elif action == "resume":
+        if job.get("control") != "pause":
+            return jsonify({"status": "error", "message": "当前不是暂停状态",
+                            "job": crawler_mod.spec_dl_snapshot()}), 409
+        crawler_mod.spec_dl_set("resume")
+    elif action == "stop":
+        if not running:
+            return jsonify({"status": "error", "message": "当前没有在跑的下载",
+                            "job": crawler_mod.spec_dl_snapshot()}), 409
+        crawler_mod.spec_dl_set("stop")
+    else:
+        return jsonify({"status": "error",
+                        "message": "未知动作（应为 pause/resume/stop）"}), 400
+    log("[指定下载] 控制：" + action)
+    return jsonify({"status": "ok", "action": action,
+                    "job": crawler_mod.spec_dl_snapshot()})
 
 
 def _run_specified_preview(opts):

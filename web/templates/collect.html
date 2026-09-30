@@ -103,8 +103,12 @@
         <label class="chk"><input type="checkbox" id="dt_chg" checked> <span data-i18n="dlcond.dt_chg">当天更新（変更年月日＝当天）</span></label>
       </div>
     </div>
-    <label class="field"><span data-i18n="spec.date">指定日期</span>
+    <label class="field"><span data-i18n="spec.date">指定日期 起</span>
       <input type="date" id="date" value="{{ today }}">
+    </label>
+    <!-- v1.9.104（PRD-36）：日期段「止」——留空 = 只跑「起」那一天；填了 = 区间逐日处理 -->
+    <label class="field"><span data-i18n="spec.date_to">指定日期 止</span>
+      <input type="date" id="date_to">
     </label>
     <label class="field" style="flex:0 0 auto;display:flex;align-items:center;gap:8px;white-space:nowrap;align-self:flex-end">
       <input type="checkbox" id="ownership_only" checked style="width:auto;height:auto">
@@ -147,8 +151,12 @@
   <div class="row" style="margin-top:14px">
     <button data-i18n="dlcond.preview" onclick="previewSpecified()">① 确定（实时预览）</button>
     <button class="primary" data-i18n="dlcond.download" onclick="downloadSpecified()">② 正式下载</button>
+    <!-- v1.9.104（PRD-36）：暂停 / 继续 / 停止（仅在下载运行中显示） -->
+    <button id="dlPauseBtn" class="ghost" style="display:none" onclick="dlControl('pause')">暂停</button>
+    <button id="dlStopBtn"  class="ghost" style="display:none" onclick="dlControl('stop')">停止</button>
     <span class="muted" id="spec-status" style="align-self:center"></span>
   </div>
+  <p class="muted" id="spec-dayprog" style="margin:8px 0 0;display:none"></p>
 </div>
 
 <!-- ============ D7（v1.8.2）：每轮检索计划 ============ -->
@@ -1010,7 +1018,9 @@ function buildOpts(){
   var o = {
     kind: (groups[0] ? groups[0].kind : ''), subtype: (subs[0] || ''),
     subtypes: subs, groups: groups,
-    date_types: dts, date_type: (dts[0] || '登録年月日'), date: v('date'),
+    date_types: dts, date_type: (dts[0] || '登録年月日'),
+    // v1.9.104（PRD-36）：日期段「起 / 止」；「止」留空 = 只跑「起」那一天
+    date: v('date'), date_from: v('date'), date_to: v('date_to'),
     ownership_only: on('ownership_only')
   };
   if(on('use_ward')) o.ward = v('ward');
@@ -1025,7 +1035,13 @@ function validateDl(){
   var any = false;
   for(var i = 0; i < nodes.length; i++){ if(nodes[i].checked){ any = true; break; } }
   if(!any){ alert(window.t('dlcond.alert_sub')); return false; }
-  if(!document.getElementById('date').value){ alert(window.t('spec.alert_date')); return false; }
+  var f = document.getElementById('date'), t = document.getElementById('date_to');
+  if(!f.value){ alert(window.t('spec.alert_date')); return false; }
+  // v1.9.104（PRD-36）：起 > 止 → 自动调换并提示（与查询页 / AI 生成一致）
+  if(t && t.value && f.value > t.value){
+    var s = f.value; f.value = t.value; t.value = s;
+    var m = document.getElementById('spec-status'); if(m) m.textContent = '起止日期已自动调换';
+  }
   return true;
 }
 async function previewSpecified(){
@@ -1039,12 +1055,43 @@ async function previewSpecified(){
 }
 async function downloadSpecified(){
   if(!validateDl()) return;
-  if(!confirm(window.tf('spec.confirm_dl', {date: document.getElementById('date').value}))) return;
+  // v1.9.104（PRD-36）：确认框显示日期段（起 ~ 止）
+  var _f = document.getElementById('date').value;
+  var _t = (document.getElementById('date_to') || {}).value || '';
+  var _span = (_t && _t !== _f) ? (_f + ' ~ ' + _t) : _f;
+  if(!confirm(window.tf('spec.confirm_dl', {date: _span}))) return;
   document.getElementById('spec-status').textContent = window.t('spec.dling');
   try{
     var r = await postJSON('/api/download/specified', buildOpts());
     if(r.status !== 'started') document.getElementById('spec-status').textContent = (r.message || '');
+    else if(r.message) document.getElementById('spec-status').textContent = r.message;
   }catch(e){ alertErr(e, window.t('spec.dl')); }
+}
+/* v1.9.104（PRD-36）：暂停 / 继续 / 停止「指定日期下载」——只作用本任务，
+   不触碰自动更新调度与上传定时器。 */
+function dlControl(action){
+  postJSON('/api/download/control', {action: action}).then(function(j){
+    var m = document.getElementById('spec-status');
+    if(!(j && j.status === 'ok')){ if(m) m.textContent = '操作失败：' + ((j && j.message) || ''); return; }
+    if(m){
+      if(action === 'pause')  m.textContent = '已暂停（可点「继续」接着跑）';
+      if(action === 'resume') m.textContent = '已继续';
+      if(action === 'stop')   m.textContent = '正在停止…（当前检索轮跑完后停下）';
+    }
+  }).catch(function(e){
+    var m = document.getElementById('spec-status');
+    if(m) m.textContent = '操作出错：' + (e && e.message ? e.message : e);
+  });
+}
+function syncDlButtons(job){
+  var pb = document.getElementById('dlPauseBtn'), sb = document.getElementById('dlStopBtn');
+  if(!pb || !sb) return;
+  var running = !!(job && job.running);
+  var paused  = !!(job && job.control === 'pause');
+  pb.style.display = running ? '' : 'none';
+  sb.style.display = running ? '' : 'none';
+  pb.textContent = paused ? '继续' : '暂停';
+  pb.onclick = function(){ dlControl(paused ? 'resume' : 'pause'); };
 }
 function renderPreview(task){
   var el = document.getElementById('preview');
@@ -1091,6 +1138,23 @@ async function pollDl(){
     renderDownload(j.test && j.test.specified_download, !!(j.sched && j.sched.paused));
     var dl = j.test && j.test.specified_download;
     if(dl && dl.status==='running') document.getElementById('spec-status').textContent=window.t('spec.dling');
+    /* v1.9.104（PRD-36）：暂停/停止按钮 + 按日进度（来自 /api/status 的 spec_dl） */
+    var sd = j.spec_dl || {};
+    syncDlButtons(sd);
+    var prog = document.getElementById('spec-dayprog');
+    if(prog){
+      if(sd.running && sd.days_total){
+        prog.style.display = '';
+        prog.textContent = '按日进度：第 ' + ((sd.days_done || 0) + 1) + '/' + sd.days_total + ' 天'
+          + (sd.day_current ? ('（当前 ' + sd.day_current + '）') : '')
+          + (sd.phase ? ('　阶段：' + sd.phase) : '')
+          + (sd.control === 'pause' ? '　⏸ 已暂停' : '');
+      } else if(sd.days_total){
+        prog.style.display = '';
+        prog.textContent = '按日进度：已完成 ' + (sd.days_done || 0) + '/' + sd.days_total + ' 天'
+          + (sd.control === 'stop' ? '（已停止）' : '');
+      } else { prog.style.display = 'none'; }
+    }
   }catch(e){ /* 掉线由顶部横幅统一提示 */ }
 }
 
