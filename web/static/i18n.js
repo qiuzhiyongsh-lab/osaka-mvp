@@ -931,6 +931,10 @@
   ZH['recon.h']='数据对账'; ZH['recon.hint']='线上报告总数 vs 本机已抓 vs 本轮变化 vs 待补详情';
   ZH['recon.online']='线上报告总数'; ZH['recon.live']='本机已抓（在架）';
   ZH['recon.gap']='缺口（我方漏采）'; ZH['recon.new']='本轮新增'; ZH['recon.changed']='本轮变更'; ZH['recon.pending']='待补详情';
+  // v1.9.105 / PRD-35 M2：F1 存疑闸门 + F6 偏差提示（chip / 横幅）
+  ZH['row.suspect']='存疑'; ZH['row.suspect_tip']='降幅异常（>50%），疑似数据解析错位，不计入降价';
+  ZH['row.see_latest']='看最新';
+  ZH['row.hit_chip']='按 {x} 命中 · 已于 {y} 更新';
   DICT['zh-TW']['sort.h']='排序'; DICT['zh-TW']['sort.dir']='方向';
   DICT['zh-TW']['sort.updated']='更新時間'; DICT['zh-TW']['sort.price']='價格';
   DICT['zh-TW']['sort.area']='面積'; DICT['zh-TW']['sort.unit_sqm']='㎡單價';
@@ -948,6 +952,8 @@
   DICT['zh-TW']['search.date_caliber.dl']='下載日（本機抓到）';
   DICT['zh-TW']['search.other_detail']='隱藏其他詳情'; DICT['zh-TW']['search.other_hide_off']='顯示其他詳情';
   DICT['zh-TW']['search.reins_search']='物件番號檢索'; DICT['zh-TW']['cat.ms_hint']='點選即可，可多選';
+  DICT['zh-TW']['row.suspect']='存疑'; DICT['zh-TW']['row.suspect_tip']='降幅異常（>50%），疑似資料解析錯位，不計入降價';
+  DICT['zh-TW']['row.see_latest']='看最新'; DICT['zh-TW']['row.hit_chip']='按 {x} 命中 · 已於 {y} 更新';
   DICT['en']['sort.h']='Sort'; DICT['en']['sort.dir']='Direction';
   DICT['en']['sort.updated']='Updated'; DICT['en']['sort.price']='Price';
   DICT['en']['sort.area']='Area'; DICT['en']['sort.unit_sqm']='Unit price /㎡';
@@ -965,6 +971,8 @@
   DICT['en']['search.date_caliber.dl']='Download date (local)';
   DICT['en']['search.other_detail']='Hide extra details'; DICT['en']['search.other_hide_off']='Show extra details';
   DICT['en']['search.reins_search']='Property-no search'; DICT['en']['cat.ms_hint']='Click to select, multi-select OK';
+  DICT['en']['row.suspect']='Suspect'; DICT['en']['row.suspect_tip']='Abnormal drop (>50%); likely parse error, not counted as a drop';
+  DICT['en']['row.see_latest']='See latest'; DICT['en']['row.hit_chip']='Hit on {x} · updated on {y}';
   DICT['ja']['sort.h']='並び替え'; DICT['ja']['sort.dir']='方向';
   DICT['ja']['sort.updated']='更新時間'; DICT['ja']['sort.price']='価格';
   DICT['ja']['sort.area']='面積'; DICT['ja']['sort.unit_sqm']='㎡単価';
@@ -982,6 +990,8 @@
   DICT['ja']['search.date_caliber.dl']='ダウンロード日（本機）';
   DICT['ja']['search.other_detail']='その他の詳細を隠す'; DICT['ja']['search.other_hide_off']='その他の詳細を表示';
   DICT['ja']['search.reins_search']='物件番号検索'; DICT['ja']['cat.ms_hint']='クリックで選択、複数可';
+  DICT['ja']['row.suspect']='要確認'; DICT['ja']['row.suspect_tip']='下落率異常（>50%）、解析エラーの疑い、値下げにはカウントしない';
+  DICT['ja']['row.see_latest']='最新を見る'; DICT['ja']['row.hit_chip']='{x} でヒット · {y} に更新済';
   // D7/D5（v1.8.2）：roundplan.* / recon.* 四语齐套
   DICT['zh-TW']['roundplan.h']='每輪檢索計劃'; DICT['zh-TW']['roundplan.hint']='自動更新每一輪抓什麼；改完立即生效';
   DICT['zh-TW']['roundplan.main_round']='全期間主輪（資料主力 + 下架基線）';

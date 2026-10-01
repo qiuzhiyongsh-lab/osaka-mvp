@@ -149,6 +149,8 @@ var SECTIONS = [
       F(t('cmp.f.prev'),  function(r){ return r.previous_price ? wanP(r.previous_price) : '—'; }),
       F(t('cmp.f.drop'),function(r){
           if(!r.previous_price || !r.price || r.previous_price == r.price) return '—';
+          if(r.drop_suspect)  // F1（PRD-35 M2）：降幅 > 50% 标存疑，不显示为降价
+            return '<span class="qdrop qdrop-suspect">' + t('row.suspect') + '</span>';
           var up = r.price > r.previous_price;
           var arrow = up ? '↑ ' : '↓ ';
           var src = '<span class="qsrc">' + t('row.src_platform')

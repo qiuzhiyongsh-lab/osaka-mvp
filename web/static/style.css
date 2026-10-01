@@ -229,6 +229,7 @@ tbody tr:hover,table tr:hover{background:#fcfdff}
   font-weight:600;display:inline-block}
 .tag.new{background:var(--ok)} .tag.price_down{background:var(--accent)}
 .tag.price_up{background:var(--warn)} .tag.modified{background:#3b6fd4}
+.tag.content{background:#8e44ad} .tag.meta_only{background:#95a5a6}   /* F2（PRD-35 M2）：内容变更=紫 / 续期=灰 */
 .tag.ok{background:var(--ok)} .tag.running{background:#3b6fd4}
 .tag.started{background:#3b6fd4}
 .tag.error,.tag.fail{background:var(--accent)}
@@ -314,7 +315,60 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
   border:1px solid #bfe4d3;border-radius:5px;padding:0 6px;white-space:nowrap;
   font-variant-numeric:tabular-nums}
 .qdrop-platform,.qrate-platform{color:#1d5fb0;background:#e8f1fb;border:1px solid #c4d8f0}
+/* F1（PRD-35 M2）：降幅 > 50% 存疑闸门 —— 灰色「存疑」标，不显示为降价（D5） */
+.qdrop-suspect,.qrate-suspect{color:#5b6677;background:#eceef1;border:1px solid #cfd4dc;font-weight:700}
 .qsrc{font-size:9.5px;font-weight:700;opacity:.85;margin-left:3px;letter-spacing:.04em;vertical-align:1px}
+
+/* F6（PRD-35 M2 · L2 提示层）：偏差 chip —— 列表卡片上提示"查的是旧日期但有更新"（橙黄小 chip） */
+.qchip{display:inline-flex;align-items:center;gap:4px;margin-top:3px;font-size:11px;font-weight:600;
+  line-height:1.5;padding:1px 8px;border-radius:20px;white-space:nowrap}
+.qchip-dev{background:#fff4e0;color:#a35a00;border:1px solid #f0cf94}
+.qchip-ic{font-weight:800}
+.qchip-latest{color:#1d5fb0;font-weight:700;text-decoration:underline;margin-left:2px}
+.qchip-latest:hover{color:#15457f}
+
+/* F6（PRD-35 M2）：详情页顶部偏差横幅 —— 从 asof（历史命中）进入且 asof ≠ 最新时显示（辅） */
+.asof-banner{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  background:#fff4e0;border:1px solid #f0cf94;color:#7a4a00;font-size:12.5px;font-weight:600}
+.asof-ic{font-size:14px;font-weight:800}
+.asof-txt b{font-weight:800}
+.asof-act{margin-left:4px;color:#1d5fb0;font-weight:700;text-decoration:underline}
+.asof-act.ghost{color:#5b6677}
+.asof-act:hover{color:#15457f}
+
+/* F5（PRD-35 M2）：房源历史时间轴 —— 竖向时间轴，默认展开（D9） */
+.timeline{position:relative;padding:4px 0 4px 18px}
+.timeline::before{content:'';position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:#d3d1c7}
+.tl-node{position:relative;padding:0 0 14px 0}
+.tl-node:last-child{padding-bottom:0}
+.tl-dot{position:absolute;left:-18px;top:3px;width:11px;height:11px;border-radius:50%;
+  background:#95a5a6;border:2px solid #fff;box-shadow:0 0 0 1px #cfd4dc}
+.tl-node.first .tl-dot{background:#3b6fd4}
+.tl-node.new .tl-dot{background:var(--ok)}
+.tl-node.content .tl-dot{background:#8e44ad}
+.tl-node.price_down .tl-dot{background:var(--accent)}
+.tl-node.price_up .tl-dot{background:var(--warn)}
+.tl-node.meta_only .tl-dot{background:#95a5a6}
+.tl-node.current .tl-dot{background:#22304d}
+.tl-body{display:flex;flex-direction:column;gap:2px}
+.tl-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.tl-date{font-size:12px;font-weight:700;color:#33456b;font-variant-numeric:tabular-nums}
+.tl-tag{font-size:11px;font-weight:700;color:#fff;padding:0 7px;border-radius:20px;line-height:1.6}
+.tl-tag-first{background:#3b6fd4}.tl-tag-new{background:var(--ok)}
+.tl-tag-content{background:#8e44ad}.tl-tag-price_down{background:var(--accent)}
+.tl-tag-price_up{background:var(--warn)}.tl-tag-meta_only{background:#95a5a6}
+.tl-tag-current{background:#22304d}
+.tl-now{font-size:10.5px;font-weight:800;color:#1d5fb0;background:#e8f1fb;border:1px solid #c4d8f0;
+  padding:0 6px;border-radius:20px}
+.tl-hit-lbl{font-size:10.5px;font-weight:800;color:#a35a00;background:#fff4e0;border:1px solid #f0cf94;
+  padding:0 6px;border-radius:20px}
+.tl-desc{font-size:12px;color:#3a455c;line-height:1.5}
+.tl-note{color:#8a919c;font-size:11px;font-weight:400}
+.tl-suspect{color:#5b6677;font-weight:800}
+/* F5 命中节点高亮（D13）：橙黄外环 + 强调 */
+.tl-node.tl-hit .tl-dot{box-shadow:0 0 0 3px #f0cf94,0 0 0 4px #fff;border-color:#a35a00}
+.tl-node.tl-hit{background:#fffaf0;border-radius:6px;margin-left:-4px;padding-left:4px}
+.tl-node.tl-current{margin-top:2px}
 
 /* 「加入对比」按钮（每行一个，也是选中态指示灯） */
 .qcmp{flex:0 0 auto;background:#fff;color:var(--brand-ink);border:2px solid #94a8cc;

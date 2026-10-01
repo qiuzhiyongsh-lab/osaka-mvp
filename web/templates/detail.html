@@ -28,8 +28,15 @@
       {% set _up = row.price > row.previous_price %}
       {% set _arrow = '↑' if _up else '↓' %}
       {% set _diff = (row.previous_price - row.price)|abs %}
+      {% set _pct = (_diff * 100 / row.previous_price)|round(1) %}
+      {# F1（PRD-35 M2 · D5）：降幅 > 50% 标「存疑」，不显示为降价 #}
+      {% if _pct > 50 %}
+      <span class="qdrop qdrop-suspect" data-i18n="row.suspect">存疑</span>
+      <span class="qrate qrate-suspect" data-i18n="row.suspect">存疑</span>
+      {% else %}
       <span class="qdrop qdrop-platform">{{ _arrow }} {{ wan(_diff) }} 万円 <span class="qsrc" data-i18n="row.src_platform">平台</span>{% if row.change_date %} · {% if wareki_to_ad is defined %}{{ wareki_to_ad(row.change_date) }}{% else %}{{ row.change_date }}{% endif %}{% endif %}</span>
-      <span class="qrate qrate-platform">{{ _arrow }} {{ (_diff * 100 / row.previous_price)|round(1) }}%</span>
+      <span class="qrate qrate-platform">{{ _arrow }} {{ _pct }}%</span>
+      {% endif %}
     {% endif %}
     <span class="price">{{ wan(row.price) }} 万円</span>
     {% if _area %}<span class="area">{{ _area }}</span>{% endif %}
@@ -177,6 +184,60 @@
   {# v1.9.37：重新生成按钮 + 生成提示已迁至「详细信息」卡片标题行（aiRunBtn / aiMeta 同 id 仅一处） #}
 </div>
 
+<!-- F6 偏差横幅（L2 提示层 · PRD-35 M2）：从 asof（历史日期命中）进入，且 asof ≠ 最新变更日 时显示 -->
+{% if asof and latest_date and asof != latest_date %}
+<div class="card sec asof-banner" id="asofBanner">
+  <span class="asof-ic">⚠</span>
+  <span class="asof-txt">你正在查看按 <b>{{ asof }}</b> 命中的记录；该房源已于 <b>{{ latest_date }}</b> 更新（当前展示为最新信息）。</span>
+  <a class="asof-act" href="#timeline">查看命中时版本</a>
+  <a class="asof-act ghost" href="/p/{{ no }}">始终看最新</a>
+</div>
+{% endif %}
+
+<!-- ②.55 房源历史时间轴（F5 · PRD-35 M2）：首次录入 → 各次变更 → 当前状态，正序。
+     默认展开（D9）；命中节点高亮（D13）；复用 F2 的 5 档配色。 -->
+<div class="card" id="timeline">
+  <h2><span>房源历史时间轴</span> <span class="hint" id="tlHint">首次录入 → 各次变更 → 当前状态（按时间正序）</span></h2>
+  {% if timeline.nodes %}
+  <div class="timeline">
+    {% for n in timeline.nodes %}
+    {% set _is_hit = (asof_hit_date and n.date and n.date[:10] == asof_hit_date) %}
+    {% set _is_cur = (n.type == 'current') %}
+    <div class="tl-node tl-{{ n.type }}{% if _is_hit %} tl-hit{% endif %}{% if _is_cur %} tl-current{% endif %}"{% if _is_hit %} id="tlHit"{% endif %}>
+      <div class="tl-dot"></div>
+      <div class="tl-body">
+        <div class="tl-head">
+          <span class="tl-date">{{ n.date[:10] if n.date else '—' }}</span>
+          <span class="tl-tag tl-tag-{{ n.type }}">{{ {'first':'首次录入','new':'新規','content':'内容变更','price_down':'降价','price_up':'涨价','meta_only':'续期','current':'当前状态'}.get(n.type, n.type) }}</span>
+          {% if _is_cur %}<span class="tl-now">最新</span>{% endif %}
+          {% if _is_hit %}<span class="tl-hit-lbl">你按 {{ asof }} 查到的</span>{% endif %}
+        </div>
+        <div class="tl-desc">
+          {% if n.type == 'first' %}
+            我方第一次抓到（平台登録日 {{ row.reg_date_iso or '—' }}）{% if n.new is not none %}；当时价格 {{ wan(n.new) }} 万円{% endif %}。
+            <span class="tl-note">（仅记录价格，完整字段自基线机制上线起记录）</span>
+          {% elif n.type in ('price_down','price_up') %}
+            {% if n.suspect %}<span class="tl-suspect">存疑·待核对</span> {% endif %}
+            {% if n.old is not none %}{{ wan(n.old) }} 万円{% endif %} → {% if n.new is not none %}{{ wan(n.new) }} 万円{% endif %}
+            {% if n.pct is not none %}（{{ n.pct }}%）{% endif %}
+            {% if n.suspect %}<span class="tl-note">（降幅异常，疑似数据解析错位，不计入降价）</span>{% endif %}
+          {% elif n.type == 'content' %}
+            房源内容更新（价格未变）
+          {% elif n.type == 'meta_only' %}
+            平台有变更记录，但房源内容与价格均未变化（多为刊登续期或交易状态更新）
+          {% elif n.type == 'current' %}
+            价格 {% if n.new is not none %}{{ wan(n.new) }} 万円{% endif %}；累计抓取 {{ n.count }} 次
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">暂无历史数据。</div>
+  {% endif %}
+</div>
+
 <!-- ③ 变更历史 / 快照：默认收起，避免把页面撑长 -->
 <details class="card sec">
   <summary><span data-i18n="detail.chg_h">变更历史</span> <span class="muted" style="font-weight:400" id="chgHint"></span></summary>
@@ -187,7 +248,7 @@
       {% for c in changes %}
       <tr><td>{{ c.detected_at }}</td>
           <td><span class="tag {{ c.change_type }}">
-            <span class="chlabel" data-type="{{ c.change_type }}">{{ {'new':'新規','price_down':'降价','price_up':'涨价','modified':'变更'}.get(c.change_type, c.change_type) }}</span></span></td>
+            <span class="chlabel" data-type="{{ c.change_type }}">{{ {'new':'新規','price_down':'降价','price_up':'涨价','modified':'变更','content':'内容变更','meta_only':'续期'}.get(c.change_type, c.change_type) }}</span></span></td>
           <td>{{ c.old_value or '' }}</td><td>{{ c.new_value or '' }}</td></tr>
       {% endfor %}
     </table>

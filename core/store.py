@@ -487,6 +487,21 @@ def _has_text(v) -> bool:
     return bool(str(v).strip()) if v is not None else False
 
 
+def _to_int(v):
+    """宽松转 int：int / 纯数字字符串（可带千分位或空格）都算；bool / 空 / 非数字 → None。
+    供 F1/F5（PRD-35 M2）计算降幅与价格节点用。"""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v)
+    if isinstance(v, str):
+        s = v.strip().replace(",", "").replace(" ", "")
+        return int(s) if s.lstrip("-").isdigit() else None
+    return None
+
+
 def _to_iso_day(v) -> str | None:
     """平台日期 → 'YYYY-MM-DD'；不是平台日期 / 解不到"日" → None（绝不猜）。"""
     if not _is_platform_date(v):
@@ -1396,6 +1411,119 @@ class Store:
             "SELECT * FROM changes WHERE property_no=? ORDER BY id DESC LIMIT ?",
             (property_no, limit),
         ))
+
+    # ---------------- F2/F5（PRD-35 M2）：5 类变更 + 房源历史时间轴 ----------------
+    def unified_changes(self, property_no: str, limit: int = 50) -> list[dict]:
+        """把变更事件统一为 5 类（new / price_down / price_up / content / meta_only）。
+
+        - content：changes 表中的 ``modified``（differ 仅在 content_hash 变化时写 modified，
+          故 modified = 真·内容变更，不是续期）。
+        - meta_only：property_history 中平台 change_date 的演进跳变（刊登续期 / 状态更新，
+          内容价格均未变）。
+
+        返回**按时间倒序**的 dict 列表（字段与 property_changes 兼容：change_type / field /
+        old_value / new_value / detected_at），详情页「变更历史」表格可直接复用；
+        同时作为 F5 时间轴的事件来源。只读，零副作用。
+        """
+        raw = list(self.conn.execute(
+            "SELECT change_type, field, old_value, new_value, detected_at FROM changes "
+            "WHERE property_no=? ORDER BY detected_at ASC, id ASC", (property_no,)))
+        out: list[dict] = []
+        for c in raw:
+            ct = "content" if c["change_type"] == "modified" else c["change_type"]
+            out.append({"change_type": ct, "field": c["field"],
+                        "old_value": c["old_value"], "new_value": c["new_value"],
+                        "detected_at": c["detected_at"]})
+        # 续期（property_history 的 change_date 演进；同一 change_date 只记一次）
+        ph = list(self.conn.execute(
+            "SELECT change_date, captured_at FROM property_history "
+            "WHERE property_no=? ORDER BY id ASC", (property_no,)))
+        seen: set = set()
+        prev = None
+        for p in ph:
+            cd = p["change_date"]
+            if not cd or cd == prev:
+                prev = cd
+                continue
+            if cd in seen:
+                prev = cd
+                continue
+            seen.add(cd)
+            prev = cd
+            ad = wareki_mod.to_ad(cd, fallback="") if cd else ""
+            day = (ad or (p["captured_at"] or "")[:10])[:10]
+            if not day:
+                continue
+            out.append({"change_type": "meta_only", "field": None,
+                        "old_value": None, "new_value": None,
+                        "detected_at": day + " 00:00:00"})
+        out.sort(key=lambda e: (e["detected_at"] or ""), reverse=True)
+        return out[:limit]
+
+    def timeline_data(self, property_no: str, suspect_threshold: float = 50.0) -> dict:
+        """F5（PRD-35 M2）：房源历史时间轴节点（首次录入 → 各变更 → 当前状态，正序）。
+
+        返回 ``{"nodes": [...], "fetch_count": N}``。每个节点字段：
+          date(ISO 串) / type(first|new|content|price_down|price_up|meta_only|current)
+          old / new(円整数或None) / pct(降价幅%|None) / up(bool) / suspect(bool) / count(int|None)
+        只读，零副作用；前端用 Jinja 的 ``wan()`` 渲染金额、依 type 上色。
+        """
+        row = self.conn.execute(
+            "SELECT price, previous_price, first_seen_at, last_seen_at, "
+            "reg_date_iso, chg_date_iso FROM properties WHERE property_no=?",
+            (property_no,)).fetchone()
+        if row is None:
+            return {"nodes": [], "fetch_count": 0}
+        fetch_count = self.conn.execute(
+            "SELECT COUNT(*) c FROM property_history WHERE property_no=?", (property_no,)
+        ).fetchone()["c"]
+        evs = list(reversed(self.unified_changes(property_no, limit=200)))  # 转正序
+        nodes: list[dict] = []
+
+        # 首次录入节点（D10：历史房源只能给"仅记录价格"，不伪造全字段）
+        first_day = (row["first_seen_at"] or "")[:10]
+        first_price = None
+        for e in evs:
+            if e["change_type"] == "new":
+                first_price = _to_int(e["new_value"])
+                if not first_day:
+                    first_day = (e["detected_at"] or "")[:10]
+                break
+        if not first_day:
+            first_day = (row["reg_date_iso"] or row["chg_date_iso"] or (row["last_seen_at"] or "")[:10])
+        nodes.append({"date": (row["first_seen_at"] or (first_day + " 00:00:00")),
+                      "type": "first", "old": None, "new": first_price,
+                      "pct": None, "up": False, "suspect": False, "count": None})
+
+        for e in evs:
+            ct = e["change_type"]
+            if ct == "first":
+                continue
+            if ct in ("price_down", "price_up"):
+                old = _to_int(e["old_value"])
+                new = _to_int(e["new_value"])
+                pct = None
+                suspect = False
+                if old and new and old != 0:
+                    pct = abs(new - old) / abs(old) * 100
+                    suspect = pct > suspect_threshold     # D5：降幅 > 50% 标存疑
+                nodes.append({"date": e["detected_at"], "type": ct, "old": old, "new": new,
+                              "pct": round(pct, 1) if pct is not None else None,
+                              "up": ct == "price_up", "suspect": suspect, "count": None})
+            elif ct == "content":
+                nodes.append({"date": e["detected_at"], "type": "content", "old": None, "new": None,
+                              "pct": None, "up": False, "suspect": False, "count": None})
+            elif ct == "meta_only":
+                nodes.append({"date": e["detected_at"], "type": "meta_only", "old": None, "new": None,
+                              "pct": None, "up": False, "suspect": False, "count": None})
+            else:
+                nodes.append({"date": e["detected_at"], "type": ct, "old": None, "new": None,
+                              "pct": None, "up": False, "suspect": False, "count": None})
+
+        nodes.append({"date": (row["last_seen_at"] or ""),
+                      "type": "current", "old": None, "new": _to_int(row["price"]),
+                      "pct": None, "up": False, "suspect": False, "count": fetch_count})
+        return {"nodes": nodes, "fetch_count": fetch_count}
 
     # ---------------- AI 解读（v1.7.4） ----------------
     def get_ai_extraction(self, property_no: str):

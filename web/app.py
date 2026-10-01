@@ -881,14 +881,35 @@ def _detail_pairs(row) -> list[tuple[str, str, bool]]:
 @app.get("/p/<property_no>")
 def detail(property_no: str):
     _refresh_cfg()
+    # F5/F6（PRD-35 M2）：接收可选 ?asof=YYYY-MM-DD（用户按某历史日期命中后透传），
+    # 用于详情页时间轴"命中节点高亮" + 顶部偏差横幅（L2 提示层，不替换主信息）。
+    asof = (request.args.get("asof") or "").strip()
     row = STORE.get_property(property_no)
     if row is None:
         return render_template("detail.html", row=None, no=property_no,
-                               pairs=[], changes=[], snaps=[]), 404
+                               pairs=[], changes=[], snaps=[],
+                               timeline={"nodes": [], "fetch_count": 0},
+                               asof=asof, asof_hit_date="", latest_date=""), 404
+    timeline = STORE.timeline_data(property_no)
+    # 最新变更日（口径）：取"真正最新"的日期 —— 変更年月日 / 登録年月日 / 最后抓取日 三者取最大。
+    # ⚠ 不能 first-non-empty 兜底：平台 change_date 可能比实际最后抓取日更旧（平台未登记当天续期），
+    #   若仅取 chg_date_iso 会比真实最新观测日(last_seen_at) 更旧 → 偏差横幅误判"已是最新"而错误隐藏。
+    _ld_cands = [row["chg_date_iso"], row["reg_date_iso"],
+                 str(row["last_seen_at"] or "")[:10]]
+    latest_date = max((d for d in _ld_cands if d), default="")
+    # 命中节点 = node_date <= asof 的最大节点日期（D13）
+    asof_hit_date = ""
+    if asof and timeline["nodes"]:
+        cand = [n["date"][:10] for n in timeline["nodes"]
+                if n["date"] and n["date"][:10] <= asof]
+        if cand:
+            asof_hit_date = max(cand)
     return render_template("detail.html", row=row, no=property_no,
                            pairs=_detail_pairs(row),
                            snaps=STORE.snapshots(property_no, 20),
-                           changes=STORE.property_changes(property_no, 20))
+                           changes=STORE.unified_changes(property_no, 20),
+                           timeline=timeline, asof=asof,
+                           asof_hit_date=asof_hit_date, latest_date=latest_date)
 
 
 # ============================================================
@@ -2397,6 +2418,22 @@ def _row_payload(r) -> dict:
     # v1.4.0：两阶段下载后，列表可能先落库、详情还没补。前端靠这个字段做视觉区分
     # （已下详情 vs 只有列表/待补），否则用户分不清"没下下来"和"下了但没详情"。
     d["has_detail"] = bool(d.get("detail_json"))
+    # F1（PRD-35 M2）：降价徽章 + 存疑闸门。计算降幅（平台官方口径 previous_price vs price），
+    # 降幅 > 50%（D5 阈值）一律标"存疑"，不显示为降价。前端依 drop_suspect 切换灰标。
+    d["drop_pct_val"] = None
+    d["drop_suspect"] = False
+    _pp = d.get("previous_price")
+    _pr = d.get("price")
+    if _pp not in (None, "") and _pr not in (None, "") and _pp != _pr:
+        try:
+            _pp_i = float(_pp); _pr_i = float(_pr)
+            if _pp_i != 0:
+                _pct = abs(_pr_i - _pp_i) / abs(_pp_i) * 100
+                d["drop_pct_val"] = round(_pct, 1)
+                if _pct > 50:
+                    d["drop_suspect"] = True
+        except (TypeError, ValueError):
+            pass
     # v1.7.4 R8：取引態様（売主 / 専任 / 専属 / 代理 / 一般）—— 客户点名"哪套是卖主要看得见"。
     # 值可能是多行枚举（如「売主\nオーナーチェンジ」），徽章只取**第一行**，否则标签过长撑破行。
     _tt = str((d.get("detail") or {}).get("trade_type") or "").strip()

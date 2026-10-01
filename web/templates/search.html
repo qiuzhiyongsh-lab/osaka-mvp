@@ -1718,18 +1718,7 @@ function renderFullItem(r, i){
   var kindline = (r.kind && r.property_subtype) ? (r.kind + '／' + r.property_subtype)
                : (r.kind || r.property_subtype || '');
   var on = (window.CompareBox && CompareBox.has(no)) ? ' on' : '';
-  var drop = '', rate = '', up = false;
-  if(r.previous_price && r.price && r.price != r.previous_price){
-    // 平台历史变更（下载前已发生，来自 REINS「変更前価格」）→ 蓝底 + 「平台」标签 + 变更日
-    up = r.price > r.previous_price;
-    var arrow = up ? '↑ ' : '↓ ';
-    var diff = Math.abs(r.previous_price - r.price);
-    var pct = (diff / Number(r.previous_price) * 100).toFixed(1) + '%';
-    var src = '<span class="qsrc">' + t('row.src_platform')
-            + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
-    drop = '<span class="qdrop qdrop-platform">' + arrow + wan(diff) + ' ' + src + '</span>';
-    rate = arrow + pct;   // 降价/涨价比例（分母=修改前金额）
-  }
+  var _db = dropBadge(r); var drop = _db.drop, rate = _db.rate;
   // 供底部「对比栏」槽位用的短信息（楼名/種目 + 間取り·面積·駅）
   var cmpnm  = r.building_name || r.property_subtype || r.kind || '';
   var cmparea = r.exclusive_area ? num(r.exclusive_area) + '㎡'
@@ -1768,8 +1757,8 @@ function renderFullItem(r, i){
     +       '<span class="price">' + wan(r.price) + '</span>'
     +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
     /* v1.9.41（勇哥需求）：价格右侧加「详情」按钮，直达详情页（/p/编号）。
-       stopPropagation 防止误触卡片的"展开行内详情"。 */
-    +       '<a class="qbtn-detail" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+       stopPropagation 防止误触卡片的"展开行内详情"。F6：命中后确有更新时透传 asof。 */
+    +       '<a class="qbtn-detail" href="' + detailHref(r) + '" target="_blank"'
     +          ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
     +          esc(t('detail.srcpage')) + '</a>'
     +     '</div>'
@@ -1797,6 +1786,7 @@ function renderFullItem(r, i){
     +     (r.last_seen_at  ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0,10)) + '</span>' : '')
     +   '</div>'
     +   qhitHtml(r)   /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
+    +   deviationChip(r)   /* F6：偏差提示 chip（命中后确有更新才出现） */
     + '</div>'
     + '<div class="qdetail" id="' + id + '" style="display:none"></div>'
     + '</div>';
@@ -1822,6 +1812,56 @@ function qhitHtml(r){
   if(!r || !r.qhit || !r.qhit.hit_snippet) return '';
   return '<div class="qhit"><span class="qhit-label">' + esc(t('search.qhit')) + '</span>'
        + '<span class="qhit-snip">' + r.qhit.hit_snippet + '</span></div>';
+}
+
+/* F6（PRD-35 M2 · L2 提示层）：偏差 chip + asof 透传。
+   命中日 = 当前查询日期（window.CUR_DATE，由 /api/query 的 date 回填；区间/全部查询为空）；
+   最新变更日 = 平台 chg_date_iso / reg_date_iso。
+   仅当"命中后确有更新"（命中日 < 最新变更日）才渲染 chip（防噪音，见 D12/EARS）。 */
+function hitDate(){ return window.CUR_DATE || ''; }
+function latestDate(r){ return (r.chg_date_iso || r.reg_date_iso || ''); }
+function hasNewer(r){
+  var h = hitDate(), l = latestDate(r);
+  return !!h && !!l && h < l;
+}
+/* 详情页链接：命中后确有更新 → 带 asof（触发详情页横幅 + 命中节点高亮）；否则普通链接。 */
+function detailHref(r){
+  var no = r.property_no || '';
+  if(hasNewer(r)) return '/p/' + encodeURIComponent(no) + '?asof=' + encodeURIComponent(hitDate());
+  return '/p/' + encodeURIComponent(no);
+}
+/* 偏差 chip：列表卡片上提示"你查的是旧日期，但这套房后来更新了"，并提供「看最新」入口。 */
+function deviationChip(r){
+  if(!hasNewer(r)) return '';
+  var h = hitDate(), l = latestDate(r), no = r.property_no || '';
+  return '<span class="qchip qchip-dev">'
+       +   '<span class="qchip-ic">⚠</span>'
+       +   tf('row.hit_chip', {x: h, y: l})
+       +   ' <a class="qchip-latest" href="/p/' + encodeURIComponent(no) + '">' + t('row.see_latest') + '</a>'
+       + '</span>';
+}
+
+/* F1（PRD-35 M2）：降价徽章 + 存疑闸门。
+   平台历史变更（previous_price vs price）；降幅 > 50%（D5）显示灰色「存疑」而非降价徽章。
+   返回 {drop, rate} —— drop 为金额+平台来源小标，rate 为降幅徽章。 */
+function dropBadge(r){
+  var drop = '', rate = '';
+  if(r.previous_price && r.price && r.price != r.previous_price){
+    if(r.drop_suspect){
+      drop = '<span class="qdrop qdrop-suspect" title="' + esc(t('row.suspect_tip')) + '">' + t('row.suspect') + '</span>';
+      rate = '<span class="qrate qrate-suspect">' + t('row.suspect') + '</span>';
+      return {drop: drop, rate: rate};
+    }
+    var up = r.price > r.previous_price;
+    var arrow = up ? '↑ ' : '↓ ';
+    var diff = Math.abs(r.previous_price - r.price);
+    var pct = (diff / Number(r.previous_price) * 100).toFixed(1) + '%';
+    var src = '<span class="qsrc">' + t('row.src_platform')
+            + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
+    drop = '<span class="qdrop qdrop-platform">' + arrow + wan(diff) + ' ' + src + '</span>';
+    rate = arrow + pct;
+  }
+  return {drop: drop, rate: rate};
 }
 
 /* 单行重设计（UI 经理主导，R-UI-3 / PRD-24）：
@@ -1854,18 +1894,8 @@ function renderCompactItem(r, i){
             + ' title="' + esc(t('row.trade_type_tip')) + '：' + esc(r.trade_type) + '">'
             + esc(r.trade_type) + '</span>';
   }
-  // —— 降价/涨价（平台历史变更，蓝底 + 「平台」标签）——
-  var drop = '', rate = '', up = false;
-  if(r.previous_price && r.price && r.price != r.previous_price){
-    up = r.price > r.previous_price;
-    var arrow = up ? '↑ ' : '↓ ';
-    var diff = Math.abs(r.previous_price - r.price);
-    var pct = (diff / Number(r.previous_price) * 100).toFixed(1) + '%';
-    var src = '<span class="qsrc">' + t('row.src_platform')
-            + (r.change_date ? ' · ' + window.warekiToAD(r.change_date) : '') + '</span>';
-    drop = '<span class="qdrop qdrop-platform">' + arrow + wan(diff) + ' ' + src + '</span>';
-    rate = arrow + pct;
-  }
+  // —— 降价/涨价（平台历史变更，蓝底 + 「平台」标签；F1 存疑闸门）——
+  var _db = dropBadge(r); var drop = _db.drop, rate = _db.rate;
   // —— 単価 ——
   var sqm   = (r.unit_price_sqm   && Number(r.unit_price_sqm)   > 0) ? (Number(r.unit_price_sqm)/10000).toFixed(1)   + ' 万円' : '';
   var tsubo = (r.unit_price_tsubo && Number(r.unit_price_tsubo) > 0) ? (Number(r.unit_price_tsubo)/10000).toFixed(1) + ' 万円' : '';
@@ -1901,8 +1931,8 @@ function renderCompactItem(r, i){
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
     +       '<span class="price">' + wan(r.price) + '</span>'
     +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
-    /* v1.9.41：简洁模式价格右侧同样加「详情」按钮（与详细模式一致） */
-    +       '<a class="qbtn-detail" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+    /* v1.9.41：简洁模式价格右侧同样加「详情」按钮（与详细模式一致）；F6 透传 asof */
+    +       '<a class="qbtn-detail" href="' + detailHref(r) + '" target="_blank"'
     +          ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
     +          esc(t('detail.srcpage')) + '</a>'
     +     '</span>'
@@ -1932,11 +1962,12 @@ function renderCompactItem(r, i){
                 + ' onclick="event.stopPropagation()">' + t('detail.openpdf') + '</a>'
               : '<a class="qbtn-mini disabled" href="javascript:void(0)"'
                 + ' onclick="event.stopPropagation()" title="' + esc(t('row.no_pdf')) + '">' + t('detail.openpdf') + '</a>')
-    +     '<a class="qbtn-mini ghost" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
+    +     '<a class="qbtn-mini ghost" href="' + detailHref(r) + '" target="_blank"'
     +         ' onclick="event.stopPropagation()">' + t('detail.srcpage') + '</a>'
     +   '</div>';
   h += '</div>';  // /qcompact
   h += qhitHtml(r);  /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
+  h += deviationChip(r);  /* F6：偏差提示 chip（命中后确有更新才出现） */
   h += '<div class="qdetail" id="' + id + '" style="display:none"></div>'
      + '</div>';
   return h;
