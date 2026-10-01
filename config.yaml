@@ -3,7 +3,7 @@ app:
   mode: live
   output_root: ./data
 schedule:
-  enabled: true
+  enabled: false
   mode: random
   interval_hours: 2.0
   random_min_hours: 1.0
@@ -13,8 +13,8 @@ schedule:
     start: 07:00
     end: '23:00'
   run_on_start: false
-  random_min_minutes: 55.0
-  random_max_minutes: 70.0
+  random_min_minutes: 90.0
+  random_max_minutes: 120.0
 local_extract:
   enabled: true
   prefer_local: true
