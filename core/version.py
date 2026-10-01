@@ -34,6 +34,16 @@ BUILD_AT = "2026-10-02 00:35"
 #     **起点差一天 + 页面没标口径**。纯展示、零筛选逻辑改动（A10 零回归）。
 #     实测：`date_from=2026-10-01` → caliber=any / 636 条；`+caliber=change` → 487 条。
 #     i18n 四语齐套（search.caliber_note / search.lib.today_tip）；键缺失时自动不追加。
+#   · PRD-38 D7：`serve.py` 的 `if not _W.PUBLIC:` 常驻线程块加 `PUB_LOOP.start()`。
+#     修的是「上传定时器只在设置页保存/点按钮时才启动」⇒ **重启后抓完也不推**的坑
+#     （2026-10-02 实测：00:16 重启后至 00:30 零次自动上传，日志无定时器启动行）。
+#     幂等（start 自带 running 守卫）+ 受 publish.enabled/auto_enabled 双开关约束。
+#   · PRD-38 D6：`config.yaml` `schedule.enabled: false → true`（勇哥「按将来可以正常运行
+#     去处理」）。发车仍受 window 07:00–23:00(JST) + run_on_start=false 约束 ⇒ 重启不抢跑。
+#   · PRD-38 D1：已手工执行 `tools/force_full_push.py` 全量重推 —— 房源 7334 行
+#     （selected/sent/confirmed 全等、missing=0、ok=1、37.6s）+ AI 结构 2932 条。
+#     ⚠ 7335−7334=1 行是 `100140741602`（price_hold=1，价格异常熔断主动挂起），
+#       属 v1.9.77 F6 设计行为，**不是丢数据**。
 # ============================================================================
 # v1.9.106（2026-10-02 · PRD-37：基于价格变动的下载筛选与 PDF 增量策略 · 方式2 不发布）：
 #   勇哥拍板（2026-10-01 23:44）：Q8=B（维持「以详情页为准」，不复活列表图标门禁）、

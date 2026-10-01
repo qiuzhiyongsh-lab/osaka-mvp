@@ -183,6 +183,25 @@ def serve_once(host: str, port: int, extra_args: list[str]) -> None:
         # v1.9.82 v2.0 F-4：员工业务数据回流调度线程（60s）→ 线上→本地单向回流自动跑。
         #   此前 F-1/F-2/F-3 已上线但只能手动 API 触发；本线程把它变成常驻自动。
         _W._start_employee_sync_loop()
+        # v1.9.107 / PRD-38 D7：上传定时器（PUB_LOOP）**随进程启动**。
+        #   此前它只在「设置页保存上传设置」或「点启动按钮」时 start()
+        #   （web/app.py:2968 / 2998）⇒ 每次重启 8765 后若不去点一下，就是
+        #   **抓完也不推**。2026-10-02 实测坐实：00:16 重启后到 00:30 没有任何一次
+        #   自动上传，日志里连「上传定时器已启动」这行都没有。
+        #   幂等：PublishLoop.start() 自带 `if self.running: return "已在运行"` 守卫，
+        #   与设置页/按钮谁先到谁生效，绝不双跑。
+        #   受 publish.enabled + publish.auto_enabled 双开关约束：两个都开才自启。
+        try:
+            _pub = (_W.CFG.get("publish") or {})
+            if _pub.get("enabled") and _pub.get("auto_enabled"):
+                _W.PUB_LOOP.cfg = _W.CFG
+                say("· 上传定时器：%s（每 %s 分钟检查一次）" % (
+                    _W.PUB_LOOP.start(),
+                    int(_pub.get("interval_minutes") or 10)))
+            else:
+                say("· 上传定时器未随启动（publish.enabled / auto_enabled 未同时开启）")
+        except Exception as _e:                                  # noqa: BLE001
+            say("· 上传定时器随启动跳过：%s: %s" % (type(_e).__name__, _e))
 
     # 模板热重载：debug=False 时 Flask 默认缓存编译后的模板，导致改模板不生效。
     # 显式开启后，每次请求都会按文件 mtime 重新编译，无需重启进程即可看到模板改动。
