@@ -3134,11 +3134,23 @@ def api_crawl_settings():
         cr["stage_b_enabled"] = bool(body["stage_b_enabled"])
     if "auto_split_on_limit" in body:
         cr["auto_split_on_limit"] = bool(body["auto_split_on_limit"])
+    # v1.9.106 / PRD-37 Q7：所有权过滤（所有権のみ ↔ 全部，含借地権）。
+    #   【为什么要补】crawl.rights_filter 后端**早就在消费**（crawler.py 表单填充处读它
+    #   决定勾不勾「所有権のみ」），但设置页一直没有入口 —— 用户想抓借地権只能手改
+    #   config.yaml。这里把通道补上，让体系A（自动更新）也能调。
+    #   【白名单】只接受 ownership / all 两个值，其它一律忽略（绝不写脏配置）。
+    if "rights_filter" in body:
+        _rf = str(body["rights_filter"] or "").strip().lower()
+        if _rf in ("ownership", "all"):
+            cr["rights_filter"] = _rf
+        else:
+            log(f"· 忽略非法 rights_filter={body.get('rights_filter')!r}（只接受 ownership/all）")
     cfgmod.save(cfg)
     log(f"抓取计划开关已保存：全期間主轮={cr.get('main_round_enabled')} "
         f"前日补齐={cr.get('sync_dates_backfill_prev_day')} "
         f"阶段B={cr.get('stage_b_enabled')} "
-        f"500拆细={cr.get('auto_split_on_limit')}")
+        f"500拆细={cr.get('auto_split_on_limit')} "
+        f"所有权过滤={cr.get('rights_filter')}")
     return jsonify({"status": "ok", "crawl": cr})
 
 

@@ -196,6 +196,19 @@
         <span class="muted" data-i18n="roundplan.auto_split_tip">REINS 单组 >500 件截断时自动拆细重试；开启增请求有风控风险，未真机验证前建议关</span>
       </span>
     </label>
+    <!-- v1.9.106 / PRD-37 Q7：体系A（自动更新）也暴露「所有权过滤」。
+         后端 crawl.rights_filter 早就在消费（抓取时决定勾不勾「所有権のみ」），
+         但设置页一直没有入口 —— 想抓借地権只能手改 config.yaml。这里补上 UI。
+         ⚠ 这里的文案刻意**不用 data-i18n**：i18n.js 未配该键时 t() 可能返回空串
+         导致控件变空白，中文直出更稳（与页面里其它说明性文字一致）。 -->
+    <label class="field" style="flex:1 1 320px;display:flex;align-items:flex-start;gap:8px">
+      <span style="white-space:nowrap;margin-top:2px"><b>所有权过滤</b></span>
+      <select id="rightsFilter" style="width:auto">
+        <option value="ownership" {% if ((cfg.crawl or {}).get('rights_filter','ownership')=='ownership') %}selected{% endif %}>所有権のみ（推荐）</option>
+        <option value="all" {% if ((cfg.crawl or {}).get('rights_filter','ownership')=='all') %}selected{% endif %}>全部（含借地権）</option>
+      </select>
+      <span class="muted">决定自动更新每一轮抓不抓借地権：默认「所有権のみ」；切「全部」会把借地権一起抓回来</span>
+    </label>
   </div>
 
   <div class="libhint" style="margin-top:6px">
@@ -861,7 +874,13 @@ async function saveRoundPlan(){
     main_round_enabled: document.getElementById('mainRoundOn').checked,
     sync_dates_backfill_prev_day: document.getElementById('backfillOn').checked,
     stage_b_enabled: document.getElementById('stageBOn').checked,
-    auto_split_on_limit: document.getElementById('autoSplitOn').checked
+    auto_split_on_limit: document.getElementById('autoSplitOn').checked,
+    // v1.9.106 / PRD-37 Q7：所有权过滤（所有权のみ / 全部含借地権）。
+    //   取不到控件就回退 'ownership'（与后端默认值一致，绝不写脏值）。
+    rights_filter: (function(){
+      var el = document.getElementById('rightsFilter');
+      return (el && el.value) ? el.value : 'ownership';
+    })()
   };
   try{
     await postJSON('/api/crawl/settings', body);
@@ -959,6 +978,25 @@ var SUB_GROUPS = [
   { kind: '売土地',       i18n: 'dlcond.grp_land',  on: false,
     subtypes: ['土地'] }
 ];
+/* v1.9.106 / PRD-37 Q6：種目的默认勾选以后端 `search.update_groups` 为**唯一基线**。
+   【为什么要改】以前只有体系A（自动更新）读 update_groups，体系B（正式下载）的 6 个種目
+   是这里硬编码的 —— 两处各写一份，将来改了 config 而前端没跟着改就会静默漂移。
+   现在两处同源：体系A 用它跑，体系B 用它做默认勾选（用户仍可临时改勾选，不影响体系A）。
+   【安全边界】基线为空/异常时**完全不改** SUB_GROUPS（保持硬编码默认），绝不渲染出空表单。 */
+var UPDATE_GROUPS_BASE = {{ (cfg.get('search', {}).get('update_groups') or []) | tojson }};
+(function(){
+  try{
+    if(!UPDATE_GROUPS_BASE || !UPDATE_GROUPS_BASE.length) return;
+    var want = {};
+    UPDATE_GROUPS_BASE.forEach(function(g){
+      (g && g.subtypes || []).forEach(function(s){ want[s] = true; });
+    });
+    if(!Object.keys(want).length) return;
+    SUB_GROUPS.forEach(function(g){
+      g.on = (g.subtypes || []).some(function(s){ return !!want[s]; });
+    });
+  }catch(e){ /* 基线解析失败 → 保持硬编码默认，不影响使用 */ }
+})();
 function renderSubs(){
   var box = document.getElementById('subslots');
   box.innerHTML = SUB_GROUPS.map(function(g, gi){
