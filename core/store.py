@@ -931,24 +931,24 @@ class Store:
                             self.conn.execute(
                                 "UPDATE properties SET image_count=-1 "
                                 "WHERE COALESCE(image_count,0)=0")
-                        if name == "last_pulled_chg_date":
-                            # v1.9.106 / PRD-37 M1：一次性回填（只在刚补出该列时触发）。
-                            # 【不回填会怎样】该列为空 ⇒ 增量判定 `plat_max > last_pulled`
-                            # 对**全库恒为真** ⇒ 下一轮把 7335 行全部重拉一遍详情页，
-                            # 既浪费又极可能触发 REINS 风控 —— 这是必须避开的坑。
-                            # 【回填成什么】老库这些行其实都"已经拉过详情"了，
-                            # 所以把我方已知的平台版本记成当时的 chg/reg 日期，
-                            # 语义等价于"已按该版本拉取过" ⇒ 只有真正变了的才重拉。
-                            try:
-                                self.conn.execute(
-                                    "UPDATE properties SET last_pulled_chg_date="
-                                    "COALESCE(chg_date_iso, reg_date_iso) "
-                                    "WHERE last_pulled_chg_date IS NULL")
-                                self.conn.commit()
-                            except Exception:
-                                pass
                     except Exception:
                         pass
+        # v1.9.106 / PRD-37 M1（2026-10-02 加固）：锚点空值回填 —— **与补列事件解耦**。
+        #   【为什么必须解耦】原实现把回填挂在「刚 ALTER 出该列」的分支里；一旦列
+        #   先于回填代码被补出来（中途版本补列过一次就够），回填**永远不再触发**。
+        #   2026-10-02 实测踩到：生产库列在、7335 行锚点全 NULL ⇒ 规则⑤
+        #   （平台 chg/reg > 我方锚点）对全库恒为真 ⇒ 下一轮会重拉 7020 行详情页
+        #   （浪费 + 极易触发 REINS 风控）。
+        #   【现在】每次启动做一次幂等回填：只填 NULL/空串，已填的一律不动。
+        #   成本可忽略：命中通常为 0 行；首跑实测 0.2s / 7335 行。
+        try:
+            self.conn.execute(
+                "UPDATE properties SET last_pulled_chg_date="
+                "COALESCE(NULLIF(chg_date_iso,''), NULLIF(reg_date_iso,'')) "
+                "WHERE last_pulled_chg_date IS NULL OR last_pulled_chg_date=''")
+            self.conn.commit()
+        except Exception:
+            pass
 
     def _ensure_pdf_tables(self) -> None:
         """v1.9.77：PDF 串号修复相关新表（幂等建表）。
