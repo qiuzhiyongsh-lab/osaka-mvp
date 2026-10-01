@@ -50,7 +50,9 @@ from core.ai_structure_store import AIStructureStore     # noqa: E402  (v1.9.25 
 #   线上必须收下 COS 预签名直链才能渲染図面；本机路径 pdf_path 仍永不接受。
 #   🔴 这是 2026-09-23 批量上传「回推显示成功、线上却不显示」的根因：
 #      v1.9.60 只改了 sync_to_publish 的 PDF_KEYS，**漏了这里** → ingest 把 pdf_url 过滤掉了。
-NEVER_UPLOAD_KEYS = {"pdf_path", "absent_runs"}
+# v1.9.106 / PRD-37 M1：与 publisher.NEVER_UPLOAD 保持一致，补两个本机内部字段
+#   （last_pulled_chg_date / pdf_sha256）。线上只读展示，不需要也不应落这两个字段。
+NEVER_UPLOAD_KEYS = {"pdf_path", "absent_runs", "last_pulled_chg_date", "pdf_sha256"}
 
 
 # ---------------- 全局：配置 / 库 / 调度 / 日志 ----------------

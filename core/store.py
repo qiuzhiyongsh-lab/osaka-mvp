@@ -47,6 +47,12 @@ PROPERTY_COLUMNS = [
     # v1.9.94：房产状态统一维度（公开组 + 租赁·在租组 + 兜底"其他"），竖线 | 分隔标签集合。
     # 由 derive_occupancy_status(detail_json) 在落库时派生，供查询页"房产状态"面板筛选 + 高亮。
     "occupancy_status",
+    # v1.9.106 / PRD-37 M1：增量判定的两个"我方侧"字段（**都不上云**，见 publisher.NEVER_UPLOAD）。
+    #   last_pulled_chg_date = 我方最后一次成功拉取详情时、平台当时的 chg_date_iso。
+    #     下次平台 max(chg,reg) > 该值 ⇒ 触发"去查看一趟"（注意：只是去查看，不等于内容变了）。
+    #     ⚠ 绝不可用 last_seen_at 顶替（那是"我方何时看到"，正是 NEW-1 推送缺口的根因）。
+    #   pdf_sha256 = 我方现有 PDF 的内容指纹（size 预筛 + sha256 终判的比对基准）。
+    "last_pulled_chg_date", "pdf_sha256",
 ]
 
 
@@ -569,7 +575,9 @@ CREATE TABLE IF NOT EXISTS properties (
   last_changed_at    TEXT,
   is_active          INTEGER DEFAULT 1,
   detail_json        TEXT,
-  occupancy_status   TEXT            -- v1.9.94：房产状态统一维度（公开组+租赁·在租组+其他，竖线分隔）
+  occupancy_status   TEXT,           -- v1.9.94：房产状态统一维度（公开组+租赁·在租组+其他，竖线分隔）
+  last_pulled_chg_date TEXT,         -- v1.9.106/PRD-37 M1：我方上次拉取时平台的 chg_date（增量判定锚点，不上云）
+  pdf_sha256         TEXT            -- v1.9.106/PRD-37 M1：我方现有 PDF 的内容指纹（判定 PDF 变没变，不上云）
 );
 CREATE INDEX IF NOT EXISTS idx_prop_first_seen ON properties(first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_prop_ward       ON properties(ward);
@@ -796,6 +804,11 @@ class Store:
             #   pdf_verify_note 记 verdict 原因（match/mismatch/unverified/no_text/unknown）。
             "pdf_unverified": "INTEGER DEFAULT 0",
             "pdf_verify_note": "TEXT",
+            # v1.9.106 / PRD-37 M1：增量判定两个"我方侧"字段（均为本机内部用，永不外传）。
+            #   last_pulled_chg_date：老库补列时为 NULL ⇒ 首次比对一律视为"需要查看"，
+            #   随第一次成功拉取自动填上，之后进入正常增量循环（无需手工回填）。
+            "last_pulled_chg_date": "TEXT",
+            "pdf_sha256": "TEXT",
             # v1.9.77：F6 价格异常熔断 —— price_hold=1 的房源暂停自动推送
             #   （publisher.build_rows 过滤 COALESCE(price_hold,0)=0），进入
             #   pending_decisions 待勇哥裁决；解除后置 0。
@@ -918,6 +931,22 @@ class Store:
                             self.conn.execute(
                                 "UPDATE properties SET image_count=-1 "
                                 "WHERE COALESCE(image_count,0)=0")
+                        if name == "last_pulled_chg_date":
+                            # v1.9.106 / PRD-37 M1：一次性回填（只在刚补出该列时触发）。
+                            # 【不回填会怎样】该列为空 ⇒ 增量判定 `plat_max > last_pulled`
+                            # 对**全库恒为真** ⇒ 下一轮把 7335 行全部重拉一遍详情页，
+                            # 既浪费又极可能触发 REINS 风控 —— 这是必须避开的坑。
+                            # 【回填成什么】老库这些行其实都"已经拉过详情"了，
+                            # 所以把我方已知的平台版本记成当时的 chg/reg 日期，
+                            # 语义等价于"已按该版本拉取过" ⇒ 只有真正变了的才重拉。
+                            try:
+                                self.conn.execute(
+                                    "UPDATE properties SET last_pulled_chg_date="
+                                    "COALESCE(chg_date_iso, reg_date_iso) "
+                                    "WHERE last_pulled_chg_date IS NULL")
+                                self.conn.commit()
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 

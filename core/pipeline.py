@@ -155,9 +155,26 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
                 #   缺平台日期的老房源因此只补抓一次，不是每轮都抓。
                 rec["pdate_checked"] = 1
             rec["last_seen_at"] = now()
+            # v1.9.106 / PRD-37 M2：详情抓取成功 → 更新"我方已知的平台版本"锚点。
+            #   ⚠ 与 crawler._needs_detail 规则⑤ **必须配套**：不更新的话规则⑤ 每轮都命中
+            #   ⇒ 无限重拉（拉取一定要"记账"，否则增量判定就退化成全量重拉）。
+            #   语义：这是"我方已按该平台版本拉取过"，**不等于**"内容变了"。
+            if not lo:
+                _plat_now = rec.get("chg_date_iso") or rec.get("reg_date_iso") or ""
+                if _plat_now:
+                    rec["last_pulled_chg_date"] = _plat_now
 
             # ---- 3. 变更判定 ----
             changes = differ.classify(old, rec, fp)
+            # v1.9.106 / PRD-37 规则 C.3（D14 内容层）：**平台日期变了 ≠ 内容变了**。
+            #   若 diff 出来没有任何实质变化（续期 / meta_only / 纯时间戳），
+            #   就**不覆盖主版本**——只刷时间戳。这样一次"抓残了"的结果不会污染好数据。
+            #   （PRD-37 C2：勇哥原意"历史已下的可以不重下"正是这个语义。）
+            if (not lo) and old is not None:
+                _substantial = [c for c in changes if c.get("type") != "meta_only"]
+                if not _substantial:
+                    rec.pop("detail_json", None)
+                    stats["unchanged_keep"] = stats.get("unchanged_keep", 0) + 1
             if old is None:
                 stats["new"] += 1
             stats["changed"] += sum(1 for c in changes if c["type"] != "new")
@@ -213,8 +230,61 @@ def ingest(items: list[dict], store, cfg: dict, run_id: int,
     return stats
 
 
+def _pdf_sha256_bytes(b) -> str:
+    """字节流的完整 sha256（与 core/pdf_cloud.py::_sha256_of 同口径）。"""
+    return hashlib.sha256(b).hexdigest()
+
+
+def _pdf_sha256_file(p: Path) -> str:
+    """文件的完整 sha256（1MB 分块读，内存恒定）。"""
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while True:
+            chunk = f.read(1 << 20)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _pdf_verdict(target: Path, blob) -> tuple[str, str]:
+    """v1.9.106 / PRD-37 M3：判定新下载的 PDF 与现有文件的关系。
+
+    返回 (verdict, sha256)；verdict ∈ {"new", "changed", "same"}：
+      · new     —— 本地还没有这份 PDF ⇒ 必写盘
+      · changed —— 指纹不同 ⇒ 写盘覆盖（D13：不留存历史版，直接覆盖）
+      · same    —— 指纹相同 ⇒ **不写盘**（省 IO，也避免无谓刷新 mtime）
+
+    ⚠ 执行顺序按 PRD-37 §5 规则 B 第 2 层（size 预筛 + sha256 终判）：
+      ① 先比大小 —— 大小不同**直接判变**，省掉一次读盘；
+      ② 大小相同才读旧文件算 sha256 确认（兜住"内容变而大小恰好不变"的碰撞）；
+      ③ **mtime 明确禁用**：PDF 是我方下载后落盘的，mtime = 我方下载时刻，
+         完全不反映平台侧的 PDF 变没变（重下同一份会假阳性）。
+    """
+    blob_sha = _pdf_sha256_bytes(blob)
+    try:
+        if (not target.exists()) or target.stat().st_size == 0:
+            return "new", blob_sha
+        if target.stat().st_size != len(blob):
+            return "changed", blob_sha          # ① size 预筛命中，不读旧文件
+        if _pdf_sha256_file(target) == blob_sha:
+            return "same", blob_sha             # ② 指纹一致
+        return "changed", blob_sha              # ② 大小同但内容变（罕见，兜住）
+    except Exception:                            # noqa: BLE001
+        # 判定本身出错（权限/坏文件）→ 保守按"变了"处理，宁可重写也不丢数据
+        return "changed", blob_sha
+
+
 def _save_pdf(rec: dict, property_no: str, att_dir: Path) -> str:
-    """把 PDF 落到本地。返回本地相对路径（相对 output_root）或空串。"""
+    """把 PDF 落到本地。返回本地相对路径（相对 output_root）或空串。
+
+    v1.9.106 / PRD-37 M3：落盘前先做指纹判定（见 _pdf_verdict）：
+      · new / changed → 写盘，并把 sha256 写回 rec（供上层落库 properties.pdf_sha256）；
+      · same          → **不写盘**（内容与现有完全一致，没必要重写），
+                        但仍回写 sha256（幂等，值本就相同）。
+      · rec["_pdf_verdict"] 仅供上层统计用，是下划线内部键，不在 PROPERTY_COLUMNS 里，
+        不会被 upsert 写库，也不会外传。
+    """
     att_dir.mkdir(parents=True, exist_ok=True)
     target = att_dir / f"{property_no}.pdf"
 
@@ -225,15 +295,21 @@ def _save_pdf(rec: dict, property_no: str, att_dir: Path) -> str:
         try:
             p = Path(src)
             if p.exists():
-                shutil.copyfile(p, target)
-                return f"attachments/{property_no}.pdf"
-        except Exception:
+                blob = p.read_bytes()       # 演示模式也走同一套判定，口径一致
+        except Exception:                    # noqa: BLE001
             return ""
+
     if blob:
         try:
+            verdict, sha = _pdf_verdict(target, blob)
+            rec["pdf_sha256"] = sha
+            rec["_pdf_verdict"] = verdict
+            if verdict == "same":
+                # 内容一致：不覆盖、不写盘（省 IO；D13 下也不存在"留旧版"的问题）
+                return f"attachments/{property_no}.pdf"
             target.write_bytes(blob)
             return f"attachments/{property_no}.pdf"
-        except Exception:
+        except Exception:                    # noqa: BLE001
             return ""
     return ""
 

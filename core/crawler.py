@@ -1277,6 +1277,22 @@ def _needs_detail(existing) -> bool:
     if not has_address:
         # 已核验过（pdate_checked=1）→ 放过，避免无限重抓；否则补抓一次
         return not existing.get("pdate_checked")
+    # ⑤ v1.9.106 / PRD-37 规则 A：**平台自我方上次成功拉取后又更新了 → 重拉详情**。
+    #   【为什么必须有这条】旧逻辑只看"库里有没有 detail_json"，于是「详情抓过一次」
+    #   就永远不再拉 —— 平台后来改价/改内容，我方完全不跟（PRD-37 C1 的"已下载≠最新"坑）。
+    #   【判据只用平台日期】绝不用 last_seen_at（那只是"我方何时看到"，
+    #   拿它当更新判据正是 memory NEW-1 / D8 推送缺口的根因：内容变了但没被再看到就永不重推）。
+    #   【为什么不会每轮重复拉】拉取成功后 pipeline 会把 last_pulled_chg_date 更新成
+    #   本轮的平台日期；下一轮 plat 不再大于它 ⇒ 自然停下（同一天跑多轮也只拉一次）。
+    #   【为什么不会首轮全量重拉】store 补列时已把该字段回填成当时的 chg/reg 日期，
+    #   老库行的语义是"已按该版本拉取过" ⇒ 只有真正变了的才命中本条。
+    try:
+        plat = existing.get("chg_date_iso") or existing.get("reg_date_iso") or ""
+        last = existing.get("last_pulled_chg_date") or ""
+    except Exception:                                        # noqa: BLE001
+        plat = last = ""
+    if plat and plat > last:
+        return True
     # ③ 缺平台日期 且 还没核验过 → 补抓一次
     if existing.get("pdate_checked"):
         return False

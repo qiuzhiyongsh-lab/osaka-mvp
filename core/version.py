@@ -9,8 +9,33 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.105"
-BUILD_AT = "2026-10-01 12:30"
+VERSION = "1.9.106"
+BUILD_AT = "2026-10-02 00:01"
+# ============================================================================
+# v1.9.106（2026-10-02 · PRD-37：基于价格变动的下载筛选与 PDF 增量策略 · 方式2 不发布）：
+#   勇哥拍板（2026-10-01 23:44）：Q8=B（维持「以详情页为准」，不复活列表图标门禁）、
+#   Q4=A（"变了的才重下"，且"变"=内容变 → D14 三层定义）、M1/M5 开工、
+#   Q9/D15 不做（不回溯历史数据、不做老房源全量补扫）。
+#   · M1 地基（core/store.py）：properties 新增 last_pulled_chg_date（增量判定锚点）
+#     + pdf_sha256（PDF 指纹）。两字段**均不上云** —— publisher.NEVER_UPLOAD 与
+#     web.app.NEVER_UPLOAD_KEYS **同时**补（铁律：新增字段必同改放行清单，漏一处=白推）。
+#     ⚠ 关键：补列时一次性回填 last_pulled_chg_date = COALESCE(chg_date_iso, reg_date_iso)。
+#       不回填的话 plat_max > NULL 恒成立 ⇒ **首轮把全库 7335 行重拉一遍**（灾难级）。
+#       实测：回填 7020 行，规则⑤ 命中 0 行 ⇒ 首轮零重拉。
+#   · M3 PDF 指纹判定（core/pipeline.py::_save_pdf，新增 _pdf_verdict）：
+#     **size 预筛**（大小不同直接判变，省一次读盘）+ **sha256 终判**（兜住"内容变而大小
+#     恰好不变"的等长碰撞）；same ⇒ **不写盘**（省 IO、也避免无谓刷新 mtime）；
+#     changed/new ⇒ 覆盖写盘（D13：不留存历史版，只留最新一份）。
+#     ⚠ mtime 明确禁用（= 我方下载时刻，完全不反映平台侧 PDF 变没变，重下会假阳性）。
+#   · M2 详情增量（core/crawler.py::_needs_detail 规则⑤ + core/pipeline.py）：
+#     平台 max(chg,reg) > last_pulled_chg_date ⇒ 重拉详情。旧逻辑是"库里有 detail_json
+#     就永不重拉"，正是 PRD-37 C1 的「已下载 ≠ 内容已最新」坑（REINS 改价我方不跟）。
+#     拉取成功后 pipeline 写回锚点 ⇒ 同一天跑多轮也只拉一次，不会无限重拉。
+#     规则 C.3：diff 无实质变化（meta_only / 续期）⇒ **不覆盖主版本**，只刷时间戳。
+#   · 新工具 tools/pdf_sha256_baseline.py：给存量 PDF 一次性建 sha256 基线。
+#     实测：6094 份 / 20.1s，回填 5851 行（覆盖率 79.8%），另发现 243 份"幽灵 PDF"
+#     （磁盘有文件、库里无此房号）。只读 PDF、可断点续跑、可 --dry-run/--limit。
+#   验证：_diag_m1_106.py 9/9、_diag_m3_106.py 16/16、_diag_m2_106.py 13/13 全 PASS。
 # ============================================================================
 # v1.9.105（2026-10-01 · PRD-35 M2：变更信号「纯展示」五件套）：
 #   勇哥明令"F1+F2+F5+F6+命中高亮都是纯展示、风险低，进代码"（方式2：改代码、不发布）。

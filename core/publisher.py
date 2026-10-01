@@ -79,7 +79,10 @@ FIELD_MAP = [
 # 明确**不传**的列：本机 PDF 路径（勇哥口径：路径不出门），以及本机专用的下架计数。
 #   v1.9.60：pdf_url 已移出本集合（线上 PDF 展示依赖它；指向 COS 私有读桶的预签名直链，
 #   不含任何本机路径信息，不违反「路径不出门」）。
-NEVER_UPLOAD = {"pdf_path", "absent_runs"}
+#   v1.9.106 / PRD-37 M1：补两个本机内部字段 —— last_pulled_chg_date（我方拉取锚点）、
+#   pdf_sha256（PDF 指纹）。线上是只读展示端、不做增量判定也不下载 PDF，推上去毫无用处，
+#   且会污染线上库 schema ⇒ 一律不外传。
+NEVER_UPLOAD = {"pdf_path", "absent_runs", "last_pulled_chg_date", "pdf_sha256"}
 
 BATCH = 200
 
