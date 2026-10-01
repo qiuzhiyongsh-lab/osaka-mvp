@@ -2612,8 +2612,15 @@ def api_query():
             p["qhit"] = _qhit_map.get(p["property_no"], {})
     # library：附带本机库概况（最近有数据的日期 / 今天条数 / 上轮运行状态），
     # 让查询页在"今天一条都没有"时能给出可操作的提示，而不是一片空白。
+    # v1.9.107 / PRD-38 F5：把「生效的日期口径 + 起止」一并回显。
+    #   背景：2026-10-01 勇哥拿本地/线上两张截图比对（872 vs 372），第一眼以为丢数据，
+    #   实为两边筛选起点差一天 + 页面没标口径。让前端把"我到底按什么筛的"写在「共 N 条」旁，
+    #   这类跨日/跨口径误读就不会再发生。纯回显、不改任何筛选逻辑（零回归）。
     return jsonify({"date": f["date"], "total": total, "page": page,
                     "pages": max(1, (total + limit - 1) // limit), "rows": out,
+                    "caliber": f["date_caliber"],
+                    "date_from": (request.args.get("date_from") or "").strip(),
+                    "date_to": (request.args.get("date_to") or "").strip(),
                     "library": STORE.library_info()})
 
 

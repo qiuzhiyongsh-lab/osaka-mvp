@@ -906,6 +906,11 @@
   ZH['search.date_caliber.change']='変更日（平台变更）';
   ZH['search.date_caliber.reg']='登録日（平台新建）';
   ZH['search.date_caliber.dl']='下载日（本地抓到）';
+  // v1.9.107 / PRD-38 F5：把「统计口径」显式标在「共 N 条」旁 + 顶部「今天」加口径 tooltip。
+  //   目的：2026-10-01 勇哥两张截图（本地 872 / 线上 372）对不上，根因之一就是
+  //   两边筛选起点差一天、且页面没标口径 ⇒ 同一份数据被读成"丢了一半"。
+  ZH['search.caliber_note']='口径：{cal}';
+  ZH['search.lib.today_tip']='「今天」= 平台登録日或変更日落在今天的房源；查询页不传日期时会强制按「今天」筛选，与下方「共 N 条」是同一口径';
   ZH['pub.h']='上传到线上'; ZH['pub.never']='还没传过'; ZH['pub.saved']='上传设置已保存';
   ZH['pub.date_from']='上传日期 起'; ZH['pub.date_to']='上传日期 止'; ZH['pub.auto']='自动上传定时器';
   ZH['pub.interval']='上传周期（分钟）'; ZH['pub.preview']='预览会传多少'; ZH['pub.on']='运行中';
@@ -950,6 +955,8 @@
   DICT['zh-TW']['search.date_caliber.change']='変更日（平台變更）';
   DICT['zh-TW']['search.date_caliber.reg']='登録日（平台新建）';
   DICT['zh-TW']['search.date_caliber.dl']='下載日（本機抓到）';
+  DICT['zh-TW']['search.caliber_note']='口徑：{cal}';
+  DICT['zh-TW']['search.lib.today_tip']='「今天」= 平台登録日或変更日落在今天的房源；查詢頁不傳日期時會強制按「今天」篩選，與下方「共 N 條」同一口徑';
   DICT['zh-TW']['search.other_detail']='隱藏其他詳情'; DICT['zh-TW']['search.other_hide_off']='顯示其他詳情';
   DICT['zh-TW']['search.reins_search']='物件番號檢索'; DICT['zh-TW']['cat.ms_hint']='點選即可，可多選';
   DICT['zh-TW']['row.suspect']='存疑'; DICT['zh-TW']['row.suspect_tip']='降幅異常（>50%），疑似資料解析錯位，不計入降價';
@@ -969,6 +976,8 @@
   DICT['en']['search.date_caliber.change']='Change date (platform)';
   DICT['en']['search.date_caliber.reg']='Registration date (platform)';
   DICT['en']['search.date_caliber.dl']='Download date (local)';
+  DICT['en']['search.caliber_note']='Basis: {cal}';
+  DICT['en']['search.lib.today_tip']='"Today" = listings whose REINS registration/change date falls on today; with no date given the page forces today, same basis as the "N total" below';
   DICT['en']['search.other_detail']='Hide extra details'; DICT['en']['search.other_hide_off']='Show extra details';
   DICT['en']['search.reins_search']='Property-no search'; DICT['en']['cat.ms_hint']='Click to select, multi-select OK';
   DICT['en']['row.suspect']='Suspect'; DICT['en']['row.suspect_tip']='Abnormal drop (>50%); likely parse error, not counted as a drop';
@@ -988,6 +997,8 @@
   DICT['ja']['search.date_caliber.change']='変更日（プラットフォーム）';
   DICT['ja']['search.date_caliber.reg']='登録日（プラットフォーム）';
   DICT['ja']['search.date_caliber.dl']='ダウンロード日（本機）';
+  DICT['ja']['search.caliber_note']='基準：{cal}';
+  DICT['ja']['search.lib.today_tip']='「本日」= REINS の登録日または変更日が本日の物件。日付未指定時は本日で強制絞り込み（下の「全 N 件」と同じ基準）';
   DICT['ja']['search.other_detail']='その他の詳細を隠す'; DICT['ja']['search.other_hide_off']='その他の詳細を表示';
   DICT['ja']['search.reins_search']='物件番号検索'; DICT['ja']['cat.ms_hint']='クリックで選択、複数可';
   DICT['ja']['row.suspect']='要確認'; DICT['ja']['row.suspect_tip']='下落率異常（>50%）、解析エラーの疑い、値下げにはカウントしない';

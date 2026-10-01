@@ -1527,13 +1527,26 @@ async function doQuery(page, noSave){
     // v1.4.0：看全库时后端返回 date=''（不按日期过滤），要显示成「全部日期」，
     // 否则摘要会写成"日期  共 N 条"，看着像漏了筛选条件。
     var dlabel = (ALL_DATES || !j.date) ? t('search.all_dates') : j.date;
-    sum.textContent = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT,
+    // v1.9.107 / PRD-38 F5：区间筛选时后端 date 为空 ⇒ 摘要会写成「全部日期」，
+    //   看着像没筛条件 ⇒ 这里把真实起止回显出来（跨日误读的第一诱因就是"起点看不见"）。
+    if(!ALL_DATES && (j.date_from || j.date_to)){
+      dlabel = (j.date_from || '…') + ' ~ ' + (j.date_to || t('search.all_dates'));
+    }
+    // 口径标注：把「登録日 / 変更日 / 任一 / 下载日」写在「共 N 条」旁，
+    //   让"我按哪条日期筛的"不再靠猜（键缺失时 t() 返回空串 ⇒ 自动不追加，安全降级）。
+    var calTxt = t('search.date_caliber.' + (j.caliber || 'any')) || '';
+    var sumTxt = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT,
                     rows: (j.rows ? j.rows.length : 0)});
+    if(calTxt){
+      var cn = tf('search.caliber_note', {cal: calTxt});
+      if(cn) sumTxt += ' ｜ ' + cn;
+    }
+    sum.textContent = sumTxt;
     // R20：工具条显示 + 当前排序回显
     var tb = document.getElementById('toolbar');
     if(tb) tb.hidden = false;
     var tbc = document.getElementById('toolbar-count');
-    if(tbc) tbc.textContent = tf('search.sum', {date: dlabel, total: j.total, limit: LIMIT, rows: (j.rows ? j.rows.length : 0)});
+    if(tbc) tbc.textContent = sumTxt;
     document.getElementById('sortKey').value = CUR_SORT;
     reflectSortDir();
     renderRows(j.rows);
@@ -1572,7 +1585,13 @@ function renderLibHint(date, total){
   }
   var UC = t('unit.count');
   // R21：基础统计（本机库共 N 条 ｜ 今天 … ｜ 最近 … ｜ 更新于 …）并到标题行右侧（#libhint，inline）。
-  var base = t('search.lib.base') + ' <b>' + LIB.total + '</b> ' + UC + ' ｜ ' + t('search.lib.today') + ' <b>' + LIB.today_count + '</b> ' + UC
+  // v1.9.107 / PRD-38 F5：给「今天」加口径 tooltip —— 顶部「今天 N 条」与下方「共 N 条」
+  //   口径其实一致，但页面从没说过 ⇒ 数字对不上时容易被读成"数据丢了"。
+  var _tTip = t('search.lib.today_tip') || '';
+  var _tLab = _tTip
+    ? '<span title="' + esc(_tTip) + '" style="border-bottom:1px dotted #999;cursor:help">' + t('search.lib.today') + '</span>'
+    : t('search.lib.today');
+  var base = t('search.lib.base') + ' <b>' + LIB.total + '</b> ' + UC + ' ｜ ' + _tLab + ' <b>' + LIB.today_count + '</b> ' + UC
            + (LIB.latest_date ? ' ｜ ' + t('search.lib.latest') + '<b>' + esc(LIB.latest_date) + '</b>' : '');
   if (LIB.data_updated_at) base += ' ｜ ' + fmtFreshness(LIB.data_updated_at);
   el.innerHTML = base;
