@@ -343,7 +343,10 @@ def _access_guard():
     #      （fav / tags / customers）**一律不豁免**，必须登录态 ——
     #      否则等于任何人都能改别人的收藏和客户（直接击穿 W6 隔离）。
     #   见 web/employee_api.py 顶部「隔离契约」。
-    if path == "/api/emp/export":
+    #   v1.9.108：新增 **import**（v100/2104 双库员工数据合并迁移，单向 2104 → v100）。
+    #   同样是机器对机器、接口内 `_relay_token_ok()` 自校验，豁免理由与 export 完全一致；
+    #   /api/emp 下的**员工端**写接口（fav / tags / customers）依然**一律不豁免**。
+    if path in ("/api/emp/export", "/api/emp/import"):
         return None
     # v1.9.100：非破坏性发版刷新通道（/api/admin/selfrestart / /api/admin/selfupdate）——
     #   机器对机器，凭 X-Publish-Token 校验（_relay_token_ok，与 /api/ingest 同款）；

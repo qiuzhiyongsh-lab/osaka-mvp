@@ -16,9 +16,11 @@
 3) **两类端点、两套鉴权**，不许混用：
    - 员工端 `/api/emp/{fav,tags,customers}/*` → 走 `_access_guard` 登录守卫，
      归属人 = `_current_user()['username']`；
-   - 机器端 `/api/emp/export` → 在 `_access_guard` 里**显式豁免**（本地 worker
-     没有也不该有浏览器会话），接口内部自己用 `_relay_token_ok()` 校验
-     `X-Publish-Token`（与 /api/ingest、/api/ai/relay 同款，见 web/app.py）。
+   - 机器端 `/api/emp/export`、`/api/emp/import` → 在 `_access_guard` 里
+     **显式豁免**（本地 worker 没有也不该有浏览器会话），接口内部自己用
+     `_relay_token_ok()` 校验 `X-Publish-Token`
+     （与 /api/ingest、/api/ai/relay 同款，见 web/app.py）。
+     import 是 v1.9.108 为「v100/2104 双库员工数据合并迁移」新增的**单向写通道**。
 
 4) **owner 作用域 + W6 管理员边界**：
    - 所有查询**强制**按 `owner_username` 过滤；管理员要看全部必须显式 `?scope=all`；
@@ -43,7 +45,44 @@ from datetime import datetime
 PREFIX = "/api/emp"
 
 # 机器通道（需在 web/app.py 的 _access_guard 中豁免，接口内自行校验令牌）
-MACHINE_PATHS = (PREFIX + "/export",)
+#   v1.9.108：新增 import —— v100/2104 双库员工数据合并迁移用（单向 2104 → v100）。
+MACHINE_PATHS = (PREFIX + "/export", PREFIX + "/import")
+
+# ---- 导入（机器写通道）涉及的八张表 ----
+#   与 EXPORT_TABLES 对齐，另加 emp_action_log（本地追加日志，导出不带、导入兼容）。
+IMPORT_TABLES = ("customers", "tags",                 # ① 主键被引用的先做
+                 "favorites",                          # ② 无外键
+                 "property_tags",                      # ③ 引用 tags.id
+                 "customer_properties",                #    引用 customers.id
+                 "customer_tags",                      #    引用 customers.id + tags.id
+                 "customer_owner_log",                 #    引用 customers.id
+                 "emp_action_log")
+
+# 各表的"业务键"：判定两行是不是**同一个实体**。
+#   ⚠ 绝不能只看 id —— 2104 / v100 是两个独立库，autoincrement 各自生长，
+#     **同一 id 可能是完全不同的两个人/两条关联**（2026-10-03 实测：
+#     customer_properties 的 id=28/29 在两端分别是不同房源 → 若按 id 直接
+#     INSERT OR REPLACE，v100 独有的 2 条关联会被静默吃掉）。
+_IMPORT_KEY_COLS = {
+    "favorites":            ("owner_username", "property_no"),
+    "tags":                 ("owner_username", "category", "name"),
+    "property_tags":        ("owner_username", "property_no", "tag_id"),
+    "customers":            ("owner_username", "name"),
+    "customer_properties":  ("customer_id", "property_no"),
+    "customer_owner_log":   ("customer_id", "to_owner", "changed_at"),
+    "customer_tags":        ("owner_username", "customer_id", "tag_id"),
+    "emp_action_log":       ("emp_username", "action", "target_type",
+                             "target_id", "created_at"),
+}
+
+# 外键列 → 被引用表。源库 id 若在目标库被重排（撞号避让），这里做**同义 id 重映射**，
+#   保证 property_tags.tag_id / customer_properties.customer_id 等仍然指得对。
+_IMPORT_FK_COLS = {
+    "property_tags":       {"tag_id": "tags"},
+    "customer_properties": {"customer_id": "customers"},
+    "customer_tags":       {"customer_id": "customers", "tag_id": "tags"},
+    "customer_owner_log":  {"customer_id": "customers"},
+}
 
 # 导出涉及的表（PRD §3.2–§3.6 的 T1–T6）
 EXPORT_TABLES = ("favorites", "tags", "property_tags", "customers",
@@ -75,6 +114,99 @@ def _norm_phone(p: str | None) -> str:
 def _json():
     from flask import request
     return request.get_json(silent=True) or {}
+
+
+def _merge_rows(con, table, rows, id_maps) -> dict:
+    """把 rows 按「业务键」合并进 table（严格取并集，绝不删目标已有行）。
+
+    ⚠ 为什么不用 INSERT OR REPLACE：REPLACE 遇冲突是「先删后插」。两库 id 各自
+      autoincrement → **撞号 ≠ 同实体**，直接 REPLACE 会吃掉目标库独有的行。
+
+    合并规则：
+      · 同 id 且同业务键  → 就地 UPDATE（刷新字段）
+      · 业务键命中唯一行  → 合并进那一行（**保留目标 id**）
+      · 目标无此业务键    → INSERT（源 id 已被别的实体占用时，让自增分配新 id）
+
+    返回 {inserted, updated, skipped, remapped}；并把「源 id → 目标 id」写入
+    id_maps[table]，供下游表做外键重映射。
+    """
+    tcols = [r[1] for r in con.execute("PRAGMA table_info(%s)" % table).fetchall()]
+    if not tcols:
+        return {"inserted": 0, "updated": 0, "skipped": 0, "remapped": 0,
+                "error": "表不存在"}
+    keycols = _IMPORT_KEY_COLS.get(table) or ()
+    fkmap = _IMPORT_FK_COLS.get(table) or {}
+
+    def _key(r):
+        return tuple(r.get(c) for c in keycols)
+
+    exist, by_key = {}, {}
+    for _r in con.execute("SELECT * FROM %s" % table).fetchall():
+        d = dict(_r)
+        k = _key(d)
+        exist[d.get("id")] = k
+        by_key.setdefault(k, []).append(d.get("id"))
+    used = set(exist.keys())
+
+    ins = upd = skip = remap = 0
+    my_map = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            skip += 1
+            continue
+        r = dict(row)
+        # ① 外键重映射：源 id 若在目标库被重排过，指向重排后的新 id
+        for col, ref in fkmap.items():
+            if r.get(col) is not None:
+                m = id_maps.get(ref) or {}
+                if r[col] in m and m[r[col]] != r[col]:
+                    r[col] = m[r[col]]
+                    remap += 1
+        k = _key(r)
+        sid = r.get("id")
+        tid = None
+        if sid is not None and sid in exist:
+            if exist[sid] == k:
+                tid = sid                       # 同 id 同实体 → 就地刷新字段
+            else:
+                # ⚠ id 被**另一个实体**占着 → 绝不覆盖它
+                cands = by_key.get(k) or []
+                tid = cands[0] if len(cands) == 1 else None
+        else:
+            cands = by_key.get(k) or []
+            tid = cands[0] if cands else None
+
+        sets = {c: v for c, v in r.items() if c in tcols and c != "id"}
+        if tid is not None:
+            if sets:
+                con.execute("UPDATE %s SET %s WHERE id=?" % (
+                    table, ",".join("%s=?" % c for c in sets)),
+                    list(sets.values()) + [tid])
+                upd += 1
+            else:
+                skip += 1
+            my_map[sid] = tid
+            continue
+        # ② 目标没有这行 → 插入；源 id 被占则让自增分配新 id
+        cols = list(sets.keys())
+        if sid is not None and sid not in used:
+            cols = ["id"] + cols
+            vals = [sid] + [sets[c] for c in sets]
+        else:
+            vals = [sets[c] for c in sets]
+        if not cols:
+            skip += 1
+            continue
+        cur = con.execute("INSERT INTO %s (%s) VALUES (%s)" % (
+            table, ",".join(cols), ",".join("?" * len(cols))), vals)
+        nid = cur.lastrowid or sid
+        ins += 1
+        used.add(nid)
+        exist[nid] = k
+        by_key.setdefault(k, []).append(nid)
+        my_map[sid] = nid
+    id_maps[table] = my_map
+    return {"inserted": ins, "updated": upd, "skipped": skip, "remapped": remap}
 
 
 def register(app):
@@ -878,6 +1010,70 @@ def register(app):
                             "tables": out})
         finally:
             con.close()
+
+    # 合并实现见模块级 `_merge_rows`（纯 sqlite3、不依赖 Flask，便于离线单测）。
+
+    # ---------- 机器通道：幂等导入（供 v100/2104 双库合并迁移）----------
+    @app.post(PREFIX + "/import")
+    def _emp_import():
+        """把一批员工业务行**合并**进本库（v1.9.108 · v100 迁移专用）。
+
+        为什么不是 `INSERT OR REPLACE`
+        ------------------------------
+        REPLACE 的语义是「有冲突就先删再插」。两库 id 各自生长 → 撞号时那一行
+        在目标库其实是**另一个实体**，REPLACE 会把它删掉 —— 实测 2104 的
+        customer_properties id=28/29 会吃掉 v100 独有的 2 条客户↔房源关联。
+        本端点改为 **业务键合并（严格取并集）**：
+          · 同 id 且同业务键   → 就地 UPDATE（刷新字段）
+          · 业务键命中唯一行   → 合并进那一行（**保留目标 id**，源 id 记入重映射表）
+          · 业务键在目标不存在 → INSERT；若源 id 已被别的实体占用，则让自增分配新 id
+        结果 = 源 ∪ 目标，**两端都不丢一行**。
+
+        鉴权：与 export 同款 —— `_access_guard` 豁免 + 本接口 `X-Publish-Token` 校验。
+        入参：{"tables": {表名: [行...]}, "dry": false}
+        """
+        if not W._relay_token_ok():
+            return jsonify({"ok": False, "error": "令牌不对（401）"}), 401
+        body = _json()
+        incoming = body.get("tables") or {}
+        dry = bool(body.get("dry"))
+        if not isinstance(incoming, dict) or not incoming:
+            return jsonify({"ok": False, "error": "入参 tables 为空"}), 400
+
+        # 幂等建表（线上容器重建后 employee.db 可能是空的）
+        try:
+            es.ensure_employee_tables(str(es.db_path()))
+        except Exception as _ee:                                   # noqa: BLE001
+            return jsonify({"ok": False, "error": "建表失败：%s" % _ee}), 500
+
+        con = _conn()
+        stats, id_maps = {}, {}
+        try:
+            con.execute("BEGIN")
+            for t in IMPORT_TABLES:
+                if t not in incoming:
+                    continue
+                rows = incoming.get(t) or []
+                if not isinstance(rows, list):
+                    continue
+                stats[t] = _merge_rows(con, t, rows, id_maps)
+            if dry:
+                con.execute("ROLLBACK")
+            else:
+                con.execute("COMMIT")
+        except Exception as _e:                                    # noqa: BLE001
+            try:
+                con.execute("ROLLBACK")
+            except Exception:                                      # noqa: BLE001
+                pass
+            con.close()
+            return jsonify({"ok": False, "error": f"{type(_e).__name__}: {_e}"}), 500
+        con.close()
+        total = {k: (v or {}) for k, v in stats.items()}
+        _log("[员工API] import%s → %s"
+             % ("（dry）" if dry else "", json.dumps(total, ensure_ascii=False)))
+        return jsonify({"ok": True, "dry": dry, "tables": total,
+                        "remap": {k: len(v) for k, v in id_maps.items()}})
 
     # ---------- 自检（QA 用）----------
     @app.get(PREFIX + "/status")
