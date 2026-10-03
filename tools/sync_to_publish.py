@@ -40,7 +40,12 @@ from pathlib import Path
 
 MVP = Path(r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp")
 PUB = Path(r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-house-publish")
-TARGET = PUB / "app_local"          # 线上跑的那一份（与本地同源）
+# 部署单元（两个目录对应两个**不同的线上 app**，绝不混用）：
+#   app_local    → 2104（2104034688228982784.app.workbuddy.host，现转冷备）
+#   app_final_v3 → v100（osaka-mvp-v100.app.workbuddy.host，2026-10-03 起为生产主地址）
+#   ⚠ 默认仍是 app_local（历史行为）；要同步到 v100 必须显式 --target app_final_v3。
+DEFAULT_TARGET = PUB / "app_local"
+TARGET = DEFAULT_TARGET              # 线上跑的那一份（与本地同源）
 
 sys.path.insert(0, str(MVP))
 
@@ -238,8 +243,16 @@ def main() -> int:
     ap.add_argument("--dry", action="store_true", help="只报告，不动文件")
     ap.add_argument("--allow-skip-pull", action="store_true",
                     help="【慎用】账号回流失败时仍继续发版（仅离线发版且确认线上无自设密码时用，风险自担）")
+    # v1.9.108：v100 迁移后有两个部署单元，目标目录必须显式指定。
+    ap.add_argument("--target", default="app_local",
+                    choices=("app_local", "app_final_v3"),
+                    help="部署目录：app_local=2104（默认） / app_final_v3=v100（生产主）")
     args = ap.parse_args()
     dry = args.dry
+    global TARGET
+    TARGET = PUB / args.target
+    if TARGET != DEFAULT_TARGET:
+        print("⚠ 目标已切换为 %s（非默认 app_local）—— 确认这是你要发的那个 app！" % args.target)
     print(("=" * 62))
     print("本地 → 线上 同步", "（DRY RUN）" if dry else "")
     print("  源 :", MVP)
