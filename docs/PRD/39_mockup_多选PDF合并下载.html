@@ -40,15 +40,21 @@
 
   /* 列表 */
   .list{background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;overflow:hidden}
-  .row{display:grid;grid-template-columns:26px 1fr;gap:10px;padding:11px 14px;border-top:1px solid #eef1f6;
-    transition:background .12s}
+  .row{display:block;padding:11px 14px;border-top:1px solid #eef1f6;transition:background .12s}
   .row:first-child{border-top:0}
   .row:hover{background:#f8faff}
   .row.picked{background:#f1fbf5;box-shadow:inset 3px 0 0 var(--green)}
   .row.nopdf{opacity:.6}
-  .chk{display:flex;align-items:center;justify-content:center;min-height:24px}
-  .chk input{width:16px;height:16px;accent-color:var(--green);cursor:pointer}
-  .chk input:disabled{cursor:not-allowed;accent-color:#c3cad8}
+
+  /* PDF 操作组：☑ 与「PDF下载」紧邻成组（列表行 + 详情页 共用同一组件） */
+  .pdfgrp{display:inline-flex;align-items:center;gap:5px;padding:2px 7px 2px 5px;
+    border:1px solid #e3e8f0;border-radius:8px;background:#f8fafc}
+  .pdfgrp.on{border-color:#b9e6c9;background:var(--green-bg)}
+  .grpchk{width:16px;height:16px;accent-color:var(--green);cursor:pointer;opacity:.42;
+    transition:opacity .12s}
+  .row:hover .grpchk,.detail .pdfgrp:hover .grpchk,.grpchk:checked,.grpchk:focus{opacity:1}
+  .row.picked .grpchk{opacity:1}
+  .grpchk:disabled{cursor:not-allowed;accent-color:#c3cad8;opacity:.3}
 
   .r-main .l1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .r-main .l2{display:flex;align-items:center;gap:14px;margin-top:5px;color:var(--sub);flex-wrap:wrap}
@@ -112,6 +118,14 @@
     padding:10px 14px;color:#5b6780}
   .legend b{color:#2f3a52}
   .legend code{background:#f1f4fa;border-radius:4px;padding:1px 5px;font-size:11px}
+
+  /* 详情页：与列表行同一 PDF 操作组 */
+  .detail{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .detail h3{margin:0 0 6px;font-size:14px;color:#2f3a52}
+  .detail .meta{color:var(--sub);font-size:12px;margin-bottom:10px}
+  .detail .act{display:flex;align-items:center;gap:10px;padding-top:10px;border-top:1px dashed #e3e8f0}
+  .detail .note{margin-left:auto;color:#7b869c;font-size:12px}
+  .detail .note b{color:var(--green-d)}
 </style>
 </head>
 <body>
@@ -136,6 +150,19 @@
 
   <div class="list" id="list"></div>
 
+  <!-- 详情页：☑ 与「PDF下载」紧邻，排布与列表行完全一致（同一选择集、托盘共用） -->
+  <div class="detail">
+    <h3>详情页面 · PDF 操作区</h3>
+    <div class="meta" id="dMeta"></div>
+    <div class="act">
+      <span class="pdfgrp" id="dGrp">
+        <input type="checkbox" class="grpchk" id="dChk" onchange="togglePick(DETAIL.no,this)">
+        <button class="pdfdl" id="dPdf" onclick="singleDownload(DETAIL.no,event)">PDF下载</button>
+      </span>
+      <span class="note" id="dNote"></span>
+    </div>
+  </div>
+
   <!-- 底部悬浮托盘 -->
   <div class="tray hidden" id="tray">
     <div class="tray-head">
@@ -151,10 +178,11 @@
 
   <div class="legend">
     <b>原型说明（可点着玩）</b>：
-    ① 直接点行内绿色 <code>PDF下载</code> → 单独下载该套（右下角提示）；
-    ② 勾任意行左侧 <code>☑</code>（或右上「多选下载」开关）→ 顶部出现<b>绿色状态条</b>、底部滑出<b>悬浮托盘</b>；
+    ① 直接点绿色 <code>PDF下载</code> → 单独下载该套（右下角提示）；
+    ② 勾 <code>☑</code>（<b>紧邻「PDF下载」左侧、同一圆角组内</b>；也可用右上「多选下载」开关）→ 顶部出现<b>绿色状态条</b>、底部滑出<b>悬浮托盘</b>；
     ③ 托盘内可 <code>×</code> 移除单套、<code>清空</code> 全清、<code>下载合并 PDF(N)</code> 合并下载；
-    ④ 无 PDF 的房源复选框置灰不可选（灰行）。
+    ④ 无 PDF 的房源复选框置灰不可选（灰行）；
+    ⑤ <b>详情页面</b>用<b>同一个控件组</b>（<code>☑</code> + <code>PDF下载</code>，位置一致），勾选后与列表共用同一选择集与底部托盘。
   </div>
   <div class="hint">这是产品交互原型（HTML），非真实数据/不发版。用于评审交互，UI 标注见 PRD#39。</div>
 </div>
@@ -188,16 +216,19 @@ function render(){
     var picked = SEL.indexOf(r.no) >= 0;
     var tagHtml = r.tag==='chg' ? '<span class="tag tag-chg">变更</span>' : (r.tag==='new' ? '<span class="tag tag-new">新建</span>' : '');
     h += '<div class="row'+(picked?' picked':'')+(r.pdf?'':' nopdf')+'" data-no="'+esc(r.no)+'">'
-      +   '<div class="chk"><input type="checkbox" '+(r.pdf?'':'disabled title="该房源无 PDF，不可选"')+(picked?' checked':'')
-      +      ' onchange="togglePick(\''+esc(r.no)+'\',this)"></div>'
       +   '<div class="r-main">'
       +     '<div class="l1">'
       +       '<button class="mini ghost">加入对比</button>'
       +       tagHtml
       +       '<span class="addr">'+esc(r.addr)+'</span>'
       +       '<span class="price">'+esc(r.price)+' <small>万円</small></span>'
-      +       '<button class="pdfdl'+(r.pdf?'':' disabled')+'" '+(r.pdf?'':'disabled')
-      +         ' onclick="singleDownload(\''+esc(r.no)+'\',event)">PDF下载</button>'
+      /* PDF 操作组：☑ 紧邻「PDF下载」左侧（勇哥 2026-10-05 定稿排布） */
+      +       '<span class="pdfgrp'+(picked?' on':'')+'">'
+      +         '<input type="checkbox" class="grpchk" '+(r.pdf?'':'disabled title="该房源无 PDF，不可选"')+(picked?' checked':'')
+      +           ' aria-label="选择该房源的 PDF 参与合并下载" onchange="togglePick(\''+esc(r.no)+'\',this)">'
+      +         '<button class="pdfdl'+(r.pdf?'':' disabled')+'" '+(r.pdf?'':'disabled')
+      +           ' onclick="singleDownload(\''+esc(r.no)+'\',event)">PDF下载</button>'
+      +       '</span>'
       +       '<a class="btn-detail" href="javascript:void(0)" onclick="event.stopPropagation()">详情页面</a>'
       +     '</div>'
       +     '<div class="l2">'
@@ -216,6 +247,13 @@ function render(){
 
 function syncUI(){
   var n = SEL.length;
+  /* 列表行：按选择集同步 高亮 与 操作组边框 */
+  document.querySelectorAll('.row').forEach(function(x){
+    var on = SEL.indexOf(x.getAttribute('data-no')) >= 0;
+    x.classList.toggle('picked', on);
+    var g = x.querySelector('.pdfgrp'); if(g) g.classList.toggle('on', on);
+  });
+  updateDetail();
   document.getElementById('bannerCount').textContent = n;
   document.getElementById('trayCount').textContent = n;
   document.getElementById('dlCount').textContent = n;
@@ -249,7 +287,10 @@ function exitMode(){
 function togglePick(no, el){
   var i = SEL.indexOf(no);
   if(i>=0){ SEL.splice(i,1); } else { SEL.push(no); modeOn = true; }
-  el.closest('.row').classList.toggle('picked', SEL.indexOf(no)>=0);
+  var on = SEL.indexOf(no) >= 0;
+  var row = el && el.closest ? el.closest('.row') : null;
+  if(row){ row.classList.toggle('picked', on); }
+  if(el && el.closest){ var g = el.closest('.pdfgrp'); if(g) g.classList.toggle('on', on); }
   syncUI();
 }
 function removePick(no){ var i=SEL.indexOf(no); if(i>=0) SEL.splice(i,1); render(); }
@@ -281,6 +322,20 @@ function toast(msg){
   clearTimeout(_t); _t = setTimeout(function(){ el.classList.remove('show'); }, 2200);
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && (modeOn||SEL.length)) exitMode(); });
+
+/* 详情页：与列表行共用同一「PDF 操作组」与同一选择集 */
+var DETAIL = DATA[1];
+document.getElementById('dMeta').textContent =
+  DETAIL.addr + ' ｜ 番号 ' + DETAIL.no + ' ｜ ' + DETAIL.price + ' 万円 ｜ 専有 ' + DETAIL.area + ' ㎡ ' + DETAIL.layout;
+function updateDetail(){
+  var on = SEL.indexOf(DETAIL.no) >= 0;
+  var chk = document.getElementById('dChk'); if(chk) chk.checked = on;
+  var g = document.getElementById('dGrp'); if(g) g.classList.toggle('on', on);
+  var n = SEL.length, note = document.getElementById('dNote');
+  if(on){ note.innerHTML = '已加入合并列表（第 ' + (SEL.indexOf(DETAIL.no)+1) + ' 页）· 当前共 <b>' + n + '</b> 套 → 见底部托盘'; }
+  else if(n){ note.innerHTML = '当前已选 <b>' + n + '</b> 套 → 见底部托盘'; }
+  else { note.textContent = '勾选 ☑ 即加入底部托盘（与列表页共用同一选择集，跨页保留）'; }
+}
 render();
 </script>
 </body>
