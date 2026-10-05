@@ -727,6 +727,12 @@ class Store:
         self._tls = threading.local()
         _c = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
         _c.row_factory = sqlite3.Row
+        # v1.9.111：开 WAL（根治 12:07 卡顿）—— 写不阻塞读，
+        #   抓取密集写事务与 Web 读查询同进程不再互相锁死。
+        #   journal_mode=WAL 在数据库文件头持久化，任何一条连接设过即全局生效；
+        #   busy_timeout 让偶发写竞争时读方自动等待而非直接报错。
+        _c.execute("PRAGMA journal_mode=WAL")
+        _c.execute("PRAGMA busy_timeout=30000")
         # v1.9.49 修：首条连接（主线程 / __init__ 内使用）也必须注册 UDF，
         # 否则主线程直接走 search() 会报 no such function: line_text（线程本地连接才注册是漏的）。
         self._register_udfs(_c)
@@ -760,6 +766,10 @@ class Store:
         if conn is None:
             conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
+            # v1.9.111：每条线程本地连接都开 WAL（与 __init__ 主连接一致），
+            #   否则多线程 Web 下只有 __init__ 那条连上、其余连接仍走 delete 模式。
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
             # R20：每个线程本地连接都要注册排序用 UDF（wareki→公元月序），
             # 否则多线程 Web 下只有首个线程连上有、其余连接报 no such function。
             self._register_udfs(conn)

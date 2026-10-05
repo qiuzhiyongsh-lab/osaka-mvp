@@ -9,8 +9,30 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.110"
-BUILD_AT = "2026-10-05 12:30"
+VERSION = "1.9.111"
+BUILD_AT = "2026-10-05 13:28"
+# ============================================================================
+# v1.9.111（2026-10-05 · 根治 12:07 卡顿：主库 jproperty.db 全连接开 WAL + 前端徽章/三复选框合并发版）：
+#   【现象·5WHY 根因（硬证据，见 MEMORY 观察项②）】本地 8765 卡顿：REINS 抓取（SCHED 后台线程）
+#     与 Web 服务**同进程同 SQLite 库**（jproperty.db）；core/store.py 两处 connect 默认 delete 模式
+#     （journal_mode 未设 WAL）+ busy_timeout=5000 级 → 抓取密集写事务阻塞 Web 读 →
+#     浏览器查询请求被挂起 → 页面卡顿；点返回取消挂起 XHR 即恢复。
+#     实测：data/jproperty.db 磁盘**无 -wal/-shm**（确证 delete 模式）；
+#           ai_pdf_store.db / employee.db 已用 WAL（既有已验证模式，本案照搬）。
+#   【修法·7 处主库连接统一开 WAL】kill 写阻塞读，抓取与 Web 查询并发不再互相锁死：
+#     ① core/store.py：__init__ 主连接(728) + conn property 线程本地连接(761) 各补
+#        PRAGMA journal_mode=WAL + PRAGMA busy_timeout=30000；
+#     ② core/crawler.py：写库连接(3469) 补 journal_mode=WAL（原有 busy_timeout=30000 保留）、
+#        读计数连接(3219) 同步补 WAL + busy_timeout；
+#     ③ web/app.py：发布三条直连 jproperty.db 端点(2802/2849/3035) 各补 WAL + busy_timeout
+#        （同在 8765 进程内做发布写，须与主连接口径一致，否则发布仍可能撞锁）。
+#   【备份链路 WAL 安全】shutil.copy2 在 WAL 模式会漏 -wal 数据 → 改用 SQLite 在线备份 API：
+#     checkpoint.py backup_db() / tools/db_guard.py _backup() 改 src.backup(dst)（读穿 WAL）；
+#     sync_to_publish.py / daily_backup.py 此前已 WAL 安全，不动。
+#     delete 模式下在线备份 API 与 wal_checkpoint 均为安全空操作，向后兼容。
+#   【合并发布】v1.9.110 前端「新建/变更」徽章 + 日期口径三复选框（默认双勾）一并随本次发版上线 v100。
+#   【生效条件】后端不热重载 ⇒ 本地 8765 需勇哥重启 start_mvp.bat 方生效；
+#     线上 v100 重发布即全新启动、立即生效。WAL 在库文件头持久化，重启后保持。
 # ============================================================================
 # v1.9.110（2026-10-05 · 查询页「新建/变更」常驻徽章 + 日期口径复选框（默认双勾）· 方式2 不发布）：
 #   【需求·勇哥】① 房源查询页在「添加客户」与「专任」之间加一个「新建/变更」小标志，

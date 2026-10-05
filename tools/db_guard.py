@@ -36,7 +36,14 @@ def _ts() -> str:
 def _backup(src: Path, label: str) -> Path:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     dst = BACKUP_DIR / f"{label}_{_ts()}_{src.name}"
-    shutil.copy2(src, dst)
+    # v1.9.111：WAL 安全 —— 用在线备份 API 读穿 WAL，避免漏 -wal 数据。
+    _src = sqlite3.connect(str(src), timeout=30)
+    _dst = sqlite3.connect(str(dst), timeout=30)
+    try:
+        _src.backup(_dst)
+    finally:
+        _dst.close()
+        _src.close()
     return dst
 
 

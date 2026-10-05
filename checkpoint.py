@@ -33,6 +33,7 @@ import glob
 import hashlib
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime
@@ -150,18 +151,37 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
+def _wal_safe_backup(src: Path, dst: Path) -> None:
+    """WAL 安全备份：用 SQLite 在线备份 API 读穿 WAL，产出一致性自包含副本。
+    delete 模式下同样安全（整库复制）。比 shutil.copy2 多一层保证：不会漏 -wal 数据。"""
+    _src = sqlite3.connect(str(src), timeout=30)
+    _dst = sqlite3.connect(str(dst), timeout=30)
+    try:
+        _src.backup(_dst)
+    finally:
+        _dst.close()
+        _src.close()
+
+
 def backup_db() -> str:
     """备份房源库；内容与已有备份相同则跳过。返回一句人话描述。"""
     if not DB.exists():
         return "房源库不存在，跳过备份"
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    digest = _md5(DB)
-    for f in BACKUP_DIR.glob("jproperty_*.db"):
-        if digest[:8] in f.name:
-            return "房源库与已有备份一致，跳过（%s）" % f.name
+    wal = DB.with_suffix(".db-wal")
+    # v1.9.111：WAL 模式下 -wal 含未合并数据；若 -wal 非空则 .db 字节可能未变，
+    #   此时 md5 去重会误跳 → 强制备份。delete 模式下 -wal 不存在，照常去重。
+    if wal.exists() and wal.stat().st_size > 0:
+        digest = _md5(DB)  # 仅用于命名，不参与去重
+        skip = False
+    else:
+        digest = _md5(DB)
+        skip = any(digest[:8] in f.name for f in BACKUP_DIR.glob("jproperty_*.db"))
+    if skip:
+        return "房源库与已有备份一致，跳过（%s）" % digest[:8]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = BACKUP_DIR / ("jproperty_%s_%s.db" % (ts, digest[:8]))
-    shutil.copy2(DB, dst)
+    _wal_safe_backup(DB, dst)
     old = sorted(BACKUP_DIR.glob("jproperty_*.db"),
                  key=lambda p: p.stat().st_mtime, reverse=True)
     for p in old[KEEP_BACKUPS:]:
@@ -169,7 +189,7 @@ def backup_db() -> str:
             p.unlink()
         except Exception:
             pass
-    kb = DB.stat().st_size / 1024
+    kb = dst.stat().st_size / 1024
     return "房源库已备份 → .backups/db/%s（%.0f KB，共留 %d 份）" % (
         dst.name, kb, min(len(old), KEEP_BACKUPS))
 

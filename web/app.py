@@ -2800,6 +2800,8 @@ def _publish_worker(mode: str, force_ai: bool = False):
         from core.publisher import publish
         import sqlite3
         con = sqlite3.connect(str(PATHS["db"]))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=30000")
         con.row_factory = sqlite3.Row
         _PUB["result"] = publish(cfg, con, mode=mode, log=say,
                                  force_ai=bool(_PUB.get("force_ai")))
@@ -2847,6 +2849,8 @@ def api_publish_status():
         from core.publisher import get_state
         import sqlite3
         con = sqlite3.connect(str(PATHS["db"]))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=30000")
         con.row_factory = sqlite3.Row
         st = get_state(con)
         con.close()
@@ -3033,6 +3037,8 @@ def api_publish_preview():
         from core.publisher import preview_scope
         import sqlite3
         con = sqlite3.connect(str(PATHS["db"]))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=30000")
         con.row_factory = sqlite3.Row
         r = preview_scope(cfg, con, limit=limit, log=log)
         con.close()

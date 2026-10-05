@@ -3217,6 +3217,8 @@ def _prev_day_needs_backfill(store, cfg, today: str, log=None) -> tuple[str, str
     last_ok = ""
     try:
         con = sqlite3.connect(str(store.db_path))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=30000")
         try:
             n_prev = con.execute(
                 "select count(*) from properties where reg_date_iso=? or chg_date_iso=?",
@@ -3467,6 +3469,7 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
     # ---- 写库（update 已有 / insert 新建，都只动日期列 + 补缺失基础字段）----
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     con = sqlite3.connect(str(store.db_path))
+    con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=30000")
     cur = con.cursor()
     upd = ins = 0
