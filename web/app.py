@@ -22,8 +22,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
 
-from flask import (Flask, abort, jsonify, redirect, render_template, request,
-                   send_from_directory, session, url_for)
+from flask import (Flask, abort, jsonify, make_response, redirect,
+                   render_template, request, send_from_directory, session,
+                   url_for)
 from werkzeug.exceptions import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -2459,6 +2460,355 @@ def _row_payload(r) -> dict:
     # 线上（PUBLIC）保留库里已有的 pdf_url；无则前端自动隐藏（详细视图）/置灰（简洁视图）
     d.pop("detail_json", None)
     return d
+
+
+# ============================================================
+# v1.9.114 · PRD#39「多选 PDF 合并下载」—— **后端合并**端点
+#
+# ⚠ 与 PRD §22 Q2/Q4′ 原定「MVP 前端 pdf-lib 合并」不同，落码时改为**后端合并**，
+#   两条硬理由（2026-10-06 读码实测，PRD R1 假设同时被证伪）：
+#   ① **CORS**：线上 PDF 是 COS 预签名直链，浏览器里 pdf-lib 直接 fetch 会被 CORS
+#      拦截 → 前端方案**线上必废**；后端服务端拉取没有这个限制。
+#   ② **日文不可画**：pdf-lib 的 StandardFonts 一个汉字都画不了（实测
+#      `WinAnsi cannot encode "大"`）；嵌 CJK 字体又不支持 subset（整份 MS Gothic
+#      8.33MB 嵌入 → 单页 +4.5MB）。后端 reportlab `UnicodeCIDFont` 是唯一解。
+#   ③ 顺带红利：占位页 / 清单页能做、本机与线上**共用一套代码**。
+#   ★ PRD R1 被证伪：`/api/pdf/*` **不在** `PUBLIC_HIDDEN_APIS`（该元组只含
+#     `/api/pdf_cloud`），所以本端点线上不会被 403；且它由**已登录浏览器**调用，
+#     应正常走 `_access_guard` 登录守卫 —— **不做** token 豁免。
+# ============================================================
+_PDF_MERGE_SOFT = 50     # 软上限：超过仍可下载，前端提示"套数较多，生成可能较慢"
+_PDF_MERGE_HARD = 100    # 硬上限：直接拒绝，防一次请求拖垮服务
+_PDF_CID_FONT = "HeiseiKakuGo-W5"   # Adobe-Japan1 标准 CID 字体：非嵌入、~2.4KB/页、日文可 Ctrl+F
+
+
+def _pdf_has_reportlab() -> bool:
+    """R2 降级开关：线上发布包若没装 reportlab，信息页/占位页/清单页整体降级，主干合并不受损。"""
+    try:
+        import reportlab  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _rv(row, key):
+    """安全取列：线上库列可能与本地不同步（幂等补列前），缺列返回 None 而不是抛异常。"""
+    try:
+        return row[key]
+    except (IndexError, KeyError, TypeError):
+        return None
+
+
+def _mt(v) -> str:
+    """信息页安全文本：None/空 → ''（FR24：留空，绝不写 —、不整行省略）。"""
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v).strip()
+
+
+def _mt_price(v) -> str:
+    """price 存的是**円**（71800000）→ 显示万円（7,180万円）。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if not f:
+        return ""
+    return f"{int(f // 10000):,}万円"
+
+
+def _mt_area(v) -> str:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if not f:
+        return ""
+    return f"{f:g}㎡"
+
+
+def _mt_fee(v) -> str:
+    """管理費/修繕積立金：detail_json 里已是「8,530円」带单位的串，直接透传；纯数字补「円」。"""
+    s = _mt(v)
+    if not s:
+        return ""
+    return s if "円" in s else s + "円"
+
+
+def _pdf_canvas_begin(landscape_a4=True):
+    """开一个 reportlab 画布（懒注册 CID 字体）。返回 (canvas, BytesIO, W, H)。"""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfgen import canvas as _canvas
+
+    if _PDF_CID_FONT not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(UnicodeCIDFont(_PDF_CID_FONT))
+    size = landscape(A4) if landscape_a4 else A4
+    buf = BytesIO()
+    c = _canvas.Canvas(buf, pagesize=size)
+    return c, buf, size[0], size[1]
+
+
+def _pdf_info_page(row, idx: int, total: int, detail: dict):
+    """每套房源 1 页「物件情報」（A4 横向）。PRD §22.3 十项，顺序不得变更。"""
+    try:
+        c, buf, W, H = _pdf_canvas_begin(True)
+        from reportlab.lib.colors import HexColor
+        from reportlab.pdfbase import pdfmetrics
+
+        F = _PDF_CID_FONT
+        M = 46.0
+        # ---- 页眉 ----
+        c.setFont(F, 17); c.setFillColor(HexColor("#111827"))
+        c.drawString(M, H - 62, "物件情報")
+        c.setFont(F, 9); c.setFillColor(HexColor("#9aa3b2"))
+        c.drawString(M + 92, H - 62, "Property Info")
+        right = f"{idx} / {total}"
+        c.setFont(F, 10); c.setFillColor(HexColor("#6b7280"))
+        c.drawRightString(W - M, H - 60, right)
+        c.setStrokeColor(HexColor("#d5dae2")); c.setLineWidth(0.8)
+        c.line(M, H - 74, W - M, H - 74)
+
+        # ---- 十项（FR24/FR25：有值就填、无值保留标签位留空）----
+        items = [
+            ("物件番号", _mt(_rv(row, "property_no"))),
+            ("所在地", _mt(_rv(row, "address"))),
+            ("建物名", _mt(_rv(row, "building_name"))),
+            ("最寄駅", _mt(_rv(row, "line_station"))),
+            ("価格", _mt_price(_rv(row, "price"))),
+            [("専有面積", _mt_area(_rv(row, "exclusive_area"))),
+             ("間取", _mt(_rv(row, "layout"))),
+             ("階", _mt(_rv(row, "floor")))],
+            ("築年月", _mt(_rv(row, "built_year_month"))),
+            [("管理費", _mt_fee((detail or {}).get("management_fee"))),
+             ("修繕積立金", _mt_fee((detail or {}).get("repair_fund")))],
+            ("利回り(%)", ""),   # FR25：当前无数据源 → 恒留空（打印后手填）
+            [("登録日", _mt(_rv(row, "reg_date_iso"))),
+             ("変更日", _mt(_rv(row, "chg_date_iso")))],
+        ]
+        y = H - 104.0
+        row_h = 41.0
+        LAB_W = 104.0
+        for it in items:
+            if isinstance(it, tuple):
+                segs = [it]
+            else:
+                segs = it
+            x = M
+            for lab, val in segs:
+                c.setFont(F, 9); c.setFillColor(HexColor("#8a93a3"))
+                c.drawString(x, y + 11, lab)
+                c.setFont(F, 13); c.setFillColor(HexColor("#111827"))
+                c.drawString(x, y - 6, val or "")
+                if isinstance(it, tuple):
+                    x += W - 2 * M          # 整行占满，进入下一行
+                else:
+                    lw = max(pdfmetrics.stringWidth(lab or "", F, 9),
+                             pdfmetrics.stringWidth(val or "", F, 13))
+                    x += max(lw + 30.0, 150.0)
+            # 手写基线（留白处给阿丹打印后手填）
+            c.setStrokeColor(HexColor("#e8ebf0")); c.setLineWidth(0.7)
+            c.line(M, y - 12, W - M, y - 12)
+            y -= row_h
+
+        # ---- 页脚 ----
+        c.setFont(F, 8); c.setFillColor(HexColor("#9aa3b2"))
+        c.drawString(M, 30, f"出典：REINS　生成：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(W - M, 30, f"{idx} / {total}")
+        c.showPage(); c.save()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _pdf_placeholder_page(row, idx: int, total: int):
+    """该房源没有抓到 PDF → 插一页占位，保证**每套房源页数对齐、不错位**（PRD Q8）。"""
+    try:
+        c, buf, W, H = _pdf_canvas_begin(True)
+        from reportlab.lib.colors import HexColor
+        F = _PDF_CID_FONT
+        c.setFont(F, 11); c.setFillColor(HexColor("#9aa3b2"))
+        c.drawCentredString(W / 2, H - 120, f"{idx} / {total}")
+        c.setFont(F, 16); c.setFillColor(HexColor("#6b7280"))
+        c.drawCentredString(W / 2, H / 2 + 26, "この物件の図面 PDF は未取得です")
+        c.setFont(F, 11); c.setFillColor(HexColor("#111827"))
+        no = _mt(_rv(row, "property_no")); nm = _mt(_rv(row, "building_name"))
+        c.drawCentredString(W / 2, H / 2 - 4, f"物件番号：{no}")
+        if nm:
+            c.drawCentredString(W / 2, H / 2 - 26, f"建物名：{nm}")
+        c.showPage(); c.save()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _pdf_manifest_page(items: list):
+    """末尾清单页：一页看清本次合并了什么、哪几套缺 PDF（PRD Q8）。"""
+    try:
+        c, buf, W, H = _pdf_canvas_begin(True)
+        from reportlab.lib.colors import HexColor
+        F = _PDF_CID_FONT
+        M = 46.0
+        c.setFont(F, 16); c.setFillColor(HexColor("#111827"))
+        c.drawString(M, H - 62, "物件資料 一覧")
+        c.setFont(F, 9); c.setFillColor(HexColor("#9aa3b2"))
+        c.drawRightString(W - M, H - 60, f"全 {len(items)} 件　{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.setStrokeColor(HexColor("#d5dae2")); c.setLineWidth(0.8)
+        c.line(M, H - 74, W - M, H - 74)
+        y = H - 100.0
+        for i, no, name, price, has_pdf in items:
+            c.setFont(F, 10); c.setFillColor(HexColor("#111827"))
+            c.drawString(M, y, f"{i:>2}.")
+            c.drawString(M + 26, y, no)
+            c.drawString(M + 150, y, (name or "")[:26])
+            c.drawString(M + 430, y, price or "")
+            c.setFillColor(HexColor("#b03030") if not has_pdf else HexColor("#2f7a4f"))
+            c.drawString(M + 560, y, "PDF 未取得" if not has_pdf else "PDF あり")
+            y -= 24.0
+            if y < 60:
+                c.showPage(); y = H - 80.0
+        c.showPage(); c.save()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _pdf_bytes_for(row):
+    """取一套房源的原始 PDF 字节。
+       本机：pdf_path（形如 attachments/xxxx.pdf）→ 读 data/attachments 磁盘；
+       线上（PUBLIC）：库里是 COS 预签名直链 → **服务端** urllib 拉取（无 CORS 问题）。"""
+    if not PUBLIC:
+        p = _mt(_rv(row, "pdf_path"))
+        if p:
+            f = Path(p)
+            if not f.is_absolute():
+                f = Path(PATHS["root"]) / p
+            try:
+                if f.exists():
+                    return f.read_bytes()
+            except Exception:
+                pass
+        f2 = Path(PATHS["attachments"]) / f"{_mt(_rv(row, 'property_no'))}.pdf"
+        try:
+            if f2.exists():
+                return f2.read_bytes()
+        except Exception:
+            pass
+        return None
+    url = _mt(_rv(row, "pdf_url"))
+    if not url:
+        return None
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            return resp.read()
+    except Exception:
+        return None
+
+
+def _pdf_concat(parts: list) -> bytes:
+    """pypdf 顺序拼页。单份损坏只跳过该份，不让整次下载失败。"""
+    from io import BytesIO
+    import pypdf
+    w = pypdf.PdfWriter()
+    n = 0
+    for b in parts:
+        if not b:
+            continue
+        try:
+            r = pypdf.PdfReader(BytesIO(b))
+        except Exception:
+            continue
+        try:
+            for pg in r.pages:
+                w.add_page(pg)
+            n += 1
+        except Exception:
+            continue
+    out = BytesIO()
+    w.write(out)
+    return out.getvalue(), n
+
+
+@app.post("/api/pdf/merge")
+def api_pdf_merge():
+    """PRD#39：把勾选的多套房源 PDF（每套前插 1 页物件情報）合并成一份下载。
+       入参 {"nos": [...]}；返回 application/pdf 文件流。
+       走 `_access_guard` 登录守卫（不豁免）—— 与 /api/emp/** 同理。"""
+    _refresh_cfg()
+    data = request.get_json(silent=True) or {}
+    nos = [str(n).strip() for n in (data.get("nos") or []) if str(n).strip()]
+    if not nos:
+        return jsonify({"status": "error", "msg": "请先勾选房源再下载。"}), 400
+    if len(nos) > _PDF_MERGE_HARD:
+        return jsonify({
+            "status": "error",
+            "msg": f"一次最多合并 {_PDF_MERGE_HARD} 套（当前已选 {len(nos)} 套），请分批处理。",
+        }), 400
+
+    rows_map = STORE.get_many(nos)
+    rl_ok = _pdf_has_reportlab()
+    parts: list = []
+    manifest: list = []
+    missing: list = []
+    info_pages = 0
+    i = 0
+    for no in nos:
+        row = rows_map.get(no)
+        if row is None:
+            continue
+        i += 1
+        try:
+            detail = json.loads(_rv(row, "detail_json") or "{}")
+        except Exception:
+            detail = {}
+        if rl_ok:
+            ip = _pdf_info_page(row, i, len(nos), detail)
+            if ip:
+                parts.append(ip); info_pages += 1
+        b = _pdf_bytes_for(row)
+        if b:
+            parts.append(b)
+        else:
+            missing.append(no)
+            if rl_ok:
+                ph = _pdf_placeholder_page(row, i, len(nos))
+                if ph:
+                    parts.append(ph)
+        manifest.append((i, _mt(_rv(row, "property_no")),
+                         _mt(_rv(row, "building_name")),
+                         _mt_price(_rv(row, "price")), bool(b)))
+    if not manifest:
+        return jsonify({"status": "error", "msg": "所选房源都不在本地库中，无法生成。"}), 404
+    if rl_ok:
+        mp = _pdf_manifest_page(manifest)
+        if mp:
+            parts.append(mp)
+
+    try:
+        blob, n_doc = _pdf_concat(parts)
+    except Exception as e:
+        return jsonify({"status": "error", "msg": f"PDF 合并失败：{e}"}), 500
+    if not blob:
+        return jsonify({"status": "error", "msg": "没有可合并的 PDF 内容。"}), 500
+
+    from urllib.parse import quote
+    fname = f"物件資料_{len(manifest)}件_{datetime.now().strftime('%Y%m%d')}.pdf"
+    resp = make_response(blob)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=bukken_merged.pdf; filename*=UTF-8''{quote(fname)}"
+    )
+    resp.headers["X-Merged-Count"] = str(len(manifest))
+    resp.headers["X-Missing-Pdf"] = str(len(missing))
+    resp.headers["X-Info-Pages"] = str(info_pages)
+    resp.headers["X-Merge-Soft"] = "1" if len(manifest) > _PDF_MERGE_SOFT else "0"
+    return resp
 
 
 @app.get("/api/compare")

@@ -9,8 +9,24 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.113"
-BUILD_AT = "2026-10-06 00:55"
+VERSION = "1.9.114"
+BUILD_AT = "2026-10-06 01:30"
+# ============================================================================
+# v1.9.114（2026-10-06 · PRD#39 多选 PDF 合并下载【开发（方式2）·未部署线上】）：
+#   【后端】新增 POST /api/pdf/merge —— 后端合并架构（推翻 PRD v1.0 的「前端 pdf-lib 拼页」方案）：
+#     ① 信息页用 reportlab UnicodeCIDFont('HeiseiKakuGo-W5') 生成（非嵌入 CID，~2.4–3.5KB/页，
+#        日文可 Ctrl+F 搜索、Linux 沙箱通用）；② 原 PDF 本机读 data/attachments 磁盘、
+#        线上 urllib.request 服务端拉 COS 预签名直链（**无 CORS 问题**）；③ 缺 PDF 行补占位页；
+#        ④ 末尾清单页标「PDF あり / 未取得」；⑤ pypdf 顺序拼页（坏页跳过），返回单 PDF。
+#     软上限 50（提示分批）/ 硬上限 100（直接拒绝）。R1 已证伪：/api/pdf/* 不在 PUBLIC_HIDDEN_APIS，
+#        端点走 _access_guard 登录守卫，不做 token 豁免。R2 降级：缺 reportlab 时 info_pages 返回 null。
+#   【前端】新建 web/static/pdfbox.js：PdfBox 双独立选择集（与 CompareBox 互不干扰，
+#        localStorage key=osaka_pdf_sel_v1，跨页/跨条件/跨刷新保留）+ 控件组 .pdfgrp（☑左+PDF下载右）
+#        + 顶部绿条 #pdfbar 合并托盘 + 全选本页三态（只选有 PDF 行）。
+#     search.html / detail.html 两条渲染链接同款控件组与托盘；base.html 加载 pdfbox.js?v=version；
+#     style.css 加 .pdfgrp / .pdfbar / .pdfselall；i18n.js 四语补 pdf.* 键（name/sel/merge/clear/selall/...）。
+#   【纪律】本次为开发（方式2）：代码存档 + 本地语法/渲染门禁通过，**未 sync_to_publish、未重发布**；
+#        线上 v100 仍 1.9.113，待勇哥下「发版/整合发版」明令再推。
 # ============================================================================
 # v1.9.113（2026-10-06 · 线上 P0 修复：重新部署后整站 504 —— SQLite 主库与陈旧 WAL 不匹配）：
 #   【现象】勇哥令「整合发版」后重新部署 v100，容器起不来 → 线上 504。

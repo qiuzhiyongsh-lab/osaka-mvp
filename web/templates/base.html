@@ -29,6 +29,9 @@
      员工业务的收藏 / 标签下钻复用它，避免"查询页一套、员工业务另一套"的字段漂移
      （勇哥 2026-09-26：员工业务的收藏显示必须与房源查询完全一致）。 -->
 <script src="{{ url_for('static', filename='prop_card.js') }}?v={{ version }}"></script>
+<!-- v1.9.114 PRD#39：多选 PDF 合并下载共用模块（☑+PDF下载 控件组 / 底部合并托盘 / 选择集 localStorage）。
+     依赖 app.js(window.esc)/i18n.js(window.t)/fieldmap.js，故排在 prop_card.js 之后。 -->
+<script src="{{ url_for('static', filename='pdfbox.js') }}?v={{ version }}"></script>
 </head>
 {# v1.7.6：查询页 / 详情页**默认隐藏其他详情**（勇哥要求：默认就是隐藏态）。
    在**服务端**就带上 class，避免"先显示 → 再隐藏"的闪烁；

@@ -301,6 +301,18 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .qpdf{font-size:11px;font-weight:700;color:#fff;background:var(--ok);
   border-radius:5px;padding:1px 6px;white-space:nowrap}
+
+/* ================= PRD#39 多选 PDF 合并下载 · 行内控件组（☑ + PDF下载） ================= */
+/* 勇哥拍板：两控件**紧邻成组**（组内 5px，组外更大留白）；默认 ☑ 在左、PDF下载 在右。 */
+.pdfgrp{display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
+  border:1px solid #e3e8f0;border-radius:8px;padding:2px 7px 2px 5px;
+  white-space:nowrap;vertical-align:middle}
+.pdfgrp:has(.pdfchk:checked){background:#e8f7ef;border-color:#b9e6c9}
+.pdfgrp .pdfchk{width:15px;height:15px;margin:0;cursor:pointer;accent-color:var(--ok)}
+.pdfgrp .pdfbtn{font-size:11px;font-weight:700;color:var(--ok);text-decoration:none;
+  border-radius:5px;padding:1px 6px;cursor:pointer;line-height:1.4}
+.pdfgrp .pdfbtn:hover{background:var(--ok);color:#fff}
+.pdfgrp .pdfbtn.disabled{color:#b6bfca;cursor:not-allowed;background:transparent}
 /* v1.9.41（勇哥需求）：查询页价格行「详情」按钮 —— 直达房源详情页（/p/编号）。
    与 PDF 绿标签同尺寸同圆角，改用链接蓝，一眼区分「打开 PDF」与「进详情页」；
    放在价格右侧（PDF 标签之后），不抢价格视线。 */
@@ -504,6 +516,29 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .cmpacts .btn{font-size:13px;padding:7px 15px}
 .cmpacts .btn.disabled{opacity:.5}
 body.has-cmpbar main{padding-bottom:132px}
+
+/* ================= PRD#39 PDF 合并下载栏（底部浮条，绿色，与对比栏独立） ================= */
+.pdfbar{position:fixed;left:0;right:0;bottom:0;z-index:61;display:none;
+  background:rgba(20,110,70,.985);box-shadow:0 -4px 22px rgba(10,50,30,.28);
+  border-top:1px solid rgba(255,255,255,.14)}
+.pdfbar.show{display:block}
+.pdfbar-in{max-width:1400px;margin:0 auto;padding:8px 16px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pdfbar-h{color:#e6f6ee;font-size:12.5px;white-space:nowrap;display:flex;gap:8px;
+  align-items:baseline}
+.pdfbar-h b{font-size:14px;color:#fff}
+.pdfbar-h .hot{color:#ffd24a;font-size:15px;font-weight:800}
+.pdfbar-h .pdfnote{font-size:11px;color:#bfe9d2}
+.pdfacts{display:flex;gap:8px;flex:0 0 auto}
+/* 合并栏浮出时，把对比栏往上顶一格（两者可同时出现） */
+body.has-pdfbar .cmpbar{bottom:52px}
+body.has-pdfbar main,body.has-pdfbar.has-cmpbar main{padding-bottom:184px}
+
+/* 全选本页（三态） */
+.pdfselall{display:inline-flex;align-items:center;gap:7px;margin:6px 0 2px 2px;
+  font-size:12.5px;color:var(--ink);cursor:pointer;user-select:none}
+.pdfselall input{width:15px;height:15px;accent-color:var(--ok);cursor:pointer}
+.pdfselall input:disabled{opacity:.4;cursor:not-allowed}
 
 /* ================= 对比页 ================= */
 .cmp-hero{border-left:4px solid var(--accent)}

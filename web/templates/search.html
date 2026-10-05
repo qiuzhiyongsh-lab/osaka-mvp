@@ -386,6 +386,10 @@
   <div id="result">
     <div class="empty" data-i18n="search.loading">正在加载当天数据…</div>
   </div>
+  <!-- v1.9.114 PRD#39：全选本页（三态，只选有 PDF 的行） -->
+  <label class="pdfselall" id="pdfselall-wrap" style="display:none">
+    <input type="checkbox" id="pdfselall"> <span data-i18n="pdf.selall">全选本页（有PDF）</span>
+  </label>
   <div class="pager" id="pager" style="display:none"></div>
 </div>
 
@@ -401,6 +405,21 @@
       <a class="btn primary" id="cmpgo" href="/compare" data-i18n="cmp.go">开始对比</a>
       <button class="ghost" id="cmpReins" data-i18n="cmp.reins_batch">REINS 检索</button>
       <button class="ghost" id="cmpclear" data-i18n="cmp.clear">清空</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 底部固定「PDF 合并下载栏」（PRD#39）：选中后从下方浮出 ============ -->
+<div class="pdfbar" id="pdfbar">
+  <div class="pdfbar-in">
+    <div class="pdfbar-h">
+      <b data-i18n="pdf.name">PDF 合并下载</b>
+      <span class="muted"><span data-i18n="pdf.sel">已选</span> <b id="pdfsel" class="hot">0</b></span>
+      <span class="pdfnote muted" id="pdfnote"></span>
+    </div>
+    <div class="pdfacts">
+      <button class="primary" id="pdfmerge" data-i18n="pdf.merge">合并下载</button>
+      <button class="ghost" id="pdfclear" data-i18n="pdf.clear">清空</button>
     </div>
   </div>
 </div>
@@ -1694,6 +1713,10 @@ function renderRows(rows){
   box.innerHTML = html;
   rows.forEach(function(r, i){ fillDetail('d'+i, r); });
   markRows();
+  markPdfRows();                // v1.9.114 PRD#39：回写 PDF 合并选择集（跨页/跨刷新保留）
+  refreshPdfSelAll();           // v1.9.114 PRD#39：全选本页三态
+  var _sw = document.getElementById("pdfselall-wrap");
+  if (_sw) _sw.style.display = document.querySelector(".pdfchk") ? "" : "none";
   refreshCmpBarInfo(rows);      // 顺手把对比栏里缺摘要的老条目补齐（槽位不再少一行）
 }
 
@@ -1818,7 +1841,7 @@ function renderFullItem(r, i){
     +       drop
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
     +       '<span class="price">' + wan(r.price) + '</span>'
-    +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    +       pdfGroupHtml(r)   /* v1.9.114 PRD#39：被动「PDF」徽章 → 主动控件组（☑+PDF下载） */
     /* v1.9.41（勇哥需求）：价格右侧加「详情」按钮，直达详情页（/p/编号）。
        stopPropagation 防止误触卡片的"展开行内详情"。F6：命中后确有更新时透传 asof。 */
     +       '<a class="qbtn-detail" href="' + detailHref(r) + '" target="_blank"'
@@ -1994,7 +2017,7 @@ function renderCompactItem(r, i){
     +       drop
     +       (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
     +       '<span class="price">' + wan(r.price) + '</span>'
-    +       (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+    +       pdfGroupHtml(r)   /* v1.9.114 PRD#39：被动「PDF」徽章 → 主动控件组（☑+PDF下载） */
     /* v1.9.41：简洁模式价格右侧同样加「详情」按钮（与详细模式一致）；F6 透传 asof */
     +       '<a class="qbtn-detail" href="' + detailHref(r) + '" target="_blank"'
     +          ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
@@ -2276,6 +2299,8 @@ window.addEventListener('pageshow', function(ev){
   if(!ev.persisted) return;
   renderCmpBar(CompareBox.items());
   markRows();
+  markPdfRows();
+  refreshPdfSelAll();
 });
 document.getElementById('limit').addEventListener('change', function(){ doQuery(1); });
 restoreQState();                 // 回填上次的查询条件（切页回来不清空到默认）

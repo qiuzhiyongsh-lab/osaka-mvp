@@ -136,6 +136,10 @@
       'search.lib.err': '最近一輪下載未成功：', 'search.lib.go': '去「數據抓取設定」跑一輪',
       'search.lib.view': '查看最近有數據的日期（',
       'cmp.name': '對比欄', 'cmp.sel': '已選', 'cmp.go': '開始對比', 'cmp.clear': '清空',
+      'pdf.name': 'PDF 合併下載', 'pdf.sel': '已選', 'pdf.merge': '合併下載', 'pdf.clear': '清空',
+      'pdf.selall': '全選本頁（有PDF）', 'pdf.dl': 'PDF下載', 'pdf.merging': '合併中…',
+      'pdf.fail': '合併失敗，請重試', 'pdf.oversoft': '已選 {n} 套（較多，生成可能較慢）',
+      'pdf.persist': '跨頁／跨條件保留', 'pdf.tip_add': '加入 PDF 合併下載', 'pdf.tip_nopdf': '該房源暫無 PDF',
       'cmp.full': '最多同時對比', 'pager.first': '首頁', 'pager.prev': '上一頁',
       'pager.next': '下一頁', 'pager.last': '末頁', 'pager.of': '第', 'pager.page': '頁（共',
 
@@ -313,6 +317,10 @@
       'search.lib.go': 'Go to "Data Capture" to run a round',
       'search.lib.view': 'View latest date with data (',
       'cmp.name': 'Compare bar', 'cmp.sel': 'Selected', 'cmp.go': 'Start compare', 'cmp.clear': 'Clear',
+      'pdf.name': 'PDF merge', 'pdf.sel': 'Selected', 'pdf.merge': 'Merge download', 'pdf.clear': 'Clear',
+      'pdf.selall': 'Select page (with PDF)', 'pdf.dl': 'PDF', 'pdf.merging': 'Merging…',
+      'pdf.fail': 'Merge failed, retry', 'pdf.oversoft': '{n} selected (large, may be slow)',
+      'pdf.persist': 'kept across pages/filters', 'pdf.tip_add': 'Add to PDF merge', 'pdf.tip_nopdf': 'No PDF yet',
       'cmp.full': 'Max', 'pager.first': 'First', 'pager.prev': 'Prev', 'pager.next': 'Next',
       'pager.last': 'Last', 'pager.of': 'Page', 'pager.page': 'of',
 
@@ -494,6 +502,10 @@
       'search.lib.err': '直近のダウンロードが失敗：', 'search.lib.go': '「データ取得設定」で一回実行',
       'search.lib.view': 'データがある最近日付を見る（',
       'cmp.name': '比較バー', 'cmp.sel': '選択中', 'cmp.go': '比較開始', 'cmp.clear': 'クリア',
+      'pdf.name': 'PDF 一括ダウンロード', 'pdf.sel': '選択', 'pdf.merge': '一括ダウンロード', 'pdf.clear': 'クリア',
+      'pdf.selall': 'ページ全体を選択（PDFあり）', 'pdf.dl': 'PDFダウンロード', 'pdf.merging': '結合中…',
+      'pdf.fail': '結合失敗、再試行してください', 'pdf.oversoft': '{n} 件選択（多いので時間がかかる場合）',
+      'pdf.persist': 'ページ／条件をまたいで保持', 'pdf.tip_add': 'PDF 一括ダウンロードに追加', 'pdf.tip_nopdf': 'PDF なし',
       'cmp.full': '最大同時比較', 'pager.first': '最初', 'pager.prev': '前へ',
       'pager.next': '次へ', 'pager.last': '最後', 'pager.of': 'ページ', 'pager.page': '／全',
 
@@ -903,6 +915,11 @@
   ZH['view.toggle']='详细 ⇄ 简洁'; ZH['filter.edit']='修改条件 ▾'; ZH['filter.collapse']='收起条件 ▴';
   ZH['search.today_short']='今天'; ZH['search.date_swap']='起止日期已自动调换';
   ZH['search.date_caliber.any']='登録日或変更日';
+  // v1.9.114 PRD#39 多选 PDF 合并下载
+  ZH['pdf.name']='PDF 合并下载'; ZH['pdf.sel']='已选'; ZH['pdf.merge']='合并下载'; ZH['pdf.clear']='清空';
+  ZH['pdf.selall']='全选本页（有PDF）'; ZH['pdf.dl']='PDF下载'; ZH['pdf.merging']='合并中…';
+  ZH['pdf.fail']='合并失败，请重试'; ZH['pdf.oversoft']='已选 {n} 套（较多，生成可能较慢）';
+  ZH['pdf.persist']='跨页 / 跨条件保留'; ZH['pdf.tip_add']='加入 PDF 合并下载'; ZH['pdf.tip_nopdf']='该房源暂无 PDF';
   ZH['search.date_caliber.change']='変更日（平台变更）';
   ZH['search.date_caliber.reg']='登録日（平台新建）';
   ZH['search.date_caliber.dl']='下载日（本地抓到）';

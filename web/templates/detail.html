@@ -76,8 +76,14 @@
     {% set _pdf_url_b = (row['pdf_url'] if 'pdf_url' in row.keys() else None) %}
     {% set _pdf_link_b = _pdf_url_b or (url_for('download', dir='attachments', name=row.property_no + '.pdf') if row.pdf_path else '') %}
     {% if _pdf_link_b %}
-    <a class="btn" href="{{ _pdf_link_b }}"
-       target="_blank" data-i18n="detail.openpdf">打开 PDF</a>
+    <!-- v1.9.114 PRD#39：详情页复用与列表**同款控件组**（☑左 + PDF下载右），共用同一选择集（FR18/FR19）。
+         ☑ 加入合并选择集；「PDF下载」即原来的单套直下（保留 target=_blank）。 -->
+    <span class="pdfgrp">
+      <input type="checkbox" class="pdfchk" data-no="{{ row.property_no or '' }}"
+             onclick="togglePdf(this,event)" title="加入 PDF 合并下载">
+      <a class="btn pdfbtn" href="{{ _pdf_link_b }}"
+         target="_blank" data-i18n="detail.openpdf" onclick="event.stopPropagation()">打开 PDF</a>
+    </span>
     {% else %}<span class="muted">这条没有抓 PDF。</span>{% endif %}
     <!-- v2.0.x（勇哥要求）：收藏栏在「打开 PDF」与「物件番号」之间（也就是「加入对比」的上方）。
          渲染由 web/static/fav.js 完成（未登录时点击会由服务端给出提示，不静默失败）。 -->
@@ -785,7 +791,26 @@ aiSetBtn(t('detail.ai_interpret_regen'), false);
 CompareBox.onChange(refreshCmp);
 window.addEventListener('i18n:changed', paintAll);
 paintAll();
+// v1.9.114 PRD#39：详情页也要回写 ☑ 选择集 + 浮出合并托盘（与列表共用一套）
+if (window.markPdfRows) markPdfRows();
+if (window.refreshPdfBar) refreshPdfBar();
+if (window.refreshPdfSelAll) refreshPdfSelAll();
 </script>
 
 {% endif %}
+
+<!-- v1.9.114 PRD#39：PDF 合并下载托盘（与查询页共用，跨页/跨条件保留选择集） -->
+<div class="pdfbar" id="pdfbar">
+  <div class="pdfbar-in">
+    <div class="pdfbar-h">
+      <b data-i18n="pdf.name">PDF 合并下载</b>
+      <span class="muted"><span data-i18n="pdf.sel">已选</span> <b id="pdfsel" class="hot">0</b></span>
+      <span class="pdfnote muted" id="pdfnote"></span>
+    </div>
+    <div class="pdfacts">
+      <button class="primary" id="pdfmerge" data-i18n="pdf.merge">合并下载</button>
+      <button class="ghost" id="pdfclear" data-i18n="pdf.clear">清空</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
