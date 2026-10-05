@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD#40 效果图 · 实际回报率 / 楼层固定 / 中介露出 / 去「画像0枚」</title>
+<style>
+  :root{
+    --blue:#2b6cb0; --blue-d:#1f4e87; --ink:#1f2d3d; --gray:#6b7785; --line:#d4dcea;
+    --bg:#f4f7fb; --card:#fff; --ok:#2f9e44; --warn:#e8590c; --bad:#e03131;
+    --chip:#eef4fb; --chip-b:#cfe0f3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Sans",sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+  header{background:linear-gradient(120deg,#1f4e87,#2b6cb0);color:#fff;padding:22px 28px}
+  header h1{margin:0 0 6px;font-size:20px}
+  header p{margin:0;opacity:.9;font-size:13px}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+  .note{background:#fff7e6;border:1px solid #ffe0a3;color:#7a5b00;padding:10px 14px;border-radius:10px;font-size:13px;margin:16px 0}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:20px 0;box-shadow:0 1px 3px rgba(30,50,90,.06)}
+  h2{font-size:17px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  h2 .tag{font-size:11px;background:var(--blue);color:#fff;border-radius:6px;padding:2px 8px;font-weight:600}
+  .sub{color:var(--gray);font-size:13px;margin:0 0 16px}
+  .ctrls{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 18px}
+  .ctrls button{border:1px solid var(--chip-b);background:var(--chip);color:var(--blue-d);padding:6px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600}
+  .ctrls button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .col h3{font-size:14px;margin:0 0 10px;color:var(--blue-d)}
+  .col.before h3{color:var(--gray)}
+  /* ---- 列表卡片（拟真） ---- */
+  .qcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff}
+  .qtop{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .qprice{font-size:19px;font-weight:800;color:var(--blue-d)}
+  .qprice small{font-size:12px;font-weight:600;color:var(--gray)}
+  .qno{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--gray)}
+  .qcore{display:flex;flex-wrap:wrap;gap:6px 14px;margin:10px 0 8px;font-size:13px;font-weight:600}
+  .qcore .k{position:relative;padding-right:14px}
+  .qcore .k:not(:last-child)::after{content:"";position:absolute;right:0;top:2px;bottom:2px;width:1px;background:var(--line)}
+  .qsub{display:flex;flex-wrap:wrap;gap:5px 12px;font-size:12px;color:#46556a;margin-top:4px}
+  .qsub span{position:relative;padding-right:12px}
+  .qsub span:not(:last-child)::after{content:"";position:absolute;right:0;top:1px;bottom:1px;width:1px;background:var(--line)}
+  .mdbset{display:inline-flex;gap:5px;vertical-align:middle}
+  .mdb{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;font-size:11px;font-weight:700}
+  .mdb.on{background:var(--ok);color:#fff}
+  .mdb.off{background:#e7ecf2;color:#aab4c0}
+  .imgs0{color:var(--gray);background:#f1f4f8;padding:1px 7px;border-radius:6px;font-size:11px}
+  /* 楼层醒目 案A */
+  .flrA{display:inline-flex;align-items:baseline;gap:3px;font-size:12px;color:#46556a}
+  .flrA b{font-size:18px;font-weight:800;color:var(--blue);line-height:1}
+  .flrA .u{font-size:11px;color:var(--gray)}
+  /* 楼层醒目 案B */
+  .flrB{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--chip-b);border-radius:999px;padding:3px 12px;font-size:12px;color:#46556a}
+  .flrB b{font-size:17px;font-weight:800;color:var(--blue-d);line-height:1}
+  .broker{margin-top:8px;font-size:12px;color:#46556a;background:#f3f8ff;border:1px solid #d6e6fb;border-radius:8px;padding:6px 10px}
+  .broker b{color:var(--blue-d)}
+  .broker .tel{font-family:ui-monospace,Menlo,monospace;margin-left:8px}
+  .badge-hidden{display:none}
+  /* ---- 信息页利回り三态 ---- */
+  .yieldwrap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .yc{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff}
+  .yc h4{margin:0 0 10px;font-size:13px;color:var(--blue-d)}
+  .yc .state{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700}
+  .s-ok{background:#e6f7ec;color:var(--ok)}
+  .s-warn{background:#fff1e6;color:var(--warn)}
+  .s-bad{background:#fdeaea;color:var(--bad)}
+  .yieldbig{font-size:30px;font-weight:800;color:var(--blue-d);margin:6px 0}
+  .yieldbig.empty{color:#b9c2cd;font-size:22px}
+  .formula{font-size:11px;color:var(--gray);background:#f6f9fc;border-radius:8px;padding:8px;margin-top:8px;font-family:ui-monospace,monospace;word-break:break-all}
+  .miss{color:var(--bad);font-weight:700}
+  /* 标注表 */
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef4fb;color:var(--blue-d);font-weight:700}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-right:6px}
+  .legend{font-size:12px;color:var(--gray);margin-top:8px}
+  footer{color:var(--gray);font-size:12px;text-align:center;padding:20px}
+  @media(max-width:820px){.grid2,.yieldwrap{grid-template-columns:1fr}.wrap{padding:16px 12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>PRD#40 效果图 · 实际回报率 / 楼层固定醒目 / 中介露出 / 去「画像 0 枚」</h1>
+  <p>产品经理 + UI 经理 共同产出 · 方式1（只出图+写PRD，不发版）· 2026-10-06</p>
+</header>
+<div class="wrap">
+
+  <div class="note">
+    ⚠️ 提示：勇哥原消息附 5 张截图，但当前模型<b>不支持读图</b>。本效果图依据勇哥文字描述还原需求；若截图与文字有出入，请以截图为准并补述，我再校准。
+  </div>
+
+  <!-- ============ 列表卡片 ============ -->
+  <section>
+    <h2><span class="tag">①</span>列表卡片：楼层固定醒目 + 中介露出 + 去「画像 0 枚」</h2>
+    <p class="sub">勇哥要求：所属楼层 / 总楼高 <b>位置固定</b>、数字<b>相对醒目</b>；缺则空着；建筑年份紧随其后位置不变；显示卖方中介公司名+电话；「画像 0 枚」字样不再显示（仅保留 画/図/所 三标记）。</p>
+
+    <div class="ctrls">
+      <span style="font-size:13px;color:var(--gray);align-self:center">楼层醒目方案：</span>
+      <button id="bA" class="on" onclick="pick('A')">案A（推荐·数字胶囊）</button>
+      <button id="bB" onclick="pick('B')">案B（浅蓝徽标）</button>
+    </div>
+
+    <div class="grid2">
+      <!-- 改造前 -->
+      <div class="col before">
+        <h3>改造前（现状）</h3>
+        <div class="qcard">
+          <div class="qtop">
+            <div class="qprice">4,980<small> 万円</small></div>
+            <div class="qno">300140844388</div>
+          </div>
+          <div class="qcore">
+            <span class="k">65.40 ㎡</span><span class="k">2LDK</span><span class="k">御堂筋線 淀屋橋 徒歩8分</span><span class="k">中央区</span>
+          </div>
+          <div class="qsub">
+            <span>マンション</span>
+            <span>所在階 8階</span>
+            <span>地上 15階</span>
+            <span>築 2019年3月</span>
+            <span class="mdbset"><span class="mdb off">画</span><span class="mdb off">図</span><span class="mdb off">所</span></span>
+            <span class="imgs0">画像 0 枚</span>
+          </div>
+          <div class="broker badge-hidden">仲介：<b>○○不動産株式会社</b><span class="tel">06-1234-5678</span></div>
+        </div>
+        <p class="legend">问题：楼层数字与普通文本无差别；无中介信息；「画像 0 枚」误导（实际还没抓详情）。</p>
+      </div>
+
+      <!-- 改造后 -->
+      <div class="col after">
+        <h3>改造后（目标）</h3>
+        <div class="qcard">
+          <div class="qtop">
+            <div class="qprice">4,980<small> 万円</small></div>
+            <div class="qno">300140844388</div>
+          </div>
+          <div class="qcore">
+            <span class="k">65.40 ㎡</span><span class="k">2LDK</span><span class="k">御堂筋線 淀屋橋 徒歩8分</span><span class="k">中央区</span>
+          </div>
+          <div class="qsub">
+            <span>マンション</span>
+            <!-- 楼层固定位置：kindline 之后、築之前；数字醒目 -->
+            <span id="floorSlot"></span>
+            <span>築 2019年3月</span>
+            <!-- 去「画像0枚」：三标记保留，张数仅 >0 才显示 -->
+            <span class="mdbset"><span class="mdb off">画</span><span class="mdb off">図</span><span class="mdb off">所</span></span>
+          </div>
+          <!-- 中介露出：新增一行 -->
+          <div class="broker">仲介：<b>○○不動産株式会社</b><span class="tel">☎ 06-1234-5678</span></div>
+        </div>
+        <p class="legend">楼层数字<b>放大加粗+主题色</b>，位置与建筑年份顺序不变；中介公司名+电话常驻；「画像 0 枚」已消失。</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      📌 楼层「位置固定」= 沿用现有卡片结构：在 <code>qsub</code>（详细模式）/ <code>qc-meta</code>（紧凑模式）<b>第 2 簇</b>，顺序为「物件种别 → 楼层(醒目) → 建筑年份」，与现状行位一致，仅强化视觉。缺失时整段不渲染（保持空白）。
+    </div>
+  </section>
+
+  <!-- ============ 信息页利回り ============ -->
+  <section>
+    <h2><span class="tag">②</span>信息页（detail）实际回报率 利回り(%) 三态</h2>
+    <p class="sub">勇哥算法：<b>(租金 − 物业管理费 − 修缮积立金) ×12 ÷ 房价 ×100%</b>。仅当<b>管理费与修缮金两者都有</b>才计算；任一项缺失→留空；且<b>租金数据源当前全局缺失</b>→ 见状态③。</p>
+    <div class="yieldwrap">
+      <div class="yc">
+        <h4>状态① 可计算 <span class="state s-ok">完整</span></h4>
+        <div class="yieldbig">4.34%</div>
+        <div class="formula">
+          租金 20万×12 = 240万<br>
+          − 管理 1.2万×12 − 修繕 0.8万×12 = −24万<br>
+          分子 216万 ÷ 房价(4,980万×1万) ×100% = <b>4.34%</b>
+        </div>
+      </div>
+      <div class="yc">
+        <h4>状态② 费用不全 <span class="state s-warn">缺费用</span></h4>
+        <div class="yieldbig empty">—</div>
+        <div class="formula">
+          租金 20万 ✓ / 管理費 <span class="miss">缺失</span> / 修繕 <span class="miss">缺失</span><br>
+          勇哥规则：管理费+修繕金<b>不全即不算</b> → 留空
+        </div>
+      </div>
+      <div class="yc">
+        <h4>状态③ 租金缺失 <span class="state s-bad">缺租金</span></h4>
+        <div class="yieldbig empty">—</div>
+        <div class="formula">
+          系统<b>无任何租金字段</b>（properties 无列 / detail_json 0 键 / AI库无賃料）<br>
+          <span class="miss">当前全部房源均落入此态</span><br>
+          → 利回り 恒为空，待 Q1 拍板租金来源
+        </div>
+      </div>
+    </div>
+    <p class="legend">信息页该字段位置：沿用 PRD#39 已落地的 PDF 合并信息页「利回り(%)」占位行（当前恒空），仅在有租金数据后回填计算值；列表卡片可同步加一行「实际回报率 X.X%」（待勇哥确认是否上列表）。</p>
+  </section>
+
+  <!-- ============ UI 标注表 ============ -->
+  <section>
+    <h2><span class="tag">③</span>UI 标注表（2 案对比）</h2>
+    <p class="sub">UI 经理给 2 案，推荐案A（改动最小、辨识度高）；数值供研发直接照做。四态：默认 / hover / 选中(暂不涉及) / 危险(暂不涉及)。</p>
+    <table>
+      <thead><tr><th>元素</th><th>案A（推荐）</th><th>案B</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>楼层数字</td>
+          <td><span class="sw" style="background:#2b6cb0"></span>字色 #2b6cb0 · 字号 <b>18px</b> · 字重 800</td>
+          <td><span class="sw" style="background:#1f4e87"></span>字色 #1f4e87 · 字号 <b>17px</b> · 字重 800（徽标内）</td>
+          <td>相对周边 12px 文本显著放大加粗，达成「相对醒目」</td>
+        </tr>
+        <tr>
+          <td>楼层容器</td>
+          <td>无底色，仅数字着色（行内）</td>
+          <td><span class="sw" style="background:#eef4fb"></span>底 #eef4fb · 边 #cfe0f3 · 圆角 999px · 内距 3/12</td>
+          <td>案B 用胶囊包裹更跳；案A 更克制</td>
+        </tr>
+        <tr>
+          <td>中介行</td>
+          <td colspan="2"><span class="sw" style="background:#f3f8ff"></span>底 #f3f8ff · 边 #d6e6fb · 圆角 8px · 内距 6/10 · 字号 12px · 公司名 #1f4e87 加粗 · 电话等宽字体</td>
+          <td>两案一致；公司名 + ☎ 电话，常驻卡片底部</td>
+        </tr>
+        <tr>
+          <td>画像张数</td>
+          <td colspan="2">仅 <code>count &gt; 0</code> 显示「画像 N 枚」；<code>count==0</code> 或 <code>==null</code> 均<b>不渲染</b>文字</td>
+          <td>保留 画/図/所 三标记（有无照片仍可视化）</td>
+        </tr>
+        <tr>
+          <td>位置顺序</td>
+          <td colspan="2">物件种别 → <b>楼层(醒目)</b> → 建筑年份 → 三标记 → 中介行</td>
+          <td>楼层与建筑年份位置固定、顺序不变（勇哥硬性要求）</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="legend">覆盖清单（全局）：详细模式 <code>renderFullItem</code> + 紧凑模式 <code>renderCompactItem</code> + 信息页 <code>detail.html</code> + PDF 合并信息页（利回り行）。同源 CSS 一处改全端生效。</p>
+  </section>
+
+  <footer>PRD#40 效果图 · 产品经理 + UI 经理共同产出 · 尚未发版 · 待勇哥选案 + 拍板 Q1（租金来源）</footer>
+</div>
+
+<script>
+function pick(v){
+  document.getElementById('bA').classList.toggle('on', v==='A');
+  document.getElementById('bB').classList.toggle('on', v==='B');
+  var slot = document.getElementById('floorSlot');
+  if(v==='A'){
+    slot.innerHTML = '<span class="flrA">所在階 <b>8</b><span class="u">/ 地上</span> <b>15</b><span class="u">階</span></span>';
+  }else{
+    slot.innerHTML = '<span class="flrB">階層 <b>8</b> / <b>15</b> 階</span>';
+  }
+}
+pick('A');
+</script>
+</body>
+</html>
