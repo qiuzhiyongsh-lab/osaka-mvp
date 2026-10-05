@@ -9,8 +9,25 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.111"
-BUILD_AT = "2026-10-05 13:28"
+VERSION = "1.9.112"
+BUILD_AT = "2026-10-05 22:28"
+# ============================================================================
+# v1.9.112（2026-10-05 · 员工业务收藏页「标签墙首屏 bug 修复 + 对比悬浮栏」+ 查询页 ncBadge 改「悬停时间线」）：
+#   【A·BUG 修复】员工业务「我的收藏」首次进入，标题行右侧标签墙(#favTagWall)空白；
+#     点「客户」再回来才出现。5WHY 根因：emp.html 末尾初始化**只调 favLoad()**，
+#     漏调 tagLoad()；而 tagLoad() 只挂在 switchTab() 里 ⇒ 首屏（未走 switchTab）标签墙永不渲染。
+#     （v1.9.95 曾修过 switchTab 内的挂载，但**初始化路径漏挂**，属同族二次复发。）
+#     修法：末尾 favLoad() 后补 tagLoad()。
+#   【B·新增】员工业务「我的收藏」页底部加**房源对比悬浮栏**，与「房源查询」页下方对比栏
+#     功能完全一致（勇哥要求）：复用全局 CompareBox（app.js）+ 全局 .cmpbar 样式（style.css）；
+#     槽位卡/已选计数/开始对比(/compare?nos=)/REINS 批量检索(fieldmap.js::bukkenSearchAll)/
+#     清空二次确认/最多 6 套/少于 2 套置灰 全部对齐；取数走 cmpItemOf()（行上 data-* + .qprice .price）。
+#     行内勾选态与查询页 markRows 同构（.qcmp.on + .qitem.picked 一起复位）。
+#   【C·方案 C】查询页「新建/变更」徽章改为**悬停时间线**（勇哥 2026-10-05 拍板，替代口径感知方案）：
+#     徽章本体保持绝对语义（新建=登録后未变更 / 变更=平台改过），行宽零增加；
+#     hover 浮出「登録日 → 変更日」两行时间线（.nc-wrap/.nc-tip，纯 CSS，position:absolute 脱离文档流，
+#     祖先 .qitem 为 position:relative 且无 overflow:hidden ⇒ 不被裁）。
+#     新增 i18n 键 row.nc_reg / row.nc_chg_d / row.nc_never（ZH，其余语言走回退）。
 # ============================================================================
 # v1.9.111（2026-10-05 · 根治 12:07 卡顿：主库 jproperty.db 全连接开 WAL + 前端徽章/三复选框合并发版）：
 #   【现象·5WHY 根因（硬证据，见 MEMORY 观察项②）】本地 8765 卡顿：REINS 抓取（SCHED 后台线程）
