@@ -2445,10 +2445,18 @@ def _row_payload(r) -> dict:
     d["trade_type"] = _tt.splitlines()[0].strip() if _tt else ""
     # v1.5.3：画/図/所 三个图标 + 真实照片张数（count=None 表示还没抓到详情、未知）
     d["media"] = _media_flags(d)
+    # v1.9.109：PDF 直链口径（查询页 / 对比页共用本函数）。
+    #   本机：有落盘 → 走本机 /download 路由（离线可用，保持原行为不变）；
+    #   线上：本机路径**从不上传**（NEVER_UPLOAD_KEYS），但库里存的是 COS 预签名
+    #     直链 —— 原写法无条件 `else: pdf_url = None`，会把它清成 None → 查询页
+    #     「打开本地 PDF」按钮、行首 [PDF] 徽章、对比页 PDF 列整体消失
+    #     （2026-10-05 勇哥发现线上/本地不一致）。detail.html 一直是
+    #     「row.pdf_url or 本机路由」的正确口径，这里与之对齐。
     if d.get("pdf_path"):
         d["pdf_url"] = f"/download/attachments/{os.path.basename(d['pdf_path'])}"
-    else:
+    elif not PUBLIC:
         d["pdf_url"] = None
+    # 线上（PUBLIC）保留库里已有的 pdf_url；无则前端自动隐藏（详细视图）/置灰（简洁视图）
     d.pop("detail_json", None)
     return d
 

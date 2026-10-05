@@ -383,6 +383,7 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
   padding:0 8px;border-radius:20px;white-space:nowrap;color:#fff;letter-spacing:.02em}
 .qtag-new{background:var(--ok)}          /* 新增：本轮首次入库 → 实心绿 */
 .qtag-changed{background:#e07b00}        /* 变更：本轮信息有变化 → 实心橙 */
+.qtag.nc-today{outline:2px solid rgba(43,108,176,.85);outline-offset:1px} /* 新建/变更 恰为查询日 → 高亮 */
 
 /* v1.4.0 · 「已下详情 / 详情待补」视觉区分
    两阶段下载（先全列表、再补详情）之后，同一批结果里会同时存在：

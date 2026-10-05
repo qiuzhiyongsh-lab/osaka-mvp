@@ -939,6 +939,7 @@
   // v1.9.105 / PRD-35 M2：F1 存疑闸门 + F6 偏差提示（chip / 横幅）
   ZH['row.suspect']='存疑'; ZH['row.suspect_tip']='降幅异常（>50%），疑似数据解析错位，不计入降价';
   ZH['row.see_latest']='看最新';
+  ZH['row.nc_new']='新建'; ZH['row.nc_chg']='变更';
   ZH['row.hit_chip']='按 {x} 命中 · 已于 {y} 更新';
   DICT['zh-TW']['sort.h']='排序'; DICT['zh-TW']['sort.dir']='方向';
   DICT['zh-TW']['sort.updated']='更新時間'; DICT['zh-TW']['sort.price']='價格';
@@ -1363,7 +1364,11 @@
   ZH['account.saved']='已保存'; ZH['account.save']='保存账号'; ZH['account.test']='测试登录';
   ZH['search.btn']='查询'; ZH['search.nodata']='该日期 / 条件下没有房源。';
   ZH['search.lib.running']='正在抓取：已落库 {n} 条（新盘 {newn}）。'; ZH['search.lib.runningtip']='数据正在写入，稍候刷新即可看到。';
-  ZH['detail.openpdf']='打开本地 PDF'; ZH['detail.srcpage']='详情页面'; ZH['spec.dl']='下载';
+  // v1.9.109：线上站 PDF 走 COS 云链（非本机文件）→ 文案去掉「本地」避免误导；
+  //   本机保持「打开本地 PDF」（确实指向本机落盘的 PDF）。
+  //   ⚠ window.OSAKA_PUBLIC 由 base.html 在引入本脚本**之前**注入，此处已可用。
+  ZH['detail.openpdf']=(window.OSAKA_PUBLIC ? '打开 PDF' : '打开本地 PDF');
+  ZH['detail.srcpage']='详情页面'; ZH['spec.dl']='下载';
   // v1.4.3：手动更新按钮三态 + 详情页"诚实的原网页" + 覆盖溢出提示
   ZH['btn.manual_running']='正在运行中…（完成后自动提示）';
   ZH['btn.manual_done']='本次已完成 ✓（再点重新跑）';

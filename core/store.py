@@ -13,6 +13,7 @@ from __future__ import annotations
 import collections
 import html
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -23,6 +24,11 @@ import unicodedata
 from . import catalog
 from . import feature_flags as ff_mod
 from . import wareki as wareki_mod
+
+# v1.9.109：是否跑在「线上只读站」（与 web/app.py 的 PUBLIC 同源判据）。
+#   用途：口径需随部署形态切换的地方 —— 例如「只看带 PDF」本机按落盘 pdf_path 判、
+#   线上按 COS 直链 pdf_url 判（本机路径从不上传，线上 pdf_path 恒为空）。
+_IS_PUBLIC = os.environ.get("OSAKA_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # 主档字段（也是导出的 18+ 列）
 PROPERTY_COLUMNS = [
@@ -1776,7 +1782,14 @@ class Store:
             where.append("COALESCE(exclusive_area, land_area, building_area) <= ?")
             args.append(float(f["area_max"]))
         if f.get("has_pdf"):
-            where.append("pdf_path IS NOT NULL AND pdf_path <> ''")
+            # v1.9.109：口径随部署形态 —— 本机看「是否落盘 PDF」（pdf_path）；
+            #   线上本机路径**从不上传**（NEVER_UPLOAD_KEYS），PDF 只落在 COS 云链
+            #   pdf_url 上，故线上按 pdf_url 判定。否则线上「只看带 PDF」恒查空
+            #   （2026-10-05 勇哥发现线上查询页与本地不一致）。
+            if _IS_PUBLIC:
+                where.append("pdf_url IS NOT NULL AND pdf_url <> ''")
+            else:
+                where.append("pdf_path IS NOT NULL AND pdf_path <> ''")
         # v1.7.0：日期时间段（起~止）—— 与单日期互斥，优先走范围
         # v1.7.4 修两处：① 补 download 档（旧版悄悄退化成 any）② any 改为正确的区间语义
         if f.get("date_from") or f.get("date_to"):

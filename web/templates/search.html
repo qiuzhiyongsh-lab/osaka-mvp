@@ -195,12 +195,12 @@
       <input type="date" id="date_to">
     </label>
     <label class="field"><span data-i18n="search.date_caliber">日期口径</span>
-      <select id="date_caliber">
-        <option value="any" selected data-i18n="search.date_caliber.any">登録日或変更日</option>
-        <option value="change" data-i18n="search.date_caliber.change">変更日（平台变更）</option>
-        <option value="registration" data-i18n="search.date_caliber.reg">登録日（平台新建）</option>
-        <option value="download" data-i18n="search.date_caliber.dl">下载日（本地抓到）</option>
-      </select>
+      <span class="chk-group" id="caliber_chk">
+        <label class="chk"><input type="checkbox" id="cal_reg" checked onchange="syncCaliber()"> <span data-i18n="search.date_caliber.reg">登録日（平台新建）</span></label>
+        <label class="chk"><input type="checkbox" id="cal_chg" checked onchange="syncCaliber()"> <span data-i18n="search.date_caliber.change">変更日（平台变更）</span></label>
+        <label class="chk"><input type="checkbox" id="cal_dl" onchange="syncCaliber()"> <span data-i18n="search.date_caliber.dl">下载日（本地抓到）</span></label>
+      </span>
+      <input type="hidden" id="date_caliber" value="any">
     </label>
   </div>
   <!-- v1.9.49 / PRD v1.4.0：高级搜索四组（房型/楼龄/沿线/单价），半隐藏（<details> 默认收起） -->
@@ -1133,7 +1133,13 @@ function restoreQState(){
     var _dto = document.getElementById('date_to');
     if(_dto) _dto.value = st.date_to;
   }
-  if(st.caliber) document.getElementById('date_caliber').value = st.caliber;
+  if(st.caliber){
+    var _c = st.caliber;
+    document.getElementById('cal_reg').checked = (_c==='any' || _c==='registration');
+    document.getElementById('cal_chg').checked = (_c==='any' || _c==='change');
+    document.getElementById('cal_dl').checked  = (_c==='download');
+    syncCaliber();
+  }
   MSP_SEL = {};
   (st.subs || []).forEach(function(k){ MSP_SEL[k] = 1; });
   var hint = document.getElementById('qstate-hint');
@@ -1243,7 +1249,10 @@ function resetForm(){
   if(_upS){ _upS.checked = true; switchUpUnit(); }      // 单价单位回「万円/㎡」
   document.getElementById('date').value = todayLocal();
   var _dto = document.getElementById('date_to'); if(_dto) _dto.value = '';   // v1.7.4：重置也要清「止」
-  document.getElementById('date_caliber').value='any';
+  document.getElementById('cal_reg').checked = true;
+  document.getElementById('cal_chg').checked = true;
+  document.getElementById('cal_dl').checked = false;
+  syncCaliber();
   document.getElementById('limit').value='50';
   try{ localStorage.removeItem(QSTATE_KEY); }catch(e){}
   var hint = document.getElementById('qstate-hint');
@@ -1718,14 +1727,40 @@ function qtHtml(r){
   return out;
 }
 
+/* 日期口径复选框 → 后端 date_caliber 映射（勇哥 2026-10-05 需求：登录日/变更日默认同时勾选）
+   登录日=registration / 变更日=change / 下载日=download；两者都勾=any（登録日或変更日）。 */
+function syncCaliber(){
+  var reg = document.getElementById('cal_reg').checked;
+  var chg = document.getElementById('cal_chg').checked;
+  var dl  = document.getElementById('cal_dl').checked;
+  var v = 'any';
+  if(dl && !reg && !chg)      v = 'download';
+  else if(reg && !chg)        v = 'registration';
+  else if(!reg && chg)        v = 'change';
+  document.getElementById('date_caliber').value = v;
+  return v;
+}
+
+/* 新建/变更 常驻标志（勇哥 2026-10-05 需求）：置于「添加客户」与「专任」之间。
+   规则 = 这套房自平台登録以来是否做过变更：
+     · chg_date_iso 存在且 ≠ reg_date_iso → 変更（历史做过变更）
+     · 否则 → 新建（登録后从未变更，即一套干净的新上房源）
+   若其日期恰等于当前查询日(CUR_DATE)，加 nc-today 高亮，便于一眼看出"今天的新/变"。 */
+function ncBadge(r){
+  var reg = r.reg_date_iso || '';
+  var chg = r.chg_date_iso || '';
+  var isChg = !!(chg && chg !== reg);
+  var cls = isChg ? 'qtag-changed' : 'qtag-new';
+  var txt = isChg ? t('row.nc_chg') : t('row.nc_new');
+  var today = window.CUR_DATE || '';
+  var active = (!isChg && reg && reg === today) || (isChg && chg && chg === today);
+  if(active) cls += ' nc-today';
+  return '<span class="qtag ' + cls + '">' + txt + '</span>';
+}
+
 function renderFullItem(r, i){
   var id = 'd' + i;
   var no = r.property_no || '';
-  var badge = '';
-  if(window.CUR_DATE){
-    if(r.reg_date_iso === window.CUR_DATE) badge = '<span class="qtag qtag-reg">登録</span>';
-    else if(r.chg_date_iso === window.CUR_DATE) badge = '<span class="qtag qtag-chg">変更</span>';
-  }
   // v1.7.4 R8：取引態様徽章 —— 「売主」用醒目色（客户最关心"哪套是卖主"），其余弱化处理
   var ttBadge = '';
   if(r.trade_type){
@@ -1762,12 +1797,12 @@ function renderFullItem(r, i){
     +     (r.tag ? '<span class="qtag qtag-' + esc(r.tag) + '">' + t('row.tag_' + r.tag) + '</span>' : '')
     +     (pending ? '<span class="qtag qtag-pending" title="' + esc(t('row.detail_pending_tip')) + '">'
     +               esc(t('row.detail_pending')) + '</span>' : '')
-    +     badge
     /* v2.0.x（勇哥 2026-09-26 🔴 修复）：**详细视图**同样要有「收藏」与「添加客户」——
        上一版只改了简洁视图（renderCompactItem），导致详细视图看不到收藏按钮。
-       顺序：加入对比 → 收藏 → 添加客户 → 専任（取引態様）。 */
+       顺序：加入对比 → 收藏 → 添加客户 → 新建/变更 → 専任（取引態様）。 */
     +     '<span class="favslot" data-fav="' + esc(no) + '"></span>'
     +     '<span class="custslot" data-cust="' + esc(no) + '"></span>'
+    +     ncBadge(r)
     +     ttBadge
     +     '<div class="qt">' + qtHtml(r) + '</div>'   /* v1.9.72：地址可点 → 谷歌地图 */
     +     '<div class="qprice">'
@@ -1938,6 +1973,7 @@ function renderCompactItem(r, i){
     +     tag
     +     '<span class="favslot" data-fav="' + esc(no) + '"></span>'
     +     '<span class="custslot" data-cust="' + esc(no) + '"></span>'
+    +     ncBadge(r)
     +     ttBadge
     +   '</div>';
   // ② 位置与价格（点击展开）
