@@ -342,7 +342,7 @@
     <!-- v1.8.5 #235：旧版「收起条件 ▴」（filterCollapseBtn）已**删除** ——
          它与摘要里的「修改条件 ▾」互相顶替，勇哥截图反馈「只有下拉、没有上滑，很别扭」。
          收合入口统一到右上角常驻的 #filterToggle（单键双向），见 toggleFilters()。 -->
-    <button class="ghost" id="agency-toggle" data-i18n="search.other_detail"
+    <button class="ghost" id="agency-toggle"
             onclick="toggleAgency(this)">隐藏其他详情</button>
     <span class="muted" id="result-summary" style="align-self:center"></span>
     <span class="muted" id="dl-status" style="align-self:center;display:none;color:#1b7f3a;font-weight:600"></span>
@@ -2316,6 +2316,6 @@ document.getElementById('sortClear').addEventListener('click', onSortClear);
 document.getElementById('viewToggle').addEventListener('click', onViewToggle);
 syncFilterToggle();              // #235：右上角单键按初始态（展开）渲染文案 + 箭头
 doQuery(1, true);                // 首屏：按恢复后的条件查，但不覆盖「上次条件」
-window.addEventListener('i18n:changed', function(){ try{ mspRender(); initSortUI(); syncFilterToggle(); doQuery(PAGE); }catch(e){} });
+window.addEventListener('i18n:changed', function(){ try{ mspRender(); initSortUI(); syncFilterToggle(); doQuery(PAGE); initAgencyToggle(); }catch(e){} });
 </script>
 {% endblock %}

@@ -33,10 +33,10 @@
      依赖 app.js(window.esc)/i18n.js(window.t)/fieldmap.js，故排在 prop_card.js 之后。 -->
 <script src="{{ url_for('static', filename='pdfbox.js') }}?v={{ version }}"></script>
 </head>
-{# v1.7.6：查询页 / 详情页**默认隐藏其他详情**（勇哥要求：默认就是隐藏态）。
-   在**服务端**就带上 class，避免"先显示 → 再隐藏"的闪烁；
-   用户若手动切换过，由 fieldmap.js 按 localStorage 复原他的选择。 #}
-{% set _hide_agency = request.path.startswith('/search') or request.path.startswith('/p/') %}
+{# 2026-10-06（勇哥二次拍板·BUG-1 整改 G2）：查询页 / 详情页默认**显示**「其他详情」（含中介公司），
+   与勇哥"默认打开"一致；对比页仍默认隐藏，由 compare.html 自身 JS（hideAgency=true→body.toggle）控制，不依赖此处。
+   故此处不再在任何页面服务端挂 hide-agency；原"为避免先显示→再隐藏闪烁而服务端挂 class"的意义已随默认态反转而消失。 #}
+{% set _hide_agency = false %}
 <body{% if _hide_agency %} class="hide-agency"{% endif %}>
 <header class="top">
   <div class="wrap topin">

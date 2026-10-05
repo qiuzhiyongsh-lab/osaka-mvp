@@ -100,7 +100,7 @@
          不再把外部数据拼进 inline onclick 字符串里。 -->
     <a class="btn ghost" href="javascript:void(0)" data-bukken="{{ row.property_no }}"
        data-i18n="detail.reins_search">REINS 物件番号検索</a>
-    <button class="btn ghost" id="agency-toggle" data-i18n="search.other_detail"
+    <button class="btn ghost" id="agency-toggle"
             onclick="toggleAgency(this)">隐藏其他详情</button>
     {% endif %}
     <a class="btn ghost" href="{{ url_for('search') }}" data-i18n="detail.back">返回查询</a>
@@ -789,7 +789,7 @@ function runAIRelay(){
 aiSetBtn(t('detail.ai_interpret_regen'), false);
 
 CompareBox.onChange(refreshCmp);
-window.addEventListener('i18n:changed', paintAll);
+window.addEventListener('i18n:changed', function(){ try{ paintAll(); initAgencyToggle(); }catch(e){} });
 paintAll();
 // v1.9.114 PRD#39：详情页也要回写 ☑ 选择集 + 浮出合并托盘（与列表共用一套）
 if (window.markPdfRows) markPdfRows();
