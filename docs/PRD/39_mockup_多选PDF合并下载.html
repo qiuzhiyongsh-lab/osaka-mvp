@@ -38,6 +38,13 @@
     background:#f3f6fb;border:1px solid var(--line);border-radius:9px;padding:5px 11px;font-weight:600;color:#31405c}
   .switch input{width:15px;height:15px;accent-color:var(--green)}
 
+  /* 改查询条件时的「保留/清空」提示条 */
+  .keepbar{display:flex;align-items:center;gap:10px;background:#fff7ec;border-left:5px solid var(--orange);
+    color:#8a4b0d;padding:10px 14px;font-weight:600;border-top:1px solid #f3dcbb}
+  .keepbar.hidden{display:none}
+  .keepbar .ops{margin-left:auto;display:flex;gap:8px}
+  .keepbar .btn{padding:4px 12px;font-size:12px}
+
   /* 列表 */
   .list{background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;overflow:hidden}
   .row{display:block;padding:11px 14px;border-top:1px solid #eef1f6;transition:background .12s}
@@ -165,8 +172,19 @@
     <span>共 <b>6</b> 套（演示数据）</span>
     <span>· 登録日 2026-10-05</span>
     <div class="sp">
+      <label class="switch"><input type="checkbox" id="selAllPage" onchange="toggleAllPage(this.checked)"> 全选本页</label>
       <label class="switch"><input type="checkbox" id="modeSwitch" onchange="toggleMode(this.checked)"> 多选下载</label>
+      <button class="mini" onclick="queryChange()">模拟改查询条件</button>
       <span class="num" id="tip">默认只显示「PDF下载」，点它=单独下载</span>
+    </div>
+  </div>
+
+  <!-- 改查询条件时的保留/清空提示（Q12：必须保留 + 改条件时提示） -->
+  <div class="keepbar hidden" id="keepBar">
+    查询条件已变更 · 检测到已选 <b id="keepN">0</b> 套
+    <div class="ops">
+      <button class="btn primary" onclick="keepYes()">保留</button>
+      <button class="btn" onclick="keepNo()">清空</button>
     </div>
   </div>
 
@@ -207,7 +225,10 @@
     ② 勾 <code>☑</code>（<b>紧邻「PDF下载」左侧、同一圆角组内</b>；也可用右上「多选下载」开关）→ 顶部出现<b>绿色状态条</b>、底部滑出<b>悬浮托盘</b>；
     ③ 托盘内可 <code>×</code> 移除单套、<code>清空</code> 全清、<code>下载合并 PDF(N)</code> 合并下载；
     ④ 无 PDF 的房源复选框置灰不可选（灰行）；
-    ⑤ <b>详情页面</b>用<b>同一个控件组</b>（<code>☑</code> + <code>PDF下载</code>，位置一致），勾选后与列表共用同一选择集与底部托盘。
+    ⑤ <b>详情页面</b>用<b>同一个控件组</b>（<code>☑</code> + <code>PDF下载</code>，位置一致），勾选后与列表共用同一选择集与底部托盘；
+    ⑥ <b>全选本页</b>（三态：未选/半选 indeterminate/全选）只勾选<b>有 PDF</b> 的行；
+    ⑦ <b>清空免二次确认</b>；选择写入 localStorage，<b>刷新本页面即可验证跨页保留</b>；
+    ⑧ 点「模拟改查询条件」→ 弹出橙条询问<b>保留 / 清空</b>。
   </div>
   <div class="hint">这是产品交互原型（HTML），非真实数据/不发版。用于评审交互，UI 标注见 PRD#39。</div>
 </div>
@@ -231,7 +252,20 @@ var DATA = [
    price:"3,280", area:"45.60", layout:"2DK", st:"千船", kind:"中古マンション", tag:"", pdf:true}
 ];
 var SEL = [];   /* 按勾选顺序存 番号 */
+var META = {};  /* 番号 → {addr,price}，跨页/跨条件保留时用于渲染托盘 */
 var modeOn = false;
+var LS_KEY = 'osaka_pdf_sel_demo';
+
+/* Q12：选择跨分页/跨条件保留（localStorage），刷新/翻页不丢 */
+function saveSel(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify({sel: SEL, meta: META})); } catch(e) {}
+}
+function loadSel(){
+  try {
+    var o = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+    if(o && Array.isArray(o.sel)){ SEL = o.sel; META = o.meta || {}; if(SEL.length) modeOn = true; }
+  } catch(e) {}
+}
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];});}
 
@@ -286,16 +320,50 @@ function syncUI(){
   document.getElementById('banner').classList.toggle('hidden', !(modeOn || n>0));
   document.getElementById('tray').classList.toggle('hidden', !(modeOn || n>0));
   document.getElementById('modeSwitch').checked = modeOn;
+  /* 全选本页三态 */
+  var nos = pageNos(), hit = nos.filter(function(x){ return SEL.indexOf(x)>=0; }).length;
+  var all = document.getElementById('selAllPage');
+  all.checked = nos.length > 0 && hit === nos.length;
+  all.indeterminate = hit > 0 && hit < nos.length;
+  saveSel();
   /* 槽位 */
   var box = document.getElementById('slots');
   if(!n){ box.innerHTML = '<span class="empty">勾选房源后，这里会按顺序列出「地址 + 编号」。</span>'; return; }
   var h = "";
   SEL.forEach(function(no){
-    var r = DATA.filter(function(x){return x.no===no;})[0]; if(!r) return;
+    var r = DATA.filter(function(x){return x.no===no;})[0];
+    var m = META[no] || {};
+    var addr = (r && r.addr) || m.addr || no;      /* 不在本页时用快照渲染 */
     h += '<div class="slot"><button class="rm" onclick="removePick(\''+esc(no)+'\')">×</button>'
-      +    '<div class="ad">'+esc(r.addr)+'</div><div class="no">'+esc(no)+'</div></div>';
+      +    '<div class="ad">'+esc(addr)+'</div><div class="no">'+esc(no)+'</div></div>';
   });
   box.innerHTML = h;
+}
+
+/* Q11：全选本页（只选有 PDF 的行；三态：未选/半选/全选） */
+function pageNos(){ return DATA.filter(function(r){return r.pdf;}).map(function(r){return r.no;}); }
+function toggleAllPage(on){
+  var nos = pageNos();
+  if(on){ nos.forEach(function(no){ if(SEL.indexOf(no)<0){ SEL.push(no); META[no]={addr:(DATA.filter(function(x){return x.no===no;})[0]||{}).addr, price:'—'}; } }); modeOn = true; }
+  else  { SEL = SEL.filter(function(no){ return nos.indexOf(no)<0; }); }
+  render();
+}
+
+/* Q12：改查询条件时提示保留/清空 */
+function queryChange(){
+  if(!SEL.length){ toast('当前没有已选房源，无需提示'); return; }
+  document.getElementById('keepN').textContent = SEL.length;
+  document.getElementById('keepBar').classList.remove('hidden');
+}
+function keepYes(){
+  document.getElementById('keepBar').classList.add('hidden');
+  toast('已保留 '+SEL.length+' 套（跨查询条件继续累计）');
+}
+function keepNo(){
+  document.getElementById('keepBar').classList.add('hidden');
+  SEL = []; modeOn = false;
+  document.getElementById('preview').classList.add('hidden');
+  render(); toast('已清空选择');
 }
 
 function toggleMode(on){
@@ -306,14 +374,19 @@ function toggleMode(on){
   if(modeOn) toast('已进入多选下载模式 · 请勾选要合并的房源');
 }
 function exitMode(){
-  if(SEL.length && !confirm('退出多选并清空已选的 '+SEL.length+' 套？')) { return; }
+  /* Q10：清空/退出免二次确认（选择可重选、非破坏性） */
   SEL = []; modeOn = false;
   document.getElementById('preview').classList.add('hidden');
-  render();
+  render(); toast('已退出多选模式');
 }
 function togglePick(no, el){
   var i = SEL.indexOf(no);
-  if(i>=0){ SEL.splice(i,1); } else { SEL.push(no); modeOn = true; }
+  if(i>=0){ SEL.splice(i,1); }
+  else {
+    SEL.push(no); modeOn = true;
+    var r = DATA.filter(function(x){return x.no===no;})[0];
+    META[no] = { addr: r ? r.addr : '', price: r ? r.price : '' };   /* 快照，便于跨页渲染 */
+  }
   var on = SEL.indexOf(no) >= 0;
   var row = el && el.closest ? el.closest('.row') : null;
   if(row){ row.classList.toggle('picked', on); }
@@ -323,7 +396,7 @@ function togglePick(no, el){
 function removePick(no){ var i=SEL.indexOf(no); if(i>=0) SEL.splice(i,1); render(); }
 function clearAll(){
   if(!SEL.length) return;
-  if(!confirm('清空已选的 '+SEL.length+' 套？')) return;
+  /* Q10：免二次确认 */
   SEL = []; modeOn = false;           /* 清空即退出多选模式，回到普通列表视图 */
   document.getElementById('tip').textContent = '默认只显示「PDF下载」，点它=单独下载';
   document.getElementById('preview').classList.add('hidden');
@@ -387,6 +460,7 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape' && (modeOn
 var DETAIL = DATA[1];
 document.getElementById('dMeta').textContent =
   DETAIL.addr + ' ｜ 番号 ' + DETAIL.no + ' ｜ ' + DETAIL.price + ' 万円 ｜ 専有 ' + DETAIL.area + ' ㎡ ' + DETAIL.layout;
+loadSel();          /* Q12：刷新/翻页后恢复已选 */
 function updateDetail(){
   var on = SEL.indexOf(DETAIL.no) >= 0;
   var chk = document.getElementById('dChk'); if(chk) chk.checked = on;
