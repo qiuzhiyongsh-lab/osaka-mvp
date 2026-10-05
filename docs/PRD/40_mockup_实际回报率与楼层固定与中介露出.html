@@ -55,6 +55,20 @@
   .broker b{color:var(--blue-d)}
   .broker .tel{font-family:ui-monospace,Menlo,monospace;margin-left:8px}
   .badge-hidden{display:none}
+  /* 列表实际回报率徽标（F8：取代画像0枚位） */
+  .yield{font-size:12px;font-weight:700;color:var(--ok);background:#e9f7ef;border:1px solid #bfe6cd;border-radius:6px;padding:1px 7px;margin-left:6px}
+  /* 中介按钮三态演示 */
+  .agbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--chip-b);background:#fff;color:var(--blue-d);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+  .agbtn .dot{width:9px;height:9px;border-radius:50%}
+  .agbtn.on .dot{background:var(--ok)}      /* 中介显示中 */
+  .agbtn.off .dot{background:#aab4c0}        /* 中介隐藏中 */
+  .pstate{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px}
+  .pc{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff}
+  .pc h4{margin:0 0 6px;font-size:13px;color:var(--blue-d)}
+  .pc .pg{font-size:11px;color:var(--gray);margin-bottom:10px}
+  .pc .demo{border:1px dashed var(--line);border-radius:8px;padding:10px;font-size:12px;color:#46556a}
+  .pc .demo .broker{margin-top:8px}
+  @media(max-width:820px){.pstate{grid-template-columns:1fr}}
   /* ---- 信息页利回り三态 ---- */
   .yieldwrap{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   .yc{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff}
@@ -85,7 +99,7 @@
 <div class="wrap">
 
   <div class="note">
-    ⚠️ 提示：勇哥原消息附 5 张截图，但当前模型<b>不支持读图</b>。本效果图依据勇哥文字描述还原需求；若截图与文字有出入，请以截图为准并补述，我再校准。
+    ⚠️ 提示：勇哥原消息附截图（需求 5 张 + BUG 排查 2 张），但当前模型<b>不支持读图</b>。本效果图依据勇哥文字描述还原需求与 BUG 目标态；若截图与文字有出入，请以截图为准并补述，我再校准。
   </div>
 
   <!-- ============ 列表卡片 ============ -->
@@ -97,6 +111,12 @@
       <span style="font-size:13px;color:var(--gray);align-self:center">楼层醒目方案：</span>
       <button id="bA" class="on" onclick="pick('A')">案A（推荐·数字胶囊）</button>
       <button id="bB" onclick="pick('B')">案B（浅蓝徽标）</button>
+    </div>
+
+    <div class="ctrls" style="margin-top:14px">
+      <span style="font-size:13px;color:var(--gray);align-self:center">列表「实际回报率」演示（F8·取代画像0枚位）：</span>
+      <button id="yOn" class="on" onclick="toggleYield(true)">能算 → 显 4.34%</button>
+      <button id="yOff" onclick="toggleYield(false)">不能算 → 留空</button>
     </div>
 
     <div class="grid2">
@@ -142,11 +162,13 @@
             <span>築 2019年3月</span>
             <!-- 去「画像0枚」：三标记保留，张数仅 >0 才显示 -->
             <span class="mdbset"><span class="mdb off">画</span><span class="mdb off">図</span><span class="mdb off">所</span></span>
+            <!-- F8：实际回报率徽标，取代原「画像 0 枚」槽位；仅能算才显示 -->
+            <span class="yield" id="yieldBadge">实际回报率 4.34%</span>
           </div>
           <!-- 中介露出：新增一行 -->
           <div class="broker">仲介：<b>○○不動産株式会社</b><span class="tel">☎ 06-1234-5678</span></div>
         </div>
-        <p class="legend">楼层数字<b>放大加粗+主题色</b>，位置与建筑年份顺序不变；中介公司名+电话常驻；「画像 0 枚」已消失。</p>
+        <p class="legend">楼层数字<b>放大加粗+主题色（案A 已锁定）</b>，位置与建筑年份顺序不变；中介公司名+电话常驻；「画像 0 枚」已彻底消失；<b>能算回报率时</b>在原「画像0枚」槽位显示绿色「实际回报率 X.X%」（算不出则留空，见上方开关）。</p>
       </div>
     </div>
 
@@ -229,7 +251,40 @@
     <p class="legend">覆盖清单（全局）：详细模式 <code>renderFullItem</code> + 紧凑模式 <code>renderCompactItem</code> + 信息页 <code>detail.html</code> + PDF 合并信息页（利回り行）。同源 CSS 一处改全端生效。</p>
   </section>
 
-  <footer>PRD#40 效果图 · 产品经理 + UI 经理共同产出 · 尚未发版 · 待勇哥选案 + 拍板 Q1（租金来源）</footer>
+  <!-- ============ ④ 中介显示/隐藏按钮三态（BUG-1 修复效果） ============ -->
+  <section>
+    <h2><span class="tag">④</span>「显示/隐藏其他详情」按钮三态（BUG-1 修复后目标态）</h2>
+    <p class="sub">勇哥要求：<b>查询页 / 详情页默认打开（显示中介）</b>，<b>对比页默认关闭（隐藏中介）</b>。原 BUG = 按钮带 <code>data-i18n</code> 被 <code>applyI18n</code> 反复覆盖文案（看不出状态）+ 查询页/详情页默认态反向隐藏。修复：去 <code>data-i18n</code> 改 JS 写文案 + 翻转默认态（见 PRD §4.1 / §6.3）。下方为修复后三页目标态演示，可点按钮翻转验证文案随状态变化。</p>
+    <div class="pstate">
+      <div class="pc">
+        <h4>查询页 /search</h4>
+        <div class="pg">默认：<b>打开</b>（显示中介）· 按钮「隐藏其他详情」</div>
+        <div class="demo">
+          <div id="demoSearchBroker" class="broker">仲介：<b>○○不動産株式会社</b><span class="tel">☎ 06-1234-5678</span></div>
+          <button class="agbtn on" id="agSearch" onclick="toggleAg('agSearch','demoSearchBroker')"><span class="dot"></span><span class="lbl">隐藏其他详情</span></button>
+        </div>
+      </div>
+      <div class="pc">
+        <h4>详情页 /p/</h4>
+        <div class="pg">默认：<b>打开</b>（显示中介）· 按钮「隐藏其他详情」</div>
+        <div class="demo">
+          <div id="demoDetailBroker" class="broker">仲介：<b>○○不動産株式会社</b><span class="tel">☎ 06-1234-5678</span></div>
+          <button class="agbtn on" id="agDetail" onclick="toggleAg('agDetail','demoDetailBroker')"><span class="dot"></span><span class="lbl">隐藏其他详情</span></button>
+        </div>
+      </div>
+      <div class="pc">
+        <h4>对比页 /compare</h4>
+        <div class="pg">默认：<b>关闭</b>（隐藏中介）· 按钮「显示其他详情」</div>
+        <div class="demo">
+          <div id="demoCmpBroker" class="broker" style="display:none">仲介：<b>○○不動産株式会社</b><span class="tel">☎ 06-1234-5678</span></div>
+          <button class="agbtn off" id="agCmp" onclick="toggleAg('agCmp','demoCmpBroker')"><span class="dot"></span><span class="lbl">显示其他详情</span></button>
+        </div>
+      </div>
+    </div>
+    <p class="legend">点击任一按钮：中介行显隐翻转，按钮文案与状态圆点同步变化（绿=显示中 / 灰=隐藏中），且切语言后文案仍正确（修复后由 <code>i18n:changed</code> 重新 sync）。三页共用同一 <code>body.hide-agency</code> CSS 闸门。</p>
+  </section>
+
+  <footer>PRD#40 效果图 v1.1 · 产品经理 + UI 经理共同产出 · 尚未发版 · 含 BUG-1 诊断与三项拍板（Q1-a / 案A / Q2）</footer>
 </div>
 
 <script>
@@ -243,7 +298,23 @@ function pick(v){
     slot.innerHTML = '<span class="flrB">階層 <b>8</b> / <b>15</b> 階</span>';
   }
 }
+function toggleYield(show){
+  document.getElementById('yOn').classList.toggle('on', show);
+  document.getElementById('yOff').classList.toggle('on', !show);
+  var b = document.getElementById('yieldBadge');
+  if(b) b.style.display = show ? '' : 'none';
+}
 pick('A');
+toggleYield(true);
+
+function toggleAg(btnId, demoId){
+  var btn = document.getElementById(btnId);
+  var demo = document.getElementById(demoId);
+  var showing = btn.classList.toggle('on');      // on = 中介显示中
+  if(demo) demo.style.display = showing ? '' : 'none';
+  var lbl = btn.querySelector('.lbl');
+  if(lbl) lbl.textContent = showing ? '隐藏其他详情' : '显示其他详情';
+}
 </script>
 </body>
 </html>
