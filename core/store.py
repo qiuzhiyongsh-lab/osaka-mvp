@@ -731,7 +731,44 @@ class Store:
         #   抓取密集写事务与 Web 读查询同进程不再互相锁死。
         #   journal_mode=WAL 在数据库文件头持久化，任何一条连接设过即全局生效；
         #   busy_timeout 让偶发写竞争时读方自动等待而非直接报错。
-        _c.execute("PRAGMA journal_mode=WAL")
+        #
+        # v1.9.113 兜底 + 自愈（2026-10-06 线上 P0 教训，勿再删）：
+        #   现象=重新部署后整站 504；根因=沙箱复用时主库 data/jproperty.db 被发布包替换，
+        #   但 v1.9.111 留下的 -wal 旁文件未清 → PRAGMA journal_mode=WAL 抛
+        #   "database disk image is malformed" → Store() 构造失败 → 服务起不来。
+        #   ① WAL 设置失败**绝不再致命**：捕获后退回默认日志模式，功能不减；
+        #   ② 若确认主库本身损坏（quick_check 非 ok）→ 隔离重命名，改用空库，
+        #      由启动种子 data/site_data.json 自动重灌（权威数据源，数据不丢）。
+        _wal_ok = True
+        try:
+            _c.execute("PRAGMA journal_mode=WAL")
+        except Exception as _e:                                    # noqa: BLE001
+            _wal_ok = False
+            print("[store] WAL 开启失败，转完整性自检：%s" % _e, flush=True)
+        if not _wal_ok:
+            try:
+                _chk = _c.execute("PRAGMA quick_check").fetchone()[0]
+            except Exception:                                      # noqa: BLE001
+                _chk = "error"
+            if str(_chk) != "ok":
+                import time as _time
+                _bak = self.db_path + ".corrupt-%d" % int(_time.time())
+                try:
+                    _c.close()
+                except Exception:                                  # noqa: BLE001
+                    pass
+                try:
+                    os.replace(self.db_path, _bak)
+                except Exception:                                  # noqa: BLE001
+                    pass
+                print("[store] 主库损坏已隔离为 %s，改用空库（启动种子将重灌）" % _bak,
+                      flush=True)
+                _c = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+                _c.row_factory = sqlite3.Row
+                try:
+                    _c.execute("PRAGMA journal_mode=WAL")
+                except Exception:                                  # noqa: BLE001
+                    pass
         _c.execute("PRAGMA busy_timeout=30000")
         # v1.9.49 修：首条连接（主线程 / __init__ 内使用）也必须注册 UDF，
         # 否则主线程直接走 search() 会报 no such function: line_text（线程本地连接才注册是漏的）。

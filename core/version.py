@@ -9,8 +9,23 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.112"
-BUILD_AT = "2026-10-05 22:28"
+VERSION = "1.9.113"
+BUILD_AT = "2026-10-06 00:55"
+# ============================================================================
+# v1.9.113（2026-10-06 · 线上 P0 修复：重新部署后整站 504 —— SQLite 主库与陈旧 WAL 不匹配）：
+#   【现象】勇哥令「整合发版」后重新部署 v100，容器起不来 → 线上 504。
+#   【5WHY 根因】平台复用沙箱 ⇒ 主库 data/jproperty.db 被发布包替换，但 v1.9.111
+#     开启 WAL 后遗留的 -wal / -shm 旁文件未清 ⇒ SQLite 拿旧 WAL 回放新主库 ⇒
+#     PRAGMA journal_mode=WAL 抛 "database disk image is malformed" ⇒ Store() 构造失败
+#     ⇒ serve_public.py 顶层崩溃 ⇒ 服务起不来。
+#   【三层修复】
+#     ① 启动前清残留：app_final_v3/run.py（sync 不覆盖该文件）删 data/*.db-wal、*.db-shm；
+#     ② WAL 兜底：core/store.py 的 PRAGMA journal_mode=WAL 包 try/except，失败退回默认
+#        日志模式，**绝不再让单点 PRAGMA 拖垮整站**；
+#     ③ 损坏自愈：quick_check 非 ok ⇒ 主库隔离重命名为 .corrupt-<ts>，改用空库，
+#        由启动种子 data/site_data.json 自动重灌（权威数据源，数据不丢）。
+#   【同版一并发布】v1.9.112 的三项改动：收藏页标签墙首屏修复 / 收藏页对比悬浮栏 /
+#     查询页 ncBadge 悬停时间线。
 # ============================================================================
 # v1.9.112（2026-10-05 · 员工业务收藏页「标签墙首屏 bug 修复 + 对比悬浮栏」+ 查询页 ncBadge 改「悬停时间线」）：
 #   【A·BUG 修复】员工业务「我的收藏」首次进入，标题行右侧标签墙(#favTagWall)空白；
