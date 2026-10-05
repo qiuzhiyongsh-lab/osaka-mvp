@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多选 PDF 合并下载 · 交互原型（PRD#39）</title>
+<style>
+  :root{
+    --bg:#eef1f6; --card:#fff; --line:#e3e8f0; --ink:#1d2530; --sub:#66728a;
+    --blue:#2f6fed; --blue-d:#1f56c4; --green:#1a9c5b; --green-d:#15834c; --green-bg:#e8f7ef;
+    --orange:#e8862a; --red:#d9534f; --shadow:0 6px 22px rgba(30,50,90,.14);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 "Microsoft YaHei","PingFang SC",system-ui,-apple-system,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:14px 16px 180px}
+
+  /* 顶部 bar（模拟应用） */
+  .topbar{display:flex;align-items:center;gap:10px;background:#0f2242;color:#fff;
+          padding:10px 16px;border-radius:12px 12px 0 0;font-weight:600}
+  .topbar .dot{width:8px;height:8px;border-radius:50%;background:#37d67a}
+  .topbar small{font-weight:400;color:#aab8d4;margin-left:auto}
+
+  /* 多选模式 明显状态条 */
+  .mode-banner{display:flex;align-items:center;gap:10px;
+    background:var(--green-bg);border-left:5px solid var(--green);color:#0f6b3f;
+    padding:11px 14px;font-weight:600;position:sticky;top:0;z-index:30}
+  .mode-banner .pill{background:var(--green);color:#fff;border-radius:999px;padding:2px 10px;font-size:12px}
+  .mode-banner .x{margin-left:auto;background:#fff;border:1px solid var(--green);color:var(--green-d);
+    border-radius:8px;padding:3px 12px;cursor:pointer;font-weight:600}
+  .mode-banner.hidden{display:none}
+
+  /* 工具条 */
+  .toolbar{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);
+    border-top:0;padding:9px 14px;color:var(--sub)}
+  .toolbar .sp{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;
+    background:#f3f6fb;border:1px solid var(--line);border-radius:9px;padding:5px 11px;font-weight:600;color:#31405c}
+  .switch input{width:15px;height:15px;accent-color:var(--green)}
+
+  /* 列表 */
+  .list{background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;overflow:hidden}
+  .row{display:grid;grid-template-columns:26px 1fr;gap:10px;padding:11px 14px;border-top:1px solid #eef1f6;
+    transition:background .12s}
+  .row:first-child{border-top:0}
+  .row:hover{background:#f8faff}
+  .row.picked{background:#f1fbf5;box-shadow:inset 3px 0 0 var(--green)}
+  .row.nopdf{opacity:.6}
+  .chk{display:flex;align-items:center;justify-content:center;min-height:24px}
+  .chk input{width:16px;height:16px;accent-color:var(--green);cursor:pointer}
+  .chk input:disabled{cursor:not-allowed;accent-color:#c3cad8}
+
+  .r-main .l1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .r-main .l2{display:flex;align-items:center;gap:14px;margin-top:5px;color:var(--sub);flex-wrap:wrap}
+  .r-main .l3{display:flex;align-items:center;gap:12px;margin-top:4px;color:#7b869c;font-size:12px;flex-wrap:wrap}
+  .r-main .l1 .addr{font-weight:600;font-size:14px}
+  .price{margin-left:auto;font-weight:700;color:#c0392b;font-size:15px;white-space:nowrap}
+  .price small{color:var(--sub);font-weight:400;font-size:12px;margin-left:6px}
+
+  .tag{font-size:11px;border-radius:6px;padding:1px 7px;font-weight:600}
+  .tag-chg{background:#fdeede;color:#b96a12;border:1px solid #f3d3ac}
+  .tag-new{background:#e6f6ec;color:#177a45;border:1px solid #b9e6c9}
+  .mini{border:1px solid #d4dcea;background:#fff;color:#41506b;border-radius:7px;padding:2px 9px;
+    font-size:12px;cursor:pointer}
+  .mini:hover{border-color:#b9c6de;background:#f6f9ff}
+  .mini.ghost{color:#98a2b6}
+
+  /* PDF 下载 按钮（由绿色「PDF」徽章升级而来） */
+  .pdfdl{display:inline-flex;align-items:center;gap:5px;background:var(--green);color:#fff;border:0;
+    border-radius:6px;padding:3px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .pdfdl:hover{background:var(--green-d)}
+  .pdfdl::before{content:"⭳";font-size:13px;line-height:1}
+  .pdfdl.disabled{background:#c3cad8;cursor:not-allowed}
+  .btn-detail{background:var(--blue);color:#fff;border-radius:6px;padding:3px 11px;font-size:12px;
+    font-weight:600;text-decoration:none;white-space:nowrap}
+  .btn-detail:hover{background:var(--blue-d)}
+
+  /* 底部悬浮托盘（与对比栏 .cmpbar 同风格） */
+  .tray{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;width:min(1040px,calc(100vw - 32px));
+    background:#fff;border:1px solid #d4dcea;border-radius:12px;box-shadow:var(--shadow);z-index:40;
+    padding:10px 12px}
+  .tray.hidden{display:none}
+  .tray-head{display:flex;align-items:center;gap:10px;font-weight:600}
+  .tray-head .cnt{color:var(--green-d)}
+  .tray-head .num{font-weight:400;color:var(--sub);font-size:12px}
+  .tray-head .ops{margin-left:auto;display:flex;gap:8px}
+  .btn{border-radius:9px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--line);
+    background:#fff;color:#31405c}
+  .btn:hover{background:#f6f9ff}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+  .btn.primary:hover{background:var(--green-d)}
+  .btn.primary:disabled{background:#c3cad8;border-color:#c3cad8;cursor:not-allowed}
+  .btn.danger{color:var(--red);border-color:#f0c4c2}
+  .slots{display:flex;gap:8px;margin-top:9px;overflow-x:auto;padding-bottom:2px}
+  .slot{flex:0 0 auto;background:#f6f8fc;border:1px solid #e3e8f0;border-radius:9px;padding:6px 9px;min-width:210px;
+    position:relative}
+  .slot .no{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#7b869c}
+  .slot .ad{font-size:12px;font-weight:600;margin-top:1px;max-width:250px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .slot .rm{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;border:1px solid #d4dcea;
+    background:#fff;color:#98a2b6;cursor:pointer;line-height:1;font-size:12px}
+  .slot .rm:hover{color:var(--red);border-color:#f0c4c2}
+  .slots .empty{color:#98a2b6;font-size:12px;padding:6px 2px}
+
+  /* toast */
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:#12305e;color:#fff;
+    padding:10px 18px;border-radius:10px;box-shadow:var(--shadow);z-index:60;font-weight:600;opacity:0;
+    transition:opacity .2s,transform .2s}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-6px)}
+  .hint{max-width:1080px;margin:12px auto 0;color:#7b869c;font-size:12px;text-align:center}
+  .legend{max-width:1080px;margin:10px auto 0;background:#fff;border:1px dashed #cbd6ea;border-radius:10px;
+    padding:10px 14px;color:#5b6780}
+  .legend b{color:#2f3a52}
+  .legend code{background:#f1f4fa;border-radius:4px;padding:1px 5px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar"><span class="dot"></span> osaka · 房源查询（交互原型 · PRD#39）<small>模拟数据 · 非生产</small></div>
+
+  <!-- 明显状态条：进入多选下载模式时才出现 -->
+  <div class="mode-banner hidden" id="banner">
+    <span class="pill">多选下载模式</span>
+    已选 <b id="bannerCount">0</b> 套 · 点击行内 ☑ 继续选择
+    <button class="x" onclick="exitMode()">退出多选</button>
+  </div>
+
+  <div class="toolbar">
+    <span>共 <b>6</b> 套（演示数据）</span>
+    <span>· 登録日 2026-10-05</span>
+    <div class="sp">
+      <label class="switch"><input type="checkbox" id="modeSwitch" onchange="toggleMode(this.checked)"> 多选下载</label>
+      <span class="num" id="tip">默认只显示「PDF下载」，点它=单独下载</span>
+    </div>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <!-- 底部悬浮托盘 -->
+  <div class="tray hidden" id="tray">
+    <div class="tray-head">
+      <span>已选 <b class="cnt" id="trayCount">0</b> 套</span>
+      <span class="num">（地址 + 编号）· 顺序即 PDF 页序</span>
+      <div class="ops">
+        <button class="btn" onclick="clearAll()">清空</button>
+        <button class="btn primary" id="dlBtn" onclick="mergeDownload()" disabled>下载合并 PDF（<span id="dlCount">0</span>）</button>
+      </div>
+    </div>
+    <div class="slots" id="slots"><span class="empty">勾选房源后，这里会按顺序列出「地址 + 编号」。</span></div>
+  </div>
+
+  <div class="legend">
+    <b>原型说明（可点着玩）</b>：
+    ① 直接点行内绿色 <code>PDF下载</code> → 单独下载该套（右下角提示）；
+    ② 勾任意行左侧 <code>☑</code>（或右上「多选下载」开关）→ 顶部出现<b>绿色状态条</b>、底部滑出<b>悬浮托盘</b>；
+    ③ 托盘内可 <code>×</code> 移除单套、<code>清空</code> 全清、<code>下载合并 PDF(N)</code> 合并下载；
+    ④ 无 PDF 的房源复选框置灰不可选（灰行）。
+  </div>
+  <div class="hint">这是产品交互原型（HTML），非真实数据/不发版。用于评审交互，UI 标注见 PRD#39。</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* 模拟 6 条房源（对齐截图风格） */
+var DATA = [
+  {no:"300138750768", addr:"大阪市西区新町１丁目・大阪ひびきの街 ザ・サンクタス夕ワー", ward:"西区",
+   price:"17,800", area:"106.32", layout:"3LDK", st:"西大橋 四ツ橋 本町", kind:"中古マンション", tag:"chg", pdf:true},
+  {no:"300140894939", addr:"大阪市浪速区難波中２丁目・なんばパークスハウス", ward:"浪速区",
+   price:"5,980", area:"26.80", layout:"1LDK", st:"なんば", kind:"中古マンション", tag:"new", pdf:true},
+  {no:"300140894934", addr:"大阪市中央区日本橋１丁目・日本橋タワーレジデンス", ward:"中央区",
+   price:"6,480", area:"31.20", layout:"1DK", st:"日本橋", kind:"中古マンション", tag:"new", pdf:true},
+  {no:"300138750772", addr:"大阪市北区梅田２丁目・グランフロント大阪レジデンス", ward:"北区",
+   price:"12,300", area:"72.40", layout:"2LDK", st:"梅田", kind:"中古マンション", tag:"", pdf:false},
+  {no:"300138750781", addr:"大阪市天王寺区上本町６丁目・上本町ヒルズ", ward:"天王寺区",
+   price:"8,900", area:"58.10", layout:"2LDK", st:"上本町", kind:"中古マンション", tag:"", pdf:true},
+  {no:"300138750790", addr:"大阪市西淀川区千舟１丁目・リバーサイド千舟", ward:"西淀川区",
+   price:"3,280", area:"45.60", layout:"2DK", st:"千船", kind:"中古マンション", tag:"", pdf:true}
+];
+var SEL = [];   /* 按勾选顺序存 番号 */
+var modeOn = false;
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];});}
+
+function render(){
+  var h = "";
+  DATA.forEach(function(r){
+    var picked = SEL.indexOf(r.no) >= 0;
+    var tagHtml = r.tag==='chg' ? '<span class="tag tag-chg">变更</span>' : (r.tag==='new' ? '<span class="tag tag-new">新建</span>' : '');
+    h += '<div class="row'+(picked?' picked':'')+(r.pdf?'':' nopdf')+'" data-no="'+esc(r.no)+'">'
+      +   '<div class="chk"><input type="checkbox" '+(r.pdf?'':'disabled title="该房源无 PDF，不可选"')+(picked?' checked':'')
+      +      ' onchange="togglePick(\''+esc(r.no)+'\',this)"></div>'
+      +   '<div class="r-main">'
+      +     '<div class="l1">'
+      +       '<button class="mini ghost">加入对比</button>'
+      +       tagHtml
+      +       '<span class="addr">'+esc(r.addr)+'</span>'
+      +       '<span class="price">'+esc(r.price)+' <small>万円</small></span>'
+      +       '<button class="pdfdl'+(r.pdf?'':' disabled')+'" '+(r.pdf?'':'disabled')
+      +         ' onclick="singleDownload(\''+esc(r.no)+'\',event)">PDF下载</button>'
+      +       '<a class="btn-detail" href="javascript:void(0)" onclick="event.stopPropagation()">详情页面</a>'
+      +     '</div>'
+      +     '<div class="l2">'
+      +       '<span>専有 '+esc(r.area)+' ㎡</span><span>'+esc(r.layout)+'</span>'
+      +       '<span>'+esc(r.st)+'</span><span>'+esc(r.ward)+'</span><span>'+esc(r.kind)+'</span>'
+      +       (r.pdf?'':'<span style="color:#c0392b">无 PDF</span>')
+      +     '</div>'
+      +     '<div class="l3"><span style="font-family:ui-monospace,Consolas,monospace">'+esc(r.no)+'</span>'
+      +       '<span>REINS 物件番号検索</span><span>取得 2026-10-05</span></div>'
+      +   '</div>'
+      + '</div>';
+  });
+  document.getElementById('list').innerHTML = h;
+  syncUI();
+}
+
+function syncUI(){
+  var n = SEL.length;
+  document.getElementById('bannerCount').textContent = n;
+  document.getElementById('trayCount').textContent = n;
+  document.getElementById('dlCount').textContent = n;
+  document.getElementById('dlBtn').disabled = n < 1;
+  document.getElementById('banner').classList.toggle('hidden', !(modeOn || n>0));
+  document.getElementById('tray').classList.toggle('hidden', !(modeOn || n>0));
+  document.getElementById('modeSwitch').checked = modeOn;
+  /* 槽位 */
+  var box = document.getElementById('slots');
+  if(!n){ box.innerHTML = '<span class="empty">勾选房源后，这里会按顺序列出「地址 + 编号」。</span>'; return; }
+  var h = "";
+  SEL.forEach(function(no){
+    var r = DATA.filter(function(x){return x.no===no;})[0]; if(!r) return;
+    h += '<div class="slot"><button class="rm" onclick="removePick(\''+esc(no)+'\')">×</button>'
+      +    '<div class="ad">'+esc(r.addr)+'</div><div class="no">'+esc(no)+'</div></div>';
+  });
+  box.innerHTML = h;
+}
+
+function toggleMode(on){
+  modeOn = !!on;
+  if(!modeOn && SEL.length){ /* 关开关但仍有选择：保留选择，仅收起（再勾会重开） */ }
+  document.getElementById('tip').textContent = modeOn ? '多选模式：点行内 ☑ 勾选，底部托盘汇总' : '默认只显示「PDF下载」，点它=单独下载';
+  syncUI();
+  if(modeOn) toast('已进入多选下载模式 · 请勾选要合并的房源');
+}
+function exitMode(){
+  if(SEL.length && !confirm('退出多选并清空已选的 '+SEL.length+' 套？')) { return; }
+  SEL = []; modeOn = false; render();
+}
+function togglePick(no, el){
+  var i = SEL.indexOf(no);
+  if(i>=0){ SEL.splice(i,1); } else { SEL.push(no); modeOn = true; }
+  el.closest('.row').classList.toggle('picked', SEL.indexOf(no)>=0);
+  syncUI();
+}
+function removePick(no){ var i=SEL.indexOf(no); if(i>=0) SEL.splice(i,1); render(); }
+function clearAll(){
+  if(!SEL.length) return;
+  if(!confirm('清空已选的 '+SEL.length+' 套？')) return;
+  SEL = []; modeOn = false;           /* 清空即退出多选模式，回到普通列表视图 */
+  document.getElementById('tip').textContent = '默认只显示「PDF下载」，点它=单独下载';
+  render(); toast('已清空选择，已退出多选模式');
+}
+function singleDownload(no, ev){
+  ev.stopPropagation();
+  toast('⬇ 已开始下载 番号 '+no+' 的 PDF（单套）');
+}
+function mergeDownload(){
+  if(SEL.length<1) return;
+  var n = SEL.length;
+  toast('⏳ 正在合并 '+n+' 个 PDF…');
+  document.getElementById('dlBtn').disabled = true;
+  setTimeout(function(){
+    toast('✅ 已下载 osaka_合并PDF_20261005_'+n+'套.pdf');
+    document.getElementById('dlBtn').disabled = false;
+  }, 1200);
+}
+var _t;
+function toast(msg){
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(_t); _t = setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && (modeOn||SEL.length)) exitMode(); });
+render();
+</script>
+</body>
+</html>
