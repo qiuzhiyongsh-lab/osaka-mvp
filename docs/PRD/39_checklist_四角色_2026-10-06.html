@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PRD#39 多选PDF合并下载 · 四角色实施 Checklist</title>
+<style>
+  :root{
+    --bg:#f5f7fb; --card:#fff; --line:#e3e8f0; --ink:#2f3a52; --mute:#7b869c;
+    --green:#1a9c5b; --green-bg:#e8f7ef; --blue:#2f6fd0; --purple:#7b4fd0;
+    --amber:#c47f1a; --red:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 60px}
+  header{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin-bottom:14px}
+  h1{margin:0 0 6px;font-size:19px}
+  .sub{color:var(--mute);font-size:12.5px}
+  .bar{height:9px;background:#eef1f6;border-radius:6px;overflow:hidden;margin:12px 0 6px}
+  .bar>i{display:block;height:100%;width:0;background:var(--green);transition:width .25s}
+  .pnum{font-size:12.5px;color:var(--mute)}
+  .pnum b{color:var(--green);font-size:15px}
+  .role{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;margin-bottom:12px}
+  .rtop{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+  .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+  .rtitle{font-size:15.5px;font-weight:700}
+  .rcount{margin-left:auto;color:var(--mute);font-size:12.5px}
+  .rcount b{color:var(--ink)}
+  .tasks{margin-top:10px}
+  .t{display:flex;gap:10px;padding:8px 10px;border-radius:8px;align-items:flex-start}
+  .t:hover{background:#f8fafc}
+  .t input{width:16px;height:16px;margin-top:3px;accent-color:var(--green);cursor:pointer;flex:0 0 auto}
+  .t .body{flex:1;min-width:0}
+  .t .txt{font-weight:600}
+  .t.done .txt{color:var(--mute);text-decoration:line-through}
+  .t .ev{color:var(--mute);font-size:12px;margin-top:2px;word-break:break-word}
+  .t .ev code{background:#f1f4fa;border-radius:4px;padding:1px 5px;font-size:11px}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;margin-left:6px;
+    border:1px solid var(--line);color:var(--mute);vertical-align:1px}
+  .tag.red{color:var(--red);border-color:#f0c6c0;background:#fdf1f0}
+  .tag.amber{color:var(--amber);border-color:#f0dcb8;background:#fdf7ea}
+  h2{font-size:16px;margin:20px 0 8px}
+  table{width:100%;border-collapse:collapse;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;border-top:1px solid #eef1f6;text-align:left;vertical-align:top}
+  th{background:#f8fafc;font-weight:700}
+  tr:first-child th,tbody tr:first-child td{border-top:0}
+  .foot{margin-top:14px;display:flex;gap:10px;align-items:center}
+  button{background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:6px 12px;cursor:pointer;font:inherit;color:var(--ink)}
+  button:hover{background:#f1f4fa}
+  .note{margin-top:10px;background:#fff;border:1px dashed #cbd6ea;border-radius:10px;
+    padding:10px 14px;color:#5b6780;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>PRD#39 多选 PDF 合并下载 · 四角色实施 Checklist</h1>
+    <div class="sub">对应 PRD <b>v1.0 封版</b>（Q1–Q16 全部拍板）· 2026-10-06 · 可勾选，进度自动存本机 localStorage</div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="pnum">总进度 <b id="done">0</b> / <span id="total">0</span> 项
+      <span id="pct" style="margin-left:8px"></span></div>
+  </header>
+
+  <div id="roles"></div>
+
+  <h2>发版前 8 条硬门禁（缺一禁止发布）</h2>
+  <div id="gates"></div>
+
+  <h2>里程碑</h2>
+  <table>
+    <thead><tr><th style="width:88px">阶段</th><th>内容</th><th style="width:38%">出口条件</th></tr></thead>
+    <tbody>
+      <tr><td><b>M1</b></td><td>后端信息页接口（B1–B7）</td><td>零副作用验证 <code>info_pages</code> 200 + 日文可提取</td></tr>
+      <tr><td><b>M2</b></td><td>前端控件组 + 选择集（F1–F3）</td><td>列表/详情页 ☑ 与 PDF下载 紧邻、共用选择集</td></tr>
+      <tr><td><b>M3</b></td><td>合并 + 信息页插入（F6–F7）</td><td>产物页序 <code>情報/原PDF/…/清单</code>，日文可 Ctrl+F</td></tr>
+      <tr><td><b>M4</b></td><td>全选/保留/提示（F4–F5、F9）</td><td>真机 9+ 项全绿</td></tr>
+      <tr><td><b>M5</b></td><td>边界与性能（Q6、Q7）</td><td>100 套不卡死、无 PDF 走占位页</td></tr>
+      <tr><td><b>M6</b></td><td>四角色验收 + 8 门禁</td><td>门禁全签 + 总监反向挑战通过</td></tr>
+      <tr><td><b>M7</b></td><td><b>待勇哥发版令</b> → sync → 发布 → 线上复验</td><td>v100 线上不 403、合并成功</td></tr>
+    </tbody>
+  </table>
+
+  <h2>冲突与仲裁（PM 拍板记录）</h2>
+  <table>
+    <thead><tr><th style="width:56px">#</th><th style="width:38%">冲突</th><th>仲裁结论</th></tr></thead>
+    <tbody>
+      <tr><td>C1</td><td>行宽拥挤 vs 复选框可见性</td><td>☑ <b>默认淡显 .35</b>，hover / 多选模式内 = 1</td></tr>
+      <tr><td>C2</td><td>信息页插每套前 vs 原 PDF 完整性</td><td>插在每套前，原 PDF 一页不动，页序严格对齐</td></tr>
+      <tr><td>C3</td><td>Q16 要「利回り」vs 库里无租金数据</td><td>预留 <code>—（未算出）</code> + 改印「管理費/修繕積立金」</td></tr>
+      <tr><td>C4</td><td>前端合并 vs 大文件内存</td><td>软 50 / 硬 100 + loading 防重复点击</td></tr>
+      <tr><td>C5</td><td>详情页要不要再来一个「合并」按钮</td><td><b>不要</b>（FR26）：复用全局托盘，单一事实来源</td></tr>
+      <tr><td>C6</td><td>对比（蓝·≤6）vs PDF 选择（绿）</td><td><b>两套独立选择集</b>，互不干扰</td></tr>
+    </tbody>
+  </table>
+
+  <div class="foot">
+    <button onclick="resetAll()">重置全部勾选</button>
+    <button onclick="copyProgress()">复制进度摘要</button>
+    <span class="pnum" id="hint"></span>
+  </div>
+
+  <div class="note">
+    <b>纪律</b>：本 Checklist 只是<b>实施计划</b>，仍<b>不改代码、不发版</b>；动代码须先跑
+    <code>checkpoint.py</code>，发版须勇哥「去整合发版」明令。<br>
+    <b>两个最容易翻车的点</b>：① <b>R1</b> 线上 <code>OSAKA_PUBLIC=1</code> 会把新 API 挡 403 → 必须显式
+    <code>_access_guard</code> 豁免，<b>只验本地会全绿也发现不了</b>；② <b>教训 1 双链陷阱</b>
+    <code>search.html</code> 两条渲染链都要改。
+  </div>
+</div>
+
+<script>
+var KEY = 'osaka.pdf39.checklist.v1';
+
+var DATA = [
+  { role:'PM（产品经理）', color:'var(--purple)', items:[
+    { id:'P1', t:'需求封版：PRD v1.0，Q1–Q16 全拍板', ev:'§22.5 总表无空缺（已完成）', done:true },
+    { id:'P2', t:'范围锁定：MVP＝查询页+详情页控件组+选择集+信息页（混合方案 M）', ev:'Phase2（收藏页复用、后端封面/目录页）单列，不进 MVP' },
+    { id:'P3', t:'依赖准入：reportlab 入 requirements', ev:'纯 Python wheel，无编译、无字体文件；本地 venv 实测通过' },
+    { id:'P4', t:'阻塞项登记：利回り待回报率功能（FR25 / R6）', ev:'不阻塞 MVP；信息页显示 —（未算出）' },
+    { id:'P5', t:'线上发布包能否安装 reportlab（R2）', ev:'明确 yes/no；no 时降级开关「仅合并原 PDF」仍可用', tag:'red' },
+    { id:'P6', t:'外部确认：信息页 10 字段给阿丹走查一轮', ev:'确认够不够「边看图纸边算回报率」' },
+    { id:'P7', t:'发版窗口：随下一版（≥ v1.9.113）一起上', ev:'待勇哥明令；AI 不主动发版' }
+  ]},
+  { role:'RD · 后端', color:'var(--blue)', items:[
+    { id:'B1', t:'新增 POST /api/pdf/info_pages（nos[] → base64 页）', ev:'web/app.py · A4 横向 842×595 · reportlab + UnicodeCIDFont(HeiseiKakuGo-W5) · ~60 行' },
+    { id:'B2', t:'_access_guard 显式豁免 + X-Publish-Token 自校验', ev:'参照 v1.9.108 /api/emp/import；线上 v100 必须不 403', tag:'red' },
+    { id:'B3', t:'信息页字段按 §22.3 十项取值 + 缺失规则', ev:'缺失按表：整行省略 或 显示 —' },
+    { id:'B4', t:'占位页（无 PDF）+ 末尾清单页（Q8）统一吐页', ev:'页序严格对齐；清单页含番号+地址' },
+    { id:'B5', t:'降级开关：reportlab 缺失 → 返回 info_pages:null，不 500', ev:'前端自动退化为「仅合并原 PDF」', tag:'amber' },
+    { id:'B6', t:'requirements / 线上依赖清单加 reportlab', ev:'与 P5 结论一致' },
+    { id:'B7', t:'抬版本号并写注释', ev:'core/version.py ≥ 1.9.113，版本号单一源' }
+  ]},
+  { role:'RD · 前端', color:'var(--green)', items:[
+    { id:'F1', t:'两条渲染链都要改：renderFullItem + renderCompactItem 均插 .pdfgrp', ev:'search.html · 两种视图各断言一次（教训 1 双链陷阱）', tag:'red' },
+    { id:'F2', t:'详情页复用同一控件组（FR18/FR19）', ev:'同尺寸/间距/顺序；与列表共用选择集' },
+    { id:'F3', t:'新增 PDF 选择集，独立于对比，localStorage osaka.pdfsel.v1', ev:'web/static/app.js · 勾对比不影响 PDF 选择集' },
+    { id:'F4', t:'全选本页三态（未选/半选/全选），只选有 PDF 行（FR20）', ev:'indeterminate 生效' },
+    { id:'F5', t:'跨页/跨条件/跨刷新保留 + 改条件提示条「保留/清空」（FR21）', ev:'刷新后仍 N 套' },
+    { id:'F6', t:'合并流程：拉 pdf_url → HEAD 校验 → 拉 info_pages → pdf-lib 搬页插入 → 下载', ev:'loading + 防重复点击；COS 过期走占位页（R3）' },
+    { id:'F7', t:'软 50 提示 / 硬 100 截断；占位页 + 清单页插入', ev:'100 套截断有提示（R4）' },
+    { id:'F8', t:'i18n 新文案 key（四语回退）', ev:'web/static/i18n.js · 中日英韩均不漏' },
+    { id:'F9', t:'清空 / 退出多选免二次确认，仅 toast（FR13′）', ev:'弹出确认框数 = 0' }
+  ]},
+  { role:'UI（UI 经理）', color:'var(--amber)', items:[
+    { id:'U1', t:'.pdfgrp 落地（FR18 硬约束）', ev:'底 #f8fafc / 边 #e3e8f0；选中 #e8f7ef / #b9e6c9；圆角 8；padding 2px 7px 2px 5px；组内 5px、组外更大' },
+    { id:'U2', t:'☑ 视觉分级', ev:'16×16，命中区 ≥24px；默认 opacity .35，hover 行或模式内 = 1' },
+    { id:'U3', t:'顶部绿条 + 底部托盘', ev:'复用现有 .cmpbar；PDF＝绿，与对比栏蓝明确区分' },
+    { id:'U4', t:'无 PDF 行置灰 + tooltip', ev:'disabled + 「该房源无 PDF，不可选」' },
+    { id:'U5', t:'信息页排版', ev:'A4 横向；页眉「物件情報 / Property Info」+ n/N；页脚生成时间 + 来源 REINS' },
+    { id:'U6', t:'空状态 / loading / toast 四语文案齐', ev:'空状态有引导' }
+  ]},
+  { role:'QA（测试经理）', color:'var(--red)', items:[
+    { id:'Q1', t:'tools/check_html_js.py 必过', ev:'看到 HTML_JS_OK；不得用 node --check（对 Jinja2 假阳性）' },
+    { id:'Q2', t:'纯 Jinja2 渲染验证', ev:'不起 8765、不写库；两页标记全在' },
+    { id:'Q3', t:'零副作用后端验证', ev:'test_client + session[user_id]=admin + patch 落库；断言 200 + JSON 字段' },
+    { id:'Q4', t:'Playwright 真机 9+ 项', ev:'控件组紧邻 / 详情页联动 / 全选三态 / 清空免确认 / 刷新保留 / 改条件提示 / 合并预览页序' },
+    { id:'Q5', t:'双环境验证：本地 8765 + 线上 v100', ev:'本地 /download/attachments + 线上 COS 直链；必验线上不 403', tag:'red' },
+    { id:'Q6', t:'边界：无 PDF / 无建物名 / 无管理费 / 无築年月 / 单套 / 50 / 100 套', ev:'逐项有实测证据' },
+    { id:'Q7', t:'性能：50 / 100 套合并耗时与内存峰值', ev:'R4，超阈值则下调上限' },
+    { id:'Q8', t:'回归：对比栏 / 收藏页 / ncBadge / 推送抓取不受影响', ev:'回归清单逐项过' },
+    { id:'Q9', t:'8 条硬门禁逐条签名（含总监反向挑战）', ev:'门禁 7 必须挑 1 个关键假设质疑' },
+    { id:'Q10', t:'线上健康检查（门禁 6）', ev:'发布后一轮真机验；结果为 0 = 发布失败' }
+  ]}
+];
+
+var GATES = [
+  '门禁1 先查历史结论：grep -n "已证伪|实测证明|撤回" core/version.py',
+  '门禁2 看真实 DOM 再写 locator（同名控件会重复）',
+  '门禁3 真机端到端验一次：填值回读==期望 + 真实结果条数（离线/快照不算）',
+  '门禁4 定位器唯一性断言 count()==N，失败 raise',
+  '门禁5 「待复核/待真机」= 硬阻塞，禁止先发后补',
+  '门禁6 发布后健康检查：一轮采集非空 + 地区回读正确',
+  '门禁7 总监反向挑战：挑 1 个关键假设质疑，不能只勾已通过',
+  '门禁8 PRD 补两字段：历史教训引用 + 实现风险（已补 §23 / §24）'
+];
+
+var ST = {};
+try { ST = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { ST = {}; }
+/* 首次打开：把标记 done:true 的任务（如 P1 已封版）预勾 */
+if (!Object.keys(ST).length) {
+  DATA.forEach(function (g) { g.items.forEach(function (it) { if (it.done) ST[it.id] = true; }); });
+  try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {}
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function renderRoles(){
+  var h = '';
+  DATA.forEach(function(g){
+    var n = g.items.filter(function(it){ return !!ST[it.id]; }).length;
+    h += '<div class="role"><div class="rtop">'
+      +  '<span class="dot" style="background:'+g.color+'"></span>'
+      +  '<span class="rtitle">'+esc(g.role)+'</span>'
+      +  '<span class="rcount"><b>'+n+'</b> / '+g.items.length+'</span></div><div class="tasks">';
+    g.items.forEach(function(it){
+      var on = !!ST[it.id];
+      h += '<label class="t'+(on?' done':'')+'">'
+        +  '<input type="checkbox" data-id="'+it.id+'"'+(on?' checked':'')+'>'
+        +  '<span class="body"><span class="txt">'+esc(it.id)+'　'+esc(it.t)+'</span>'
+        +  (it.tag ? '<span class="tag '+it.tag+'">'+(it.tag==='red'?'🔴 高风险':it.tag==='amber'?'🟡 中':'') +'</span>' : '')
+        +  '<span class="ev">'+esc(it.ev)+'</span></span></label>';
+    });
+    h += '</div></div>';
+  });
+  document.getElementById('roles').innerHTML = h;
+}
+
+function renderGates(){
+  var h = '<div class="role"><div class="tasks">';
+  GATES.forEach(function(g, i){
+    var id = 'G' + (i+1), on = !!ST[id];
+    var pre = (i === 7);
+    h += '<label class="t'+(on?' done':'')+'">'
+      +  '<input type="checkbox" data-id="'+id+'"'+(on||pre?' checked':'')+(pre?' disabled':'')+'>'
+      +  '<span class="body"><span class="txt">'+esc(g)+'</span>'
+      +  (pre ? '<span class="tag">✅ 已随 PRD §23/§24 补齐</span>' : '') + '</span></label>';
+  });
+  h += '</div></div>';
+  document.getElementById('gates').innerHTML = h;
+  if (!ST['G8']) { ST['G8'] = true; save(); }
+}
+
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) {} }
+
+function refreshCounts(){
+  var total = 0, done = 0;
+  DATA.forEach(function(g){ g.items.forEach(function(it){ total++; if (ST[it.id]) done++; }); });
+  GATES.forEach(function(g, i){ total++; if (ST['G'+(i+1)]) done++; });
+  document.getElementById('total').textContent = total;
+  document.getElementById('done').textContent = done;
+  var pct = total ? Math.round(done * 100 / total) : 0;
+  document.getElementById('bar').style.width = pct + '%';
+  document.getElementById('pct').textContent = '（' + pct + '%）';
+  var open = DATA.reduce(function(a, g){ return a + g.items.filter(function(it){ return !ST[it.id]; }).length; }, 0);
+  document.getElementById('hint').textContent = '未完成 ' + open + ' 项任务（含 P1 已完成）';
+}
+
+function bind(){
+  document.addEventListener('change', function(e){
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT' || !el.dataset || !el.dataset.id) return;
+    ST[el.dataset.id] = el.checked;
+    el.closest('.t').classList.toggle('done', el.checked);
+    save(); renderRoles(); refreshCounts();   /* 事件委托一次性绑定，不重复 bind */
+  });
+}
+
+function resetAll(){
+  if (!confirm('清空所有勾选进度？')) return;
+  ST = {}; save(); renderRoles(); renderGates(); refreshCounts();
+}
+
+function copyProgress(){
+  var lines = ['PRD#39 四角色 Checklist 进度'];
+  DATA.forEach(function(g){
+    var n = g.items.filter(function(it){ return !!ST[it.id]; }).length;
+    lines.push(g.role + '：' + n + '/' + g.items.length);
+    g.items.forEach(function(it){ lines.push('  [' + (ST[it.id] ? 'x' : ' ') + '] ' + it.id + ' ' + it.t); });
+  });
+  var txt = lines.join('\n');
+  if (navigator.clipboard) { navigator.clipboard.writeText(txt); }
+  document.getElementById('hint').textContent = '进度摘要已复制（' + txt.split('\n').length + ' 行）';
+}
+
+renderRoles(); renderGates(); bind(); refreshCounts();
+</script>
+</body>
+</html>
