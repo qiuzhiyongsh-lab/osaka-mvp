@@ -126,6 +126,28 @@
   .detail .act{display:flex;align-items:center;gap:10px;padding-top:10px;border-top:1px dashed #e3e8f0}
   .detail .note{margin-left:auto;color:#7b869c;font-size:12px}
   .detail .note b{color:var(--green-d)}
+
+  /* 合并结果预览（信息页由后端 CID 字体生成，3KB/页，前端只搬页） */
+  .pv{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .pv.hidden{display:none}
+  .pv-head{font-weight:600;color:#2f3a52;margin-bottom:10px}
+  .pv-head code{background:#f1f4fa;border-radius:4px;padding:1px 6px;font-size:12px}
+  .pvpages{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+  .pvpage{flex:0 0 auto;width:280px;aspect-ratio:842/595;border:1px solid #d4dcea;border-radius:6px;
+    background:#fff;padding:10px 12px;position:relative;box-shadow:0 2px 6px rgba(30,50,90,.06)}
+  .pvpage .pvhd{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e3e8f0;
+    padding-bottom:4px;margin-bottom:6px}
+  .pvpage .pvhd b{font-size:13px;color:#1d2530}
+  .pvpage .pvhd span{font-size:11px;color:#7b869c}
+  .pvpage .pvrow{display:flex;gap:8px;font-size:11px;margin-bottom:3px}
+  .pvpage .pvrow .k{color:#8892a6;width:52px;flex:0 0 auto}
+  .pvpage .pvrow .v{color:#1d2530;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pvpage .pvft{border-top:1px dashed #e3e8f0;margin-top:6px;padding-top:4px;font-size:10px;color:#98a2b6}
+  .pvpage .pvno{position:absolute;left:0;right:0;bottom:-19px;text-align:center;font-size:10px;color:#98a2b6}
+  .pvpage.pdf{background:#f6f8fc;display:flex;align-items:center;justify-content:center}
+  .pvpage.pdf .fake{color:#98a2b6;font-size:12px}
+  .pvpage.idx{background:#fbfcfe}
+  .pvhint{margin-top:26px;color:#7b869c;font-size:12px}
 </style>
 </head>
 <body>
@@ -175,6 +197,9 @@
     </div>
     <div class="slots" id="slots"><span class="empty">勾选房源后，这里会按顺序列出「地址 + 编号」。</span></div>
   </div>
+
+  <!-- 合并结果预览：展示「信息页 + 原 PDF」交替的页序 -->
+  <div class="pv hidden" id="preview"></div>
 
   <div class="legend">
     <b>原型说明（可点着玩）</b>：
@@ -282,7 +307,9 @@ function toggleMode(on){
 }
 function exitMode(){
   if(SEL.length && !confirm('退出多选并清空已选的 '+SEL.length+' 套？')) { return; }
-  SEL = []; modeOn = false; render();
+  SEL = []; modeOn = false;
+  document.getElementById('preview').classList.add('hidden');
+  render();
 }
 function togglePick(no, el){
   var i = SEL.indexOf(no);
@@ -299,6 +326,7 @@ function clearAll(){
   if(!confirm('清空已选的 '+SEL.length+' 套？')) return;
   SEL = []; modeOn = false;           /* 清空即退出多选模式，回到普通列表视图 */
   document.getElementById('tip').textContent = '默认只显示「PDF下载」，点它=单独下载';
+  document.getElementById('preview').classList.add('hidden');
   render(); toast('已清空选择，已退出多选模式');
 }
 function singleDownload(no, ev){
@@ -313,7 +341,39 @@ function mergeDownload(){
   setTimeout(function(){
     toast('✅ 已下载 osaka_合并PDF_20261005_'+n+'套.pdf');
     document.getElementById('dlBtn').disabled = false;
+    renderPreview();          /* 展示合并后页序：信息页 + 原 PDF 交替 + 末尾清单页 */
   }, 1200);
+}
+
+/* 合并结果预览（页序 = 勾选顺序；信息页由后端 CID 字体生成，3KB/页） */
+function pvRow(k,v){ return '<div class="pvrow"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>'; }
+function renderPreview(){
+  var items = SEL.map(function(no){ return DATA.filter(function(x){return x.no===no;})[0]; }).filter(Boolean);
+  if(!items.length) return;
+  var h = '<div class="pv-head">合并结果预览 · <code>osaka_合并PDF_20261005_'+items.length+'套.pdf</code>'
+        + ' · 共 '+(items.length*2+1)+' 页（信息页由后端生成 3KB/页，前端只搬页）</div><div class="pvpages">';
+  var pageNo = 0;
+  items.forEach(function(r, i){
+    pageNo++;
+    h += '<div class="pvpage info">'
+      +   '<div class="pvhd"><b>物件情報 / Property Info</b><span>'+(i+1)+' / '+items.length+'</span></div>'
+      +   pvRow('物件番号', r.no) + pvRow('所在地', r.addr)
+      +   pvRow('価格', r.price+'万円') + pvRow('専有/間取', r.area+'㎡ '+r.layout)
+      +   '<div class="pvft">osaka-mvp 合併PDF　出典：REINS</div>'
+      +   '<div class="pvno">第 '+pageNo+' 页 · 情報ページ</div></div>';
+    pageNo++;
+    h += '<div class="pvpage pdf"><span class="fake">REINS 図面 PDF（原文件）</span>'
+      +   '<div class="pvno">第 '+pageNo+' 页 · 原 PDF</div></div>';
+  });
+  pageNo++;
+  var list = items.map(function(r, i){ return pvRow('', (i+1)+'. '+r.no+'　'+r.price+'万円'); }).join('');
+  h += '<div class="pvpage idx"><div class="pvhd"><b>合併リスト / 物件一覧</b><span>'+items.length+' 件</span></div>'
+     + list + '<div class="pvft">按勾选顺序排列</div>'
+     + '<div class="pvno">第 '+pageNo+' 页 · 清单页</div></div>';
+  h += '</div><div class="pvhint">※ 无 PDF 的房源已被置灰不可选；若某套 PDF 缺失，对应位置插入占位页以保持页序对齐（Q8）。</div>';
+  var box = document.getElementById('preview');
+  box.innerHTML = h; box.classList.remove('hidden');
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 var _t;
 function toast(msg){
