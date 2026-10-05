@@ -385,6 +385,23 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .qtag-changed{background:#e07b00}        /* 变更：本轮信息有变化 → 实心橙 */
 .qtag.nc-today{outline:2px solid rgba(43,108,176,.85);outline-offset:1px} /* 新建/变更 恰为查询日 → 高亮 */
 
+/* v1.9.112（勇哥拍板方案 C：悬停时间线）
+   新建/变更徽章悬停浮出「登録日 → 変更日」时间线：
+   · 徽章本体语义/行宽零改动；浮层 position:absolute 脱离文档流，不撑列表。
+   · 祖先 .qitem 已是 position:relative 且无 overflow:hidden，故不会被裁。 */
+.nc-wrap{position:relative;display:inline-flex;align-items:center;vertical-align:middle}
+.nc-tip{position:absolute;left:0;top:calc(100% + 6px);z-index:90;display:none;
+  min-width:158px;background:#1f2a44;color:#fff;border-radius:8px;padding:7px 10px;
+  font-size:12px;line-height:1.75;white-space:nowrap;
+  box-shadow:0 8px 22px rgba(18,28,55,.30);pointer-events:none}
+.nc-tip::before{content:'';position:absolute;left:14px;top:-4px;width:8px;height:8px;
+  background:#1f2a44;transform:rotate(45deg)}
+.nc-wrap:hover .nc-tip{display:block}
+.nc-tipline{display:flex;gap:12px;align-items:baseline;justify-content:space-between}
+.nc-tipline .nc-k{color:#9fb3d9}
+.nc-tipline .nc-v{font-variant-numeric:tabular-nums;font-weight:700}
+.nc-tipline .nc-v.nc-none{color:#8a9ab5;font-weight:400}
+
 /* v1.4.0 · 「已下详情 / 详情待补」视觉区分
    两阶段下载（先全列表、再补详情）之后，同一批结果里会同时存在：
      · 详情已抓到的 → 正常行

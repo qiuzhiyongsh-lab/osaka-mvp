@@ -177,6 +177,22 @@
   <div id="empMsg" class="hint"></div>
 </div>
 
+<!-- ============ 底部固定「对比栏」（v1.9.112：与「房源查询」页下方对比栏完全一致 —— 勇哥 2026-10-05 需求三） ============ -->
+<div class="cmpbar" id="cmpbar">
+  <div class="cmpbar-in">
+    <div class="cmpbar-h">
+      <b data-i18n="cmp.name">对比栏</b>
+      <span class="muted"><span data-i18n="cmp.sel">已选</span> <b id="cmpsel" class="hot">0</b>/6</span>
+    </div>
+    <div class="cmpslots" id="cmpslots"></div>
+    <div class="cmpacts">
+      <a class="btn primary" id="cmpgo" href="/compare" data-i18n="cmp.go">开始对比</a>
+      <button class="ghost" id="cmpReins" data-i18n="cmp.reins_batch">REINS 检索</button>
+      <button class="ghost" id="cmpclear" data-i18n="cmp.clear">清空</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function $(id){ return document.getElementById(id); }
 function msg(s, ok){ var m=$('empMsg'); m.textContent=s; m.className='hint '+(ok?'ok':'danger'); }
@@ -258,6 +274,9 @@ function propCard(r){
    而 emp 页没传 onCompare、_cmp 默认也是 null ⇒ 空操作。
    这里复用**全站共用的全局 CompareBox**（app.js 提供、localStorage 共享）：
    加入后顶部导航「房源对比」的角标会亮，点它即可进 /compare。 */
+/* ===== v1.9.112（勇哥 2026-10-05 需求三）：员工业务「我的收藏」页底部对比栏 =====
+   与「房源查询」页下方对比栏**功能完全一致**（同一全局 CompareBox、同一 .cmpbar 样式）。
+   差异仅：收藏页卡片由 prop_card.js 渲染，取数走 cmpItemOf()（读行上 data-* + .qprice .price）。 */
 function cmpItemOf(no){
   var box = document.querySelector('.qitem[data-no="'+CSS.escape(no)+'"]');
   var it = { no:no, addr:'', name:'', sub:'', ward:'', area:'', price:null, pdf:false };
@@ -267,6 +286,12 @@ function cmpItemOf(no){
   it.addr = box.getAttribute('data-addr') || '';
   it.ward = box.getAttribute('data-ward') || '';
   it.area = box.getAttribute('data-area') || '';
+  var pr = box.querySelector('.qprice .price');
+  if(pr){
+    var pv = parseInt(pr.textContent.replace(/[^\d]/g,''), 10);
+    if(!isNaN(pv)) it.price = pv * 10000;      // 没价格就别写 NaN 进对比栏
+  }
+  it.pdf = !!box.querySelector('.qpdf');
   return it;
 }
 function cmpToggleEmp(no){
@@ -282,16 +307,72 @@ function cmpToggleEmp(no){
   }
   markCmpEmp();
 }
+/* 与查询页 markRows 同构：行内勾选态（.on / .picked）一并复位 */
 function markCmpEmp(){
   if(!window.CompareBox) return;
-  document.querySelectorAll('.qcmp').forEach(function(b){
-    var no = b.getAttribute('data-no'); var on = CompareBox.has(no);
-    b.classList.toggle('on', on);
-    b.textContent = on ? t('cmp.added_short') : t('detail.tobank');
+  document.querySelectorAll('.qitem').forEach(function(box){
+    var no = box.getAttribute('data-no');
+    var on = CompareBox.has(no);
+    box.classList.toggle('picked', on);
+    var b = box.querySelector('.qcmp');
+    if(b){
+      b.classList.toggle('on', on);
+      b.textContent = on ? t('cmp.added_short') : t('detail.tobank');
+    }
   });
 }
+/* 底部对比栏渲染 —— 逐行对齐 search.html::renderCmpBar（槽位卡：名称/地址(含区)/面積/价格） */
+function renderCmpBar(items){
+  var bar   = document.getElementById('cmpbar');
+  var slots = document.getElementById('cmpslots');
+  var sel   = document.getElementById('cmpsel');
+  var go    = document.getElementById('cmpgo');
+  if(!bar) return;
+  sel.textContent = items.length;
+  bar.classList.toggle('show', items.length > 0);
+  document.body.classList.toggle('has-cmpbar', items.length > 0);
+  go.classList.toggle('disabled', items.length < 2);
+  go.setAttribute('href', '/compare?nos=' + encodeURIComponent(CompareBox.nos().join(',')));
+  if(!items.length){ slots.innerHTML = ''; return; }
+  slots.innerHTML = items.map(function(x){
+    var nm = x.name || x.addr || x.no;
+    var loc = x.addr || '';
+    if(x.ward && loc.indexOf(x.ward) < 0) loc = x.ward + ' ' + loc;   // 保证「哪个区」一定看得到
+    return '<div class="cmpslot" title="'+esc(loc || x.no)+'">'
+      + '<button class="x" onclick="removeCompareEmp(\''+esc(x.no)+'\')" title="'+t('cmp.drop')+'">×</button>'
+      + '<div class="n">'+esc(nm)+'</div>'
+      + (loc  ? '<div class="s">'+esc(loc)+'</div>' : '')
+      + (x.area ? '<div class="s">'+esc(x.area)+'</div>' : '')
+      + '<div class="p">'+(x.price != null ? wan(x.price) : '—')+'</div>'
+      + '</div>';
+  }).join('');
+}
+function removeCompareEmp(no){ CompareBox.remove(no); markCmpEmp(); }
 if(window.PropCard){ window.PropCard._cmp = cmpToggleEmp; }
-if(window.CompareBox){ CompareBox.onChange(function(){ markCmpEmp(); }); }
+if(window.CompareBox){
+  /* 任何来源的改动（本页勾选 / 别页改动 / 清空）都同步刷新：对比栏 + 行内勾选态 */
+  CompareBox.onChange(function(items){ renderCmpBar(items); markCmpEmp(); });
+  /* 从浏览器缓存返回（点「后退」）时重新对一次，避免「已清空仍显示已选」 */
+  window.addEventListener('pageshow', function(ev){
+    if(!ev.persisted) return;
+    renderCmpBar(CompareBox.items()); markCmpEmp();
+  });
+  var _cbClear = document.getElementById('cmpclear');
+  if(_cbClear) _cbClear.addEventListener('click', function(){
+    if(!CompareBox.count()) return;
+    if(confirm(t('cmp.confirm_clear'))){ CompareBox.clear(); markCmpEmp(); }
+  });
+  var _cbGo = document.getElementById('cmpgo');
+  if(_cbGo) _cbGo.addEventListener('click', function(e){
+    if(CompareBox.count() < 2){ e.preventDefault(); alert(t('search.alert_min')); }
+  });
+  /* REINS 番号検索（批量填号）—— 复用 fieldmap.js 的全局实现，与查询页同一入口 */
+  var _cbReins = document.getElementById('cmpReins');
+  if(_cbReins) _cbReins.addEventListener('click', function(){
+    if(window.bukkenSearchAll) window.bukkenSearchAll();
+  });
+  renderCmpBar(CompareBox.items());   // 首屏即按已选（可能来自查询页）渲染一次
+}
 function renderPager(box, total, page, size, goFn){
   if(!box) return;
   var pages = Math.max(1, Math.ceil(total/size));
@@ -673,7 +754,12 @@ document.addEventListener('fav-tags-changed', function(e){
   if(no){ favTagsShow(no); }     /* 收藏卡片上的标签行 */
   tagLoad();                     /* 标签管理里的「N 个」计数 */
 });
-/* 初次进入默认加载收藏 */
+/* 初次进入默认加载收藏 + 标签墙
+   v1.9.112 修复（勇哥 2026-10-05 实测 bug）：此前这里只调 favLoad()，漏调 tagLoad()，
+   而 tagLoad() 只在 switchTab() 里调用 ⇒ 首次进「收藏」Tab 时 #favTagWall（标题行右侧标签墙）
+   恒为空白；点「客户」触发 switchTab→tagLoad 后再回来才显示。
+   根因：v1.9.95 修过 switchTab 里的挂载，但**初始化路径漏挂**。 */
 favLoad();
+tagLoad();
 </script>
 {% endblock %}

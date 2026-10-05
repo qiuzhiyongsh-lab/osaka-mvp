@@ -1742,10 +1742,12 @@ function syncCaliber(){
 }
 
 /* 新建/变更 常驻标志（勇哥 2026-10-05 需求）：置于「添加客户」与「专任」之间。
-   规则 = 这套房自平台登録以来是否做过变更：
+   规则 = 这套房自平台登録以来是否做过变更（**绝对语义**，与查询口径无关）：
      · chg_date_iso 存在且 ≠ reg_date_iso → 変更（历史做过变更）
      · 否则 → 新建（登録后从未变更，即一套干净的新上房源）
-   若其日期恰等于当前查询日(CUR_DATE)，加 nc-today 高亮，便于一眼看出"今天的新/变"。 */
+   若其日期恰等于当前查询日(CUR_DATE)，加 nc-today 高亮，便于一眼看出"今天的新/变"。
+   —— v1.9.112（勇哥拍板**方案 C：悬停时间线**）：徽章语义与行宽都不变，
+     鼠标悬停浮出「登録日 → 変更日」时间线，把"为什么判新建/变更、哪天登録哪天改的"一次讲清。 */
 function ncBadge(r){
   var reg = r.reg_date_iso || '';
   var chg = r.chg_date_iso || '';
@@ -1755,7 +1757,14 @@ function ncBadge(r){
   var today = window.CUR_DATE || '';
   var active = (!isChg && reg && reg === today) || (isChg && chg && chg === today);
   if(active) cls += ' nc-today';
-  return '<span class="qtag ' + cls + '">' + txt + '</span>';
+  var tip = '<div class="nc-tip">'
+          +   '<div class="nc-tipline"><span class="nc-k">' + esc(t('row.nc_reg')) + '</span>'
+          +     '<span class="nc-v">' + esc(reg || '—') + '</span></div>'
+          +   '<div class="nc-tipline"><span class="nc-k">' + esc(t('row.nc_chg_d')) + '</span>'
+          +     '<span class="nc-v' + (isChg ? '' : ' nc-none') + '">'
+          +       esc(isChg ? chg : t('row.nc_never')) + '</span></div>'
+          + '</div>';
+  return '<span class="nc-wrap"><span class="qtag ' + cls + '">' + txt + '</span>' + tip + '</span>';
 }
 
 function renderFullItem(r, i){

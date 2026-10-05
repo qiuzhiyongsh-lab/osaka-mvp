@@ -940,6 +940,8 @@
   ZH['row.suspect']='存疑'; ZH['row.suspect_tip']='降幅异常（>50%），疑似数据解析错位，不计入降价';
   ZH['row.see_latest']='看最新';
   ZH['row.nc_new']='新建'; ZH['row.nc_chg']='变更';
+  // v1.9.112（勇哥拍板方案 C：悬停时间线）：徽章 hover 浮层的三行文案
+  ZH['row.nc_reg']='登録日'; ZH['row.nc_chg_d']='変更日'; ZH['row.nc_never']='未变更';
   ZH['row.hit_chip']='按 {x} 命中 · 已于 {y} 更新';
   DICT['zh-TW']['sort.h']='排序'; DICT['zh-TW']['sort.dir']='方向';
   DICT['zh-TW']['sort.updated']='更新時間'; DICT['zh-TW']['sort.price']='價格';
