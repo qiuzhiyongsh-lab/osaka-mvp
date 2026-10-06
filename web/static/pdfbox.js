@@ -27,6 +27,13 @@
     try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch (e) {}
   }
 
+  // 作用域：emp 页有多个 .emp-panel（收藏/客户/标签），「全选本页」只应作用于当前激活面板；
+  // 查询页/对比页无 .emp-panel → 回退全文档（行为不变）。
+  function _pdfScope() {
+    var ap = document.querySelector(".emp-panel.on");
+    return ap || document;
+  }
+
   var PdfBox = {
     items: function () { return _load(); },
     has: function (no) { return _load().indexOf(no) >= 0; },
@@ -109,7 +116,7 @@
   window.refreshPdfSelAll = function () {
     var sa = document.getElementById("pdfselall");
     if (!sa) return;
-    var boxes = Array.prototype.slice.call(document.querySelectorAll(".pdfchk"));
+    var boxes = Array.prototype.slice.call(_pdfScope().querySelectorAll(".pdfchk"));
     var enabled = boxes.filter(function (b) { return !b.disabled; });
     var on = enabled.filter(function (b) { return b.checked; }).length;
     sa.disabled = enabled.length === 0;
@@ -136,7 +143,7 @@
       sa._bound = true;
       sa.addEventListener("change", function () {
         var turnOn = this.checked;
-        document.querySelectorAll(".pdfchk").forEach(function (b) {
+        _pdfScope().querySelectorAll(".pdfchk").forEach(function (b) {
           if (b.disabled) return;
           var no = b.getAttribute("data-no");
           b.checked = turnOn;

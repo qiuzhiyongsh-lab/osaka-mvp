@@ -20,7 +20,7 @@
   function num(v) { return (v == null || v === '') ? '—' : v; }
   function wareki(d) { return (window.warekiToAD ? window.warekiToAD(d) : d); }
 
-  /* 媒体小徽章（画 / 図 / 所 + 张数）—— 与查询页同款 */
+  /* 媒体小徽章（画 / 図 / 所 + 张数 + 回报率）—— 与查询页同款（v1.9.118 同步母本 renderFullItem） */
   function mediaBadges(r) {
     var m = r.media || {};
     function b(cls, label, on, title) {
@@ -34,7 +34,8 @@
       + b('zu', '図', m.plan, t(m.plan ? 'media.plan_yes' : 'media.no'))
       + b('sho', '所', m.map, t(m.map ? 'media.map_yes' : 'media.no'))
       + '</span>';
-    if (m.count != null) h += '<span>' + tf('row.imgs', { n: num(m.count) }) + '</span>';
+    if (m.count != null && m.count > 0) h += '<span>' + tf('row.imgs', { n: num(m.count) }) + '</span>';
+    if (m.actual_yield_pct != null) h += '<span class="yield">' + tf('row.yield', { v: num(m.actual_yield_pct) }) + '%</span>';
     return h;
   }
 
@@ -126,7 +127,7 @@
       + drop
       + (rate ? '<span class="qrate qrate-platform">' + rate + '</span>' : '')
       + '<span class="price">' + wan(r.price) + '</span>'
-      + (r.pdf_url ? '<span class="qpdf">PDF</span>' : '')
+      + pdfGroupHtml(r)   /* v1.9.118 PRD#39：被动「PDF」徽章 → 主动控件组（☑+PDF下载），与查询页一致 */
       + '<a class="qbtn-detail" href="/p/' + encodeURIComponent(no) + '" target="_blank"'
       + ' onclick="event.stopPropagation()" title="' + esc(t('detail.srcpage')) + '">'
       + esc(t('detail.srcpage')) + '</a>'
@@ -143,13 +144,18 @@
       + (opts.extraHtml || '')
       + '<div class="qsub">'
       + '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
-      + (kindline ? '<span>' + esc(kindline) + '</span>' : '')
-      + (r.floor ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
-      + (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
-      + (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
-      + mediaBadges(r)
-      + (r.last_seen_at ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0, 10)) + '</span>' : '')
-      + '</div>'
+    + (kindline ? '<span>' + esc(kindline) + '</span>' : '')
+    + (r.floor || r.above_ground_floors
+        ? '<span class="flrA">'
+          + (r.floor ? t('row.floor') + ' <b>' + esc(r.floor) + '</b>' : '')
+          + (r.above_ground_floors ? ' / ' + t('row.above') + ' <b>' + esc(r.above_ground_floors) + '</b>' : '')
+          + '</span>'
+        : '')
+    + (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
+    + mediaBadges(r)
+    + (r.last_seen_at ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0, 10)) + '</span>' : '')
+    + (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
+    + '</div>'
       + '</div>'
       + '</div>';
   }

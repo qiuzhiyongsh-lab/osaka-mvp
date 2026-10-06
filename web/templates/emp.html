@@ -2,7 +2,10 @@
 {% block title %}员工业务 · 大阪房源查询系统{% endblock %}
 {% block body %}
 <style>
-.emp-wrap{padding:16px;max-width:1080px;margin:0 auto}
+/* ① 宽度对齐（勇哥 2026-10-06 需求）：去掉 max-width:1080px 与横向 padding，
+   使「员工业务」整体宽度 = 全局 .wrap(1400) = 房源查询页 .card 有效宽度(1368)。
+   仅保留纵向 16px 间距（横向交给 .wrap 的 padding:0 16px）。 */
+.emp-wrap{padding:16px 0;margin:0 auto}
 .emp-card{background:#fff;border:1px solid #e3e9f5;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(40,60,100,.04)}
 .emp-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .emp-tabs button{padding:8px 16px;border:1px solid #d4dcea;background:#f7f9fd;border-radius:8px;cursor:pointer;font-size:14px;color:#33425f}
@@ -193,6 +196,27 @@
   </div>
 </div>
 
+<!-- ============ v1.9.118 联动 PRD#39：PDF 多选合并下载（与「房源查询」页完全一致） ============ -->
+<!-- 全选本页（三态，只选有 PDF 的行）；位置与查询页保持一致（底部工具条区） -->
+<label class="pdfselall" id="pdfselall-wrap" style="display:none">
+  <input type="checkbox" id="pdfselall"> <span data-i18n="pdf.selall">全选本页（有PDF）</span>
+</label>
+
+<!-- 底部固定「PDF 合并下载栏」：选中后从下方浮出 -->
+<div class="pdfbar" id="pdfbar">
+  <div class="pdfbar-in">
+    <div class="pdfbar-h">
+      <b data-i18n="pdf.name">PDF 合并下载</b>
+      <span class="muted"><span data-i18n="pdf.sel">已选</span> <b id="pdfsel" class="hot">0</b></span>
+      <span class="pdfnote muted" id="pdfnote"></span>
+    </div>
+    <div class="pdfacts">
+      <button class="primary" id="pdfmerge" data-i18n="pdf.merge">合并下载</button>
+      <button class="ghost" id="pdfclear" data-i18n="pdf.clear">清空</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function $(id){ return document.getElementById(id); }
 function msg(s, ok){ var m=$('empMsg'); m.textContent=s; m.className='hint '+(ok?'ok':'danger'); }
@@ -217,6 +241,7 @@ function switchTab(name){
   /* v1.9.95 修复（勇哥 2026-09-27 实测）：标签墙显示在「收藏 / 客户」Tab 顶部，
      所以 tagLoad() 不能只挂在 Tag 分支 —— 否则默认进「收藏」Tab 时标签墙永远空白。 */
   tagLoad();
+  pdfAfterRender();   /* v1.9.118 PRD#39：切换 Tab 时刷新 PDF 托盘显隐与全选态 */
 }
 
 /* ---------- 回流状态 ---------- */
@@ -291,7 +316,7 @@ function cmpItemOf(no){
     var pv = parseInt(pr.textContent.replace(/[^\d]/g,''), 10);
     if(!isNaN(pv)) it.price = pv * 10000;      // 没价格就别写 NaN 进对比栏
   }
-  it.pdf = !!box.querySelector('.qpdf');
+  it.pdf = !!box.querySelector('.pdfgrp');  // #642 .qpdf 已废弃（prop_card.js 改 pdfGroupHtml），PDF 检测改 .pdfgrp
   return it;
 }
 function cmpToggleEmp(no){
@@ -384,6 +409,19 @@ function renderPager(box, total, page, size, goFn){
   box.innerHTML = h;
 }
 
+/* v1.9.118 联动 PRD#39：emp 页任何房源卡片列表渲染后，回写 PDF 多选选择集
+   （与「房源查询」页 renderRows:1717-1720 完全一致：markPdfRows / refreshPdfBar / refreshPdfSelAll）。
+   scope = 当前激活的 .emp-panel.on，避免隐藏面板里的 .pdfchk 干扰「全选本页」状态与托盘显隐。 */
+function pdfAfterRender(){
+  if(window.markPdfRows) markPdfRows();
+  if(window.refreshPdfBar) refreshPdfBar();
+  var ap = document.querySelector('.emp-panel.on');
+  var has = ap ? ap.querySelector('.pdfchk') : null;
+  var sw = document.getElementById('pdfselall-wrap');
+  if(sw) sw.style.display = has ? '' : 'none';
+  if(window.refreshPdfSelAll) refreshPdfSelAll();
+}
+
 /* ---------- 收藏 ---------- */
 var favPage = 1, favSize = 50;
 function favLoad(p){
@@ -399,6 +437,7 @@ function favLoad(p){
     /* 勇哥要求：收藏卡片上直接显示标签名（可删可加），不用点开才知道 */
     j.items.forEach(function(r){ favTagsShow(r.property_no); });
     renderPager($('favPager'), j.total||0, favPage, favSize, 'favLoad');
+    pdfAfterRender();   /* v1.9.118 PRD#39：回写 PDF 多选集 + 托盘 */
   });
 }
 /* 收藏卡片上直接显示该房源的标签（勇哥：直接看到标签名，可点 × 删除、可 + 添加） */
@@ -557,6 +596,7 @@ function tagDrill(id, cat, p){
     h += '<div class="pager" id="drillPager"></div></div>';
     box.innerHTML=h;
     renderPager($('drillPager'), j.total||0, drillPage, drillSize, 'tagDrillPage');
+    pdfAfterRender();   /* v1.9.118 PRD#39：回写 PDF 多选集 + 托盘 */
   });
 }
 function tagDrillPage(p){ tagDrill(drillTag, drillCat, p); }
@@ -623,6 +663,7 @@ function custToggleProps(cid){
     box.innerHTML=j.items.map(propCard).join('')
       + '<div style="margin-top:8px"><a class="lnk" style="font-size:12px;cursor:pointer"'
       + ' onclick="custToggleProps('+cid+')">收起</a></div>';
+    pdfAfterRender();   /* v1.9.118 PRD#39：回写 PDF 多选集 + 托盘 */
   });
 }
 function custTagsShow(cid){

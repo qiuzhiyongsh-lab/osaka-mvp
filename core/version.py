@@ -9,8 +9,23 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.117"
-BUILD_AT = "2026-10-06 01:30"
+VERSION = "1.9.118"
+BUILD_AT = "2026-10-06 10:30"
+# ============================================================================
+# v1.9.118（2026-10-06 · 勇哥需求：员工业务页 宽度对齐 + 内容同步母本 + PDF 多选 PRD#39【开发（方式2）·未部署线上】）：
+#   【宽度对齐#639】emp.html 去掉 .emp-wrap 的 max-width:1080px 横向压窄（改 padding:16px 0），
+#        使「员工业务」整体宽度（收藏/客户/标签三面板）与「房源查询」.wrap(1400/1368) 一致。
+#   【内容同步母本#640】web/static/prop_card.js（emp 页卡片渲染器，search.html::renderFullItem 的同构副本）
+#        对齐母本四处：① mediaBadges 加 count>0 守卫 + actual_yield_pct 回报率徽标；② PDF 徽章从
+#        旧 .qpdf 改为 pdfGroupHtml(r)（PRD#39 行内 ☑+PDF下载组）；③ 楼层 span 合并为 .flrA+<b>
+#        （floor / above_ground_floors）；④ 新增 F3 中介行 .broker[data-agency]（broker+broker_tel）。
+#   【PDF 多选#641】emp.html 接 PRD#39 pdfbox.js 托盘 + 全选三态 + 三处渲染后回写（pdfAfterRender）：
+#        收藏列表 favLoad / 标签下钻 tagDrill / 客户关联房源 custToggleProps / 切 Tab switchTab；
+#        pdfbox.js 新增 _pdfScope() 使「全选本页」只作用于 .emp-panel.on（查询页无该节点回退 document 不变）。
+#   【遗留修正#642】emp.html::cmpItemOf 的 PDF 检测从失效的 .qpdf 改为 .pdfgrp（prop_card.js 已去除 .qpdf）。
+#   【纪律】本次为开发（方式2）：代码存档 + 本地语法/渲染门禁通过，**未 sync_to_publish、未重发布**；
+#        线上 v100 仍 1.9.117，待勇哥下「发版/整合发版」明令再推。
+# ============================================================================
 # ============================================================================
 # v1.9.114（2026-10-06 · PRD#39 多选 PDF 合并下载【开发（方式2）·未部署线上】）：
 #   【后端】新增 POST /api/pdf/merge —— 后端合并架构（推翻 PRD v1.0 的「前端 pdf-lib 拼页」方案）：
