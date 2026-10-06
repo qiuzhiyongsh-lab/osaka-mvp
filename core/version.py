@@ -9,8 +9,26 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.118"
-BUILD_AT = "2026-10-06 10:30"
+VERSION = "1.9.119"
+BUILD_AT = "2026-10-06 11:40"
+# ============================================================================
+# v1.9.119（2026-10-06 · 勇哥需求三连：员工收藏卡片精简 + 查询页中介行上移【开发（方式2）·未部署线上】）：
+#   【① 员工收藏卡片删底部「添加客户」】emp.html::propCard 的 extraHtml 末尾去掉
+#        '<span class="custslot" data-cust="'+no+'"></span>'（单独成行那一个）。
+#        根因：prop_card.js::full() 的 qrow1 内部 line~123 已有一个顶部工具条 custslot（与对比/收藏并列），
+#        而 emp.html 的 extraHtml 又额外加了一个 ⇒ fav.js 渲染出两个「添加客户」（顶部一个 + 底部单独成行一个）。
+#        删 extraHtml 那个即消除底部单独成行项，顶部工具条「添加客户」保留（prop_card.js 内）。
+#   【② 员工收藏卡片「收藏于」置于「加标签」之后】extraHtml 排序本就是 tagsHtml(加标签容器) + favTime(收藏于)，
+#        代码层面已满足「收藏于在加标签后」；未动（仅确认）。
+#   【③ 查询页中介行上移紧邻平单价】search.html 详细视图 qsub div / 简洁视图 qc-meta div 的 broker 行
+#        (r.broker ? '<div class="broker" data-agency>…</div>' : '') 从 div 末尾**移至顶部**，紧接
+#        unitPriceInline(r)（㎡単価/坪単価）行之后 ⇒ 每个平单价下方立即显示中介公司名称 + 电话（☎）。
+#        真相澄清：broker 行代码自 v1.9.116 F3 即存在（search.html:1878/2051），且 /api/query 经
+#        _row_payload 已返回 broker/broker_tel；「查询页看不到中介」主因是 8420 套中 3444 套（41%）
+#        从未抓到详情 ⇒ detail_json.broker 为空 ⇒ 模板 r.broker? 不渲染。本次仅把现有行上移让其更醒目。
+#   【纪律】本次为开发（方式2）：代码存档 + 本地语法/渲染门禁通过，**未 sync_to_publish、未重发布**；
+#        线上 v100 仍 1.9.118，待勇哥下「发版/整合发版」明令再推。
+# ============================================================================
 # ============================================================================
 # v1.9.118（2026-10-06 · 勇哥需求：员工业务页 宽度对齐 + 内容同步母本 + PDF 多选 PRD#39【开发（方式2）·未部署线上】）：
 #   【宽度对齐#639】emp.html 去掉 .emp-wrap 的 max-width:1080px 横向压窄（改 padding:16px 0），

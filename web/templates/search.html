@@ -1864,6 +1864,7 @@ function renderFullItem(r, i){
     +   '</div>'
     // 第 3 行起：次要属性（可自动换到多行，窄屏也不硬挤）
     +   '<div class="qsub">'
+    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
     +     (kindline        ? '<span>' + esc(kindline) + '</span>' : '')
     +     (r.floor || r.above_ground_floors
@@ -1875,7 +1876,6 @@ function renderFullItem(r, i){
     +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
     +     mediaBadges(r)
     +     (r.last_seen_at  ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0,10)) + '</span>' : '')
-    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +   '</div>'
     +   qhitHtml(r)   /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
     +   deviationChip(r)   /* F6：偏差提示 chip（命中后确有更新才出现） */
@@ -2040,6 +2040,7 @@ function renderCompactItem(r, i){
     +   '</div>';
   // ④ 物件属性
   h +=   '<div class="qc-cluster qc-meta">'
+    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +     (kindline ? '<span>' + esc(kindline) + '</span>' : '')
     +     (r.floor || r.above_ground_floors
           ? '<span class="flrA">'
@@ -2048,7 +2049,6 @@ function renderCompactItem(r, i){
             + '</span>'
           : '')
     +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
-    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +   '</div>';
   // ⑤ 辅助与入口（按钮各自 stopPropagation，不误触展开）
   h +=   '<div class="qc-aux">'
