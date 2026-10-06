@@ -48,8 +48,7 @@
     {% if row.land_area %}<span class="k">土地 {{ row.land_area }} ㎡</span>{% endif %}
     {% if row.building_area %}<span class="k">建物 {{ row.building_area }} ㎡</span>{% endif %}
     {% if row.line_station %}<span>{{ row.line_station }}</span>{% endif %}
-    {% if row.floor %}<span>所在階 {{ row.floor }}</span>{% endif %}
-    {% if row.above_ground_floors %}<span>{{ row.above_ground_floors }}</span>{% endif %}
+    {% if row.floor or row.above_ground_floors %}<span class="flrA">{% if row.floor %}所在階 <b>{{ row.floor }}</b>{% endif %}{% if row.above_ground_floors %} / 地上 <b>{{ row.above_ground_floors }}</b>{% endif %}</span>{% endif %}
     {% if row.built_year_month %}<span>築 {{ row.built_year_month }}</span>{% endif %}
     {# v1.5.3：画/図/所 三个标记（对应 REINS 列表右侧图标）+ 真实张数（未知就不显示 0） #}
     <span class="mdbset">

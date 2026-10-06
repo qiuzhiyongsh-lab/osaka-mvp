@@ -1693,7 +1693,8 @@ function mediaBadges(r){
         + b('zu',  '図', m.plan,  t(m.plan ? 'media.plan_yes' : 'media.no'))
         + b('sho', '所', m.map,   t(m.map  ? 'media.map_yes'  : 'media.no'))
         + '</span>';
-  if(m.count != null) h += '<span>' + tf('row.imgs', {n: num(m.count)}) + '</span>';
+  if(m.count != null && m.count > 0) h += '<span>' + tf('row.imgs', {n: num(m.count)}) + '</span>';
+  if(m.actual_yield_pct != null) h += '<span class="yield">' + tf('row.yield', {v: num(m.actual_yield_pct)}) + '%</span>';
   return h;
 }
 
@@ -1865,11 +1866,16 @@ function renderFullItem(r, i){
     +   '<div class="qsub">'
     +     '<span class="mono">' + esc(no) + '</span>' + (window.bukkenBtn ? window.bukkenBtn(no) : '')
     +     (kindline        ? '<span>' + esc(kindline) + '</span>' : '')
-    +     (r.floor         ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
-    +     (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
+    +     (r.floor || r.above_ground_floors
+          ? '<span class="flrA">'
+            + (r.floor ? t('row.floor') + ' <b>' + esc(r.floor) + '</b>' : '')
+            + (r.above_ground_floors ? ' / ' + t('row.above') + ' <b>' + esc(r.above_ground_floors) + '</b>' : '')
+            + '</span>'
+          : '')
     +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
     +     mediaBadges(r)
     +     (r.last_seen_at  ? '<span>' + t('row.fetched') + ' ' + esc(String(r.last_seen_at).slice(0,10)) + '</span>' : '')
+    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +   '</div>'
     +   qhitHtml(r)   /* v1.9.94 PRD §7.1：关键词命中高亮片段（独立于展开，直接可见） */
     +   deviationChip(r)   /* F6：偏差提示 chip（命中后确有更新才出现） */
@@ -2035,9 +2041,14 @@ function renderCompactItem(r, i){
   // ④ 物件属性
   h +=   '<div class="qc-cluster qc-meta">'
     +     (kindline ? '<span>' + esc(kindline) + '</span>' : '')
-    +     (r.floor ? '<span>' + t('row.floor') + ' ' + esc(r.floor) + '</span>' : '')
-    +     (r.above_ground_floors ? '<span>' + t('row.floors') + ' ' + esc(r.above_ground_floors) + '</span>' : '')
+    +     (r.floor || r.above_ground_floors
+          ? '<span class="flrA">'
+            + (r.floor ? t('row.floor') + ' <b>' + esc(r.floor) + '</b>' : '')
+            + (r.above_ground_floors ? ' / ' + t('row.above') + ' <b>' + esc(r.above_ground_floors) + '</b>' : '')
+            + '</span>'
+          : '')
     +     (r.built_year_month ? '<span>' + t('row.built') + ' ' + esc(r.built_year_month) + '</span>' : '')
+    +     (r.broker ? '<div class="broker" data-agency><b>' + esc(r.broker) + '</b>' + (r.broker_tel ? ' <span class="tel">☎ ' + esc(r.broker_tel) + '</span>' : '') + '</div>' : '')
     +   '</div>';
   // ⑤ 辅助与入口（按钮各自 stopPropagation，不误触展开）
   h +=   '<div class="qc-aux">'

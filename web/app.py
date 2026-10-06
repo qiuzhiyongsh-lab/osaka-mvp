@@ -2446,6 +2446,10 @@ def _row_payload(r) -> dict:
     d["trade_type"] = _tt.splitlines()[0].strip() if _tt else ""
     # v1.5.3：画/図/所 三个图标 + 真实照片张数（count=None 表示还没抓到详情、未知）
     d["media"] = _media_flags(d)
+    # PRD#40 F3：中介公司/电话从 detail_json 透传（properties 表无此列，数据在详情 JSON）
+    _det = d.get("detail") or {}
+    d["broker"] = _det.get("broker") or ""
+    d["broker_tel"] = _det.get("broker_tel") or ""
     # v1.9.109：PDF 直链口径（查询页 / 对比页共用本函数）。
     #   本机：有落盘 → 走本机 /download 路由（离线可用，保持原行为不变）；
     #   线上：本机路径**从不上传**（NEVER_UPLOAD_KEYS），但库里存的是 COS 预签名
