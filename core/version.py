@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.116"
+VERSION = "1.9.117"
 BUILD_AT = "2026-10-06 01:30"
 # ============================================================================
 # v1.9.114（2026-10-06 · PRD#39 多选 PDF 合并下载【开发（方式2）·未部署线上】）：
