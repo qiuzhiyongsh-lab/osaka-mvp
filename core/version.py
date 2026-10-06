@@ -9,10 +9,28 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.120"
-BUILD_AT = "2026-10-06 22:30"
+VERSION = "1.9.121"
+BUILD_AT = "2026-10-07 00:40"
 # ============================================================================
-# v1.9.120（2026-10-06 · 勇哥需求：员工收藏卡片「收藏于 时间」紧邻「+标签」按钮之后【开发（方式2）·未部署线上】）：
+# v1.9.121（2026-10-07 · 勇哥需求：A+C 合并·维护时段护栏·方式2 未发版）：
+#   【背景】勇哥 2026-10-07 00:16 报「22:00 后电脑在不停处理文档，没必要」。
+#     日志取证（data/logs/server.log 8637–8747 行）：10-07 00:11:17 起违规抓取
+#     70+ 个房源全部 TimeoutError（REINS 日本 23:00–07:00 维护不可用），纯属白跑。
+#   【5WHY 根因】scheduler._tick 一旦发车就调 run_round 长任务，不再检查时段；
+#     上层 _loop 的 _in_window() 只在发车前查一次，跑一半跨过 23:00 也不会中断。
+#   【改动·三处护栏（A+C 合并）】
+#     · 方案 C：scheduler._tick 入口加 _in_window() 二次校验（trigger≠manual/resume 时），
+#       万一分片 sleep 期间跨过 23:00，这里再拦一次，不发车。
+#     · 方案 A-1：crawler.sync_today_dates 分组循环开头加 _in_work_window(cfg) 检查，
+#       跨入维护时段则 break + 打日志「⏸ 日期同步跨入维护时段 → 提前结束本轮」。
+#     · 方案 A-2：crawler._backfill_details_pdfs 入口加 _in_work_window(cfg) 检查，
+#       维护时段直接跳过（阶段B 补详情也是长任务，跑也是 TimeoutError）。
+#   【兼容性】手动 trigger_manual / resume / run_date_sync.py 不受影响（trigger=manual/resume
+#     跳过 _tick 二次校验；_in_work_window 对手动脚本也安全——维护时段手动跑也会失败）。
+#   【验证】py_compile scheduler.py/crawler.py/version.py 通过；门禁 check_html_js 不涉及（纯 Python 改动）。
+#   【方式2】改代码提交，未 sync_to_publish、未重发布，待勇哥「发版」明令。
+# ============================================================================
+# v1.9.120（2026-10-06 · 勇哥需求：员工收藏卡片「收藏于 时间」紧邻「+标签」按钮之后【已发版】）：
 #   【需求】员工业务 → 收藏 → 收藏物件卡片内，把「收藏于 2026-09-27 23:02:49」字段放到「+标签」按钮的后面（紧邻、同行）。
 #   【改动】emp.html::propCard 的 extraHtml 由 `tagsHtml(块) + favTime(块)` 改为用 `.pcard-tags-row`(flex,align-items:center)
 #        包裹：`tagsHtml(`.pcard-tags`，去自身 margin) + favTime(由块 <div> 改为行内 <span>，margin-left:10px)`。

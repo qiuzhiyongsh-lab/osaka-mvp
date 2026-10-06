@@ -3334,6 +3334,11 @@ def sync_today_dates(store, cfg, log, today=None, progress_cb=None, run_id=None,
                  for gi, g in enumerate(groups, 1)
                  for field in date_fields]
         for _seq, (day, gi, g, field) in enumerate(_jobs, 1):
+            # v1.9.121（A+C 合并·方案 A）：分组循环开头查时段——跨入维护时段则 break，
+            #   避免长任务跑过 23:00 进维护页白跑（REINS 日本 23:00–07:00 维护不可用）。
+            if not _in_work_window(cfg):
+                log("⏸ 日期同步跨入维护时段（日本 23:00–07:00）→ 提前结束本轮，避免白跑")
+                break
             col = col_of[field]
             if nav_done:
                 page.goto(cfg["site"]["search_url"],
@@ -3868,6 +3873,11 @@ def _backfill_details_pdfs(store, cfg, log, run_id=None, _inner=False) -> dict:
     """后台补「详情页全字段 + PDF」—— 解耦自 main_round 的独立环节。"""
     if _inner:
         # 由 run_round_options 自身收尾调用时 no-op：避免与它的行内补详情递归/重复。
+        return {"fetched": 0, "skipped": 0}
+    # v1.9.121（A+C 合并·方案 A）：阶段B 补详情也是长任务，入口查时段。
+    #   维护时段（日本 23:00–07:00）REINS 不可用，跑也是白跑（TimeoutError）。
+    if not _in_work_window(cfg):
+        log("· 阶段B 补详情跳过：当前不在运行时段（日本 23:00–07:00 维护）")
         return {"fetched": 0, "skipped": 0}
     sel = cfg["selectors"]
     cr = (cfg.get("crawl") or {})

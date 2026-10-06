@@ -394,6 +394,13 @@ class Scheduler:
         self._log("调度线程已退出")
 
     def _tick(self, trigger: str):
+        # v1.9.121（A+C 合并·方案 C）：发车前二次校验时段——即便上层 _loop 已拦，
+        #   万一在分片 sleep 期间跨过 23:00（日本时间），这里再拦一次，避免发车后
+        #   run_round 长任务一路跑进维护时段白跑（REINS 日本 23:00–07:00 维护不可用）。
+        #   手动 trigger_manual 不走 _tick（它有自己的入口），所以不影响手动触发。
+        if trigger not in ("manual", "resume") and not self._in_window():
+            self._log(f"⏸ 发车前二次校验：当前不在运行时段（{self.describe()}）→ 本轮不发车，等下一轮")
+            return
         if self._paused:
             # 指定日期下载进行中：让路，本轮不发车
             self._log(f"⏸ 当天的下载暂停中（{self._paused_reason}），本轮跳过")
