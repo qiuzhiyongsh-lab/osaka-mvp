@@ -279,14 +279,16 @@ function propCard(r){
   var id = 'pc_'+no;
   /* 标签行：直接显示已有标签名，可点 × 移除、可 + 添加（勇哥要求） */
   var tagsHtml = '<div class="pcard-tags" id="'+id+'_tags"'
-    + ' style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px 2px"></div>';
+    + ' style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>';
   var favTime = r.fav_created_at
-    ? '<div class="emp-mini" style="margin-top:6px">收藏于 '+esc(r.fav_created_at)+'</div>' : '';
+    ? '<span class="emp-mini" style="margin-left:10px;white-space:nowrap">收藏于 '+esc(r.fav_created_at)+'</span>' : '';
   if(window.PropCard){
     /* expandable:false —— 勇哥：收藏页不需要把详细页面再展开，进来直接打标签即可 */
     /* v1.9.95 Fix C：onCompare:true ⇒ 「加入对比」不再空操作（prop_card.js 里 _cmp 默认 null） */
+    /* v1.9.120：用 flex 行包裹「标签行 + 收藏于」，使「收藏于 时间」紧邻「+标签」按钮之后（同行紧随，窄屏换行也紧随其后） */
     return PropCard.full(r, { id:id, expandable:false, onCompare:true,
-      extraHtml: tagsHtml + favTime });
+      extraHtml: '<div class="pcard-tags-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 2px 2px">'
+        + tagsHtml + favTime + '</div>' });
   }
   return '<div class="qitem"><div class="qhead"><div class="qrow1">'
     + '<span class="mono">'+esc(no)+'</span></div></div></div>';
