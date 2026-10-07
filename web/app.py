@@ -851,10 +851,17 @@ def _detail_pairs(row) -> list[tuple[str, str, bool]]:
         extra = json.loads(r.get("detail_json") or "{}")
     except Exception:
         extra = {}
+    # v1.9.122（勇哥 2026-10-08）：中介公司 + 中介电话 合并为一行（与查询页 broker 行口径一致：
+    # 「公司名 ☎ 电话」），避免详情页最后两行（公司 / 电话）各自独占网格单元、视觉上没并列排齐。
+    _broker = str((extra.get("broker") or "")).strip()
+    _broker_tel = str((extra.get("broker_tel") or "")).strip()
+    if _broker:
+        _broker_val = _broker + (f" ☎ {_broker_tel}" if _broker_tel else "")
+        pairs.append(("中介公司", _broker_val, True))
     missing: list[str] = []
     for k, v in extra.items():
         # ① 内部机器键 / 页头已单独渲染的核心列 —— 都不在这里显示
-        if k.startswith("_") or k in _INTERNAL_KEYS or k in _CORE_KEYS or v in (None, ""):
+        if k.startswith("_") or k in _INTERNAL_KEYS or k in _CORE_KEYS or k in ("broker", "broker_tel") or v in (None, ""):
             continue
         if isinstance(v, (dict, list)):
             v = json.dumps(v, ensure_ascii=False)
