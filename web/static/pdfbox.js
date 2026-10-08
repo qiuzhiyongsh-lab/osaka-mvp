@@ -67,7 +67,7 @@
       ' title="' + (hasPdf ? esc(t("pdf.tip_add")) : esc(t("pdf.tip_nopdf"))) + '">';
     var btn;
     if (hasPdf) {
-      btn = '<a class="pdfbtn" data-no="' + esc(no) + '" href="' + esc(r.pdf_url) + '"' +
+      btn = '<a class="pdfbtn" data-no="' + esc(no) + '" href="/pdf/' + esc(no) + '"' +
         ' target="_blank" rel="noopener" onclick="event.stopPropagation()">' + esc(t("pdf.dl")) + "</a>";
     } else {
       btn = '<span class="pdfbtn disabled" title="' + esc(t("pdf.tip_nopdf")) + '">' + esc(t("pdf.dl")) + "</span>";

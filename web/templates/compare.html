@@ -453,7 +453,7 @@ function render(){
       rows.forEach(function(r, i){
         var v = vals[i];
         var cell;
-        if(v === '__pdf__')         cell = '<a class="btn tiny" href="' + r.pdf_url + '" target="_blank">' + t('cmp.pdfc') + '</a>';
+        if(v === '__pdf__')         cell = '<a class="btn tiny" href="/pdf/' + r.property_no + '" target="_blank">' + t('cmp.pdfc') + '</a>';
         else if(v === '__detail__') cell = '<a class="btn ghost tiny" href="/p/'
                                           + encodeURIComponent(r.property_no) + '" target="_blank">' + t('cmp.srcpage') + '</a>';
         else if(v === '__src__')    cell = '<a class="link" href="' + esc(r.source_url) + '" target="_blank">' + t('cmp.srcsite') + '</a>';

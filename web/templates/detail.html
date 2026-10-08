@@ -72,8 +72,8 @@
     {% endif %}
   </div>
   <div class="row" style="margin-top:10px">
-    {% set _pdf_url_b = (row['pdf_url'] if 'pdf_url' in row.keys() else None) %}
-    {% set _pdf_link_b = _pdf_url_b or (url_for('download', dir='attachments', name=row.property_no + '.pdf') if row.pdf_path else '') %}
+    {% set _has_pdf_b = ((row['pdf_url'] if 'pdf_url' in row.keys() else None) or row.pdf_path) %}
+    {% set _pdf_link_b = (url_for('pdf_proxy', no=row.property_no) if _has_pdf_b else '') %}
     {% if _pdf_link_b %}
     <!-- v1.9.114 PRD#39：详情页复用与列表**同款控件组**（☑左 + PDF下载右），共用同一选择集（FR18/FR19）。
          ☑ 加入合并选择集；「PDF下载」即原来的单套直下（保留 target=_blank）。 -->
@@ -165,11 +165,11 @@
    本地 8765 仍走 /download 路由（row.pdf_path）。线上用 row.keys() 判存在，
    避免 sqlite3.Row 对未取到的列抛 IndexError。 #}
 {% set _pdf_url = (row['pdf_url'] if 'pdf_url' in row.keys() else None) %}
-{% set _pdf_link = _pdf_url or (url_for('download', dir='attachments', name=row.property_no + '.pdf') if row.pdf_path else '') %}
+{% set _pdf_link = (url_for('pdf_proxy', no=row.property_no) if (_pdf_url or row.pdf_path) else '') %}
 {% if _pdf_link %}
 <div class="card sec" id="pdfCard">
   <h2><span data-i18n="detail.pdf_h">房源図面 PDF</span>
-    {% if _pdf_url %}<span class="hint">云端 PDF 原件（COS 直链，7 天有效）</span>
+    {% if _pdf_url %}<span class="hint">云端 PDF 原件（经服务端代理，链接永不过期）</span>
     {% else %}<span class="hint" data-i18n="detail.pdf_hint">本机 PDF 原件（不会上传到线上）</span>{% endif %}</h2>
   <iframe class="pdf-frame"
           src="{{ _pdf_link }}"

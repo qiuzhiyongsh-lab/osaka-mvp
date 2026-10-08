@@ -2056,7 +2056,7 @@ function renderCompactItem(r, i){
     +     mediaBadges(r)
     +     '<span class="qc-date">' + t('row.fetched') + ' ' + dateTxt + '</span>'
     +     (r.pdf_url
-              ? '<a class="qbtn-mini" href="' + r.pdf_url + '" target="_blank"'
+              ? '<a class="qbtn-mini" href="/pdf/' + esc(no) + '" target="_blank"'
                 + ' onclick="event.stopPropagation()">' + t('detail.openpdf') + '</a>'
               : '<a class="qbtn-mini disabled" href="javascript:void(0)"'
                 + ' onclick="event.stopPropagation()" title="' + esc(t('row.no_pdf')) + '">' + t('detail.openpdf') + '</a>')
@@ -2124,7 +2124,7 @@ function fillDetail(divId, r){
   });
   h += '</div>';
   h += '<div class="dactions">';
-  if(r.pdf_url) h += '<a class="btn" href="'+r.pdf_url+'" target="_blank">'+t('detail.openpdf')+'</a>';
+  if(r.pdf_url) h += '<a class="btn" href="/pdf/'+r.property_no+'" target="_blank">'+t('detail.openpdf')+'</a>';
   h += '<a class="btn ghost" href="/p/'+encodeURIComponent(r.property_no)+'" target="_blank">'+t('detail.srcpage')+'</a>';
   // v1.5.19：勇哥 ——「单独对比这套」没意义（点进去是对比页里孤零零一套，比不了）。
   //   要对比就先在每行左边「加入对比」勾选 2~6 套，再点底部「开始对比」；

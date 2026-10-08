@@ -72,7 +72,11 @@ SECRET_KEY_PARTS = ("password", "passwd", "secret", "token", "cookie", "cred",
                     "access_code", "private_key")
 # ⚠ 例外：线上 /api/ingest 要拿它校验本机推来的数据，必须一起上云。
 #   它是 32 位随机数（每次重装可再生成），不是 REINS 账号密码。
-KEEP_KEYS = {"ingest_token"}
+#   v1.9.123 追加 cos.secret_id / cos.secret_key：PDF 代理路由（/pdf/<no>）要「按需重签」
+#   才能根治 7 天直链过期（2026-10-08 全站 PDF 失效的根因）。密钥只存于 git-忽略的
+#   config.local.yaml，经本白名单随发布上云到线上运行时配置——与 ingest_token 同机制；
+#   线上仅用于生成 COS 预签名下载 URL（GetObject 范畴），不开放给前端、不写回库外。
+KEEP_KEYS = {"ingest_token", "secret_id", "secret_key"}
 SKIP_DIRS = {"__pycache__", ".git", ".backups", "_e2e_tmp", "probe", "backups"}
 # v1.9.60：pdf_url 已**移出**本集合 —— 线上 PDF 展示需要它（值 = COS 私有读桶的
 #   预签名直链，不含本机路径）。本机路径类键（pdf_path/pdf_local/pdf_rel/pdf）仍严禁外传。

@@ -23,8 +23,8 @@ from pathlib import Path
 import sqlite3
 
 from flask import (Flask, abort, jsonify, make_response, redirect,
-                   render_template, request, send_from_directory, session,
-                   url_for)
+                   render_template, request, send_file, send_from_directory,
+                   session, url_for)
 from werkzeug.exceptions import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -2140,6 +2140,125 @@ def download(dir: str, name: str):
     if dir not in ("exports", "daily", "attachments"):
         return "not allowed", 403
     return send_from_directory(PATHS[dir], name, as_attachment=False)
+
+
+# ============================================================
+# v1.9.123 · PRD#39 后续「PDF 下载根治」：后端代理下载路由
+#
+# 根因（2026-10-08 全站 PDF 失效）：前端直接持有 COS 预签名直链（最长 7 天有效），
+#   直链过期即 403；刷新页面没用（pdf_url 是库里静态串）。原重签线程依赖本地 8765
+#   常驻，重启即断 → 7 天后必复发。
+#
+# 根治：前端永不持有过期直链，改走 /pdf/<no>；后端按 no 取库 pdf_url：
+#   · 本机有落盘（pdf_path）→ send_file 本机 PDF（离线可用，保持原 /download 行为）；
+#   · 库里是 COS 预签名直链 → 服务端 urllib 拉取中转返回 application/pdf；
+#     **若直链临近/已过期且本机有 COS 密钥，则先按需重签（写回本库）再拉** ——
+#     线上若已随发布带上 COS 密钥（sync_to_publish 已把 cos.secret_* 加入 KEEP_KEYS，
+#     与 ingest_token 同机制，密钥仍只存于 git-忽略的 config.local.yaml），则每次点击自愈，
+#     彻底摆脱「依赖本地 8765 重签线程在线」的脆弱性。
+# 走 _access_guard（已登录浏览器才可下载）；_public_guard 不拦截（非 /download/ 前缀、
+#   不在 PUBLIC_HIDDEN_APIS），线上只读站可用。
+# ============================================================
+import urllib.request as _urllib_req
+import urllib.error as _urllib_err
+
+_PDF_RESIGN_MARGIN = 24 * 3600     # 余量 < 1 天 即按需重签
+
+
+def _cos_sign_end(url: str):
+    """从 COS 预签名直链的 q-sign-time 段解析到期 unix 秒；解析不出返回 None。"""
+    if not url or "q-sign-time=" not in url:
+        return None
+    try:
+        tail = url.split("q-sign-time=")[1].split("&")[0]
+        end = tail.split("%3B")[1] if "%3B" in tail else tail.split(";")[1]
+        return int(end)
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def _is_cos_presigned(url: str) -> bool:
+    return bool(url) and "q-sign-time=" in url
+
+
+def _ensure_fresh_pdf_url(no: str, pdf_url: str) -> str:
+    """COS 直链临近/已过期且本机有密钥 → 先重签（写回本库）再返回；否则原样返回。"""
+    if not _is_cos_presigned(pdf_url):
+        return pdf_url
+    end = _cos_sign_end(pdf_url)
+    now = time.time()
+    if end is not None and (end - now) >= _PDF_RESIGN_MARGIN:
+        return pdf_url                                    # 余量充足，无需重签
+    # 尝试按需重签（需要 qcloud_cos + cos 密钥；线上若已随发布带上即可）
+    try:
+        from core import pdf_cloud
+        cos, cli = pdf_cloud.client()
+    except Exception as _e:                               # noqa: BLE001
+        print("[pdf_proxy] 无 COS 密钥/SDK，跳过重签（直链可能已过期）：%s" % _e,
+              flush=True)
+        return pdf_url
+    try:
+        new_url = cli.get_presigned_download_url(
+            Bucket=cos["bucket"], Key="%s.pdf" % no,
+            Expired=pdf_cloud.DEFAULT_EXPIRE)
+        pdf_cloud._write_pdf_url(no, new_url)
+        print("[pdf_proxy] 已按需重签 %s（余量不足）" % no, flush=True)
+        return new_url
+    except Exception as _e:                               # noqa: BLE001
+        print("[pdf_proxy] 重签失败（将尝试用原直链）：%s" % _e, flush=True)
+        return pdf_url
+
+
+def _fetch_cos_bytes(url: str, no: str, timeout: int = 30):
+    """服务端拉取 COS 直链，返回 bytes；失败返回 None。"""
+    try:
+        req = _urllib_req.Request(url, headers={"User-Agent": "osaka-pdf-proxy/1.0"})
+        with _urllib_req.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except _urllib_err.HTTPError as _e:
+        print("[pdf_proxy] COS 拉取 HTTP %s：%s" % (_e.code, no), flush=True)
+        return None
+    except Exception as _e:                               # noqa: BLE001
+        print("[pdf_proxy] COS 拉取失败 %s：%s" % (no, _e), flush=True)
+        return None
+
+
+@app.get("/pdf/<no>")
+def pdf_proxy(no: str):
+    """PDF 后端代理下载（前端永不持有会过期的 COS 直链）。"""
+    row = STORE.get_property(no)
+    if row is None:
+        abort(404)
+    d = dict(row)
+    pdf_path = d.get("pdf_path")
+    pdf_url = d.get("pdf_url")
+    # ① 本机落盘优先（本机模式；线上 pdf_path 恒为空）
+    if pdf_path:
+        local = Path(pdf_path)
+        if not local.is_absolute():
+            local = PATHS["attachments"] / os.path.basename(pdf_path)
+        if local.exists():
+            return send_file(local, mimetype="application/pdf",
+                             as_attachment=False, download_name="%s.pdf" % no)
+    # ② 库里的本机相对路径（防御：万一 pdf_path 缺失但 pdf_url 指向 /download/attachments）
+    if pdf_url and "/download/attachments/" in pdf_url:
+        nm = pdf_url.rsplit("/", 1)[-1]
+        local = PATHS["attachments"] / nm
+        if local.exists():
+            return send_file(local, mimetype="application/pdf",
+                             as_attachment=False, download_name="%s.pdf" % no)
+    if not pdf_url:
+        abort(404)
+    # ③ COS 预签名直链：按需重签（仅本机/线上有密钥时）后服务端中转
+    url = _ensure_fresh_pdf_url(no, pdf_url)
+    data = _fetch_cos_bytes(url, no)
+    if data is None:
+        abort(404, description="PDF 链接已过期且服务端无法重签（无 COS 密钥或无网络），请联系管理员")
+    resp = make_response(data)
+    resp.headers["Content-Type"] = "application/pdf"
+    resp.headers["Content-Disposition"] = 'inline; filename="%s.pdf"' % no
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ============================================================

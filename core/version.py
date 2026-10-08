@@ -9,8 +9,25 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.122"
-BUILD_AT = "2026-10-08 07:15"
+VERSION = "1.9.123"
+BUILD_AT = "2026-10-08 11:30"
+# ============================================================================
+# v1.9.123（2026-10-08 · 勇哥需求：PDF 下载根治 = 后端代理下载【开发 + 发版】）：
+#   【根因】前端直接持有 COS 预签名直链（最长 7 天有效），过期即 403；刷新页面无效
+#           （pdf_url 是库里静态串）。原重签线程依赖本地 8765 常驻，重启即断 → 7 天后必复发
+#           （2026-10-08 全站 PDF 失效即此因）。
+#   【根治】新增后端代理路由 `GET /pdf/<no>`（走 _access_guard 登录守卫；PUBLIC 模式不被
+#           _public_guard 拦截，线上只读站可用）：
+#           ① 本机有落盘（pdf_path）→ send_file 本机 PDF（离线可用，保持原 /download 行为）；
+#           ② 库里是 COS 预签名直链 → 服务端 urllib 拉取中转返回 application/pdf；
+#              **若直链临近/已过期且本机有 COS 密钥，则先按需重签（写回本库）再拉** ——
+#              线上若已随发布带上 COS 密钥（sync_to_publish 已把 cos.secret_* 加入 KEEP_KEYS，
+#              与 ingest_token 同机制，密钥仍只存于 git-忽略的 config.local.yaml），则每次点击自愈，
+#              彻底摆脱「依赖本地 8765 重签线程在线」的脆弱性。
+#           前端所有单文件 PDF 下载（查询页/pdfbox 控件组/详情页 iframe+按钮/对比页）统一改走
+#           `/pdf/<no>`，永不暴露过期直链；多选合并 `/api/pdf/merge` 不动。
+#   【配套】发布包 requirements.txt 增补 qcloud_cos（线上按需重签依赖）。
+#   【验证】py_compile / node --check / tools/check_html_js.py 全绿；本地 8765 抽一条 /pdf/<no> 实测中转成功。
 # ============================================================================
 # v1.9.122（2026-10-08 · 勇哥需求：员工收藏详情页中介行合并为一行【开发（方式2）·未部署线上】）：
 #   【需求】勇哥报「员工收藏对应的详情页中，最后一行的内容没有并列排齐」。
