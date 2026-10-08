@@ -9,8 +9,30 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-VERSION = "1.9.123"
-BUILD_AT = "2026-10-08 11:30"
+VERSION = "1.9.124"
+BUILD_AT = "2026-10-08 12:00"
+# ============================================================================
+# v1.9.124（2026-10-08 · 勇哥需求：员工收藏详情页 broker 末行对齐 + 防信息丢失回归【开发·未部署】）：
+#   【需求】勇哥报「员工收藏对应详情页 300140894939：① 最后一行没有并列排齐；② 公司名称和电话又没了
+#           （已是第 2~3 次出现『原来有的信息后来没了』）。要求查根因并保证后续不再出现」。
+#   【根因】两处叠加：
+#     (A) 对齐 bug：`.broker` 原是带边框独立块落在 flex-wrap 末行，不与上方 meta 行内对齐（视觉错位，非数据丢失）。
+#     (B) 『又没了』复发 = 视图陈旧，非字段丢失：v1.9.122 的 _detail_pairs 合并 broker+broker_tel 其实已是
+#         v1.9.123 的祖先提交、随 PDF 根治版一起上线，逻辑层 broker 一直在；用户反复见到『没了』是因为
+#         ① 静态资源改动未抬 ?v= 缓存破坏 → 浏览器吃旧 CSS/JS；② 人工发版/重启滞后，运行实例未加载新构建。
+#         （数据链路实证：真库 _row_payload.broker='（株）ＥＳ＆Ｃｏｍｐａｎｙ'、broker_tel='0666849636'
+#           publisher.FIELD_MAP 含 detail_json、NEVER_UPLOAD 不含 broker → 字段从未漏报、未漏传）
+#   【改动】
+#     ① web/static/style.css：`.broker` 由独立带边框块改为「全宽 flex 行」，与上方 meta 同行内并列排齐
+#        （含公司名 + ☎ 电话）；空 broker 时不渲染，有公司无电话只显公司名。
+#     ② 防回归门禁（tests/）：新增三链一致性 grep 测试（search.html / prop_card.js / app.py 任一流漏 broker
+#        立即红灯）、真库 broker 断言（_row_payload + _detail_pairs 取 300140894939 实证）、
+#        JS 真机 harness（Node 跑 PropCard.full，断言渲染 class="broker" data-agency 含公司名+☎）、
+#        以及 detail 字典收口：JP2CN 补 land_right/trade_status（此前未收录被详情页隐藏，同类信息丢失）、
+#        _INTERNAL_KEYS 补 pdf_sha256（PDF 指纹哈希纯内部键绝不显示）。
+#   【验证】pytest tests/test_detail_pairs.py tests/test_prop_card_js.py → 8 passed；py_compile / node --check 全绿。
+#   【保证后续不再出现】四道闸门（三链 grep + 真库 broker 断言 + JS 真机 + 字典收口）挡住『任一渲染链被重构漏
+#         broker』或『详情页漏字典键』；发版必抬 VERSION 触发 ?v= 强刷，杜绝『修了却还显示旧』的陈旧视图复发。
 # ============================================================================
 # v1.9.123（2026-10-08 · 勇哥需求：PDF 下载根治 = 后端代理下载【开发 + 发版】）：
 #   【根因】前端直接持有 COS 预签名直链（最长 7 天有效），过期即 403；刷新页面无效

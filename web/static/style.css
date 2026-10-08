@@ -448,9 +448,15 @@ pre.log{background:#111a2e;color:#c9e2ff;border-radius:11px;padding:13px 14px;fo
 .flrA{white-space:nowrap}
 .flrA b{font-weight:800;color:#2b6cb0}
 .yield{font-size:12px;font-weight:700;color:#2f9e44;background:#e9f7ef;border:1px solid #bfe6cd;border-radius:6px;padding:1px 7px;white-space:nowrap}
-.broker{font-size:12px;color:#46556a;background:#f3f8ff;border:1px solid #d6e6fb;border-radius:8px;padding:6px 10px;margin-top:4px}
+/* v1.9.124（防回归·对齐修复）：中介行原是带边框独立块，落在 flex-wrap 末行时
+   与上方 meta 行不对齐、且「公司名 ☎ 电话」易错位。改为全宽 flex 行：
+   ① width:100% 独占末行、左缘与上方 meta 对齐；② display:flex+gap 让
+   公司名与电话始终并列排齐（不再靠 margin-left 错位）；③ 改 web/static 必抬 VERSION 换 ?v=。 */
+.broker{display:flex;align-items:center;gap:8px;width:100%;
+  font-size:12px;color:#46556a;background:#f3f8ff;border:1px solid #d6e6fb;
+  border-radius:8px;padding:6px 10px;margin-top:4px;box-sizing:border-box}
 .broker b{color:#1f4e87;font-weight:700}
-.broker .tel{font-family:ui-monospace,monospace;margin-left:8px;color:#1f4e87}
+.broker .tel{font-family:ui-monospace,monospace;color:#1f4e87}
 
 /* R1（PRD-20）：列表卡片 ㎡単価 / 坪単価 行 */
 .qunit{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:3px;font-size:12.5px;font-weight:700;color:#22304d}

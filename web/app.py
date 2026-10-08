@@ -637,6 +637,10 @@ JP2CN = {
     "trade_type": "交易方式", "use_zone": "用途地域", "management_fee": "管理费（每月）",
     "repair_fund": "修缮积立金（每月）", "broker": "中介公司", "broker_tel": "中介电话",
     "public_status": "公开状态", "source_url": "来源链接",
+    # v1.9.124（防「原有信息后续丢失」）：land_right / trade_status 是新抓到的 REINS 字段，
+    # 此前未收录 → 被 _detail_pairs 隐藏不显示。补中文标签让详情页正常露出
+    # （值走 _enum_cn，未映射枚举时保留日文原值；标签中文化，与全局口径一致）。
+    "land_right": "土地权利", "trade_status": "交易状况",
     # v1.7.2 补录（此前漏收录 → 机器键直接上屏）
     "ward": "所在区", "unit_price_sqm": "㎡单价", "unit_price_tsubo": "坪单价",
     "has_photo": "照片", "has_floorplan": "户型图", "has_map": "位置图",
@@ -664,7 +668,7 @@ _CORE_KEYS = {
 
 # v1.7.2：内部机器键 —— 抓取/存储专用，**永不显示**。
 #   pdf_url/pdf_path 是文件路径（页面另有「打开本地 PDF」按钮），没有给人看的理由。
-_INTERNAL_KEYS = {"pdf_url", "pdf_path", "absent_runs", "detail_json", "_ms_pdf", "__fp__"}
+_INTERNAL_KEYS = {"pdf_url", "pdf_path", "absent_runs", "detail_json", "_ms_pdf", "__fp__", "pdf_sha256"}
 
 # v1.7.2：REINS 后台枚举 → 客户看得懂的说法。
 #   取值清单来自真实库全量统计（2026-09-16 实枚举），不靠猜。
