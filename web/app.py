@@ -2185,13 +2185,17 @@ def _is_cos_presigned(url: str) -> bool:
     return bool(url) and "q-sign-time=" in url
 
 
-def _ensure_fresh_pdf_url(no: str, pdf_url: str) -> str:
-    """COS 直链临近/已过期且本机有密钥 → 先重签（写回本库）再返回；否则原样返回。"""
+def _ensure_fresh_pdf_url(no: str, pdf_url: str, force: bool = False) -> str:
+    """COS 直链临近/已过期且本机有密钥 → 先重签（写回本库）再返回；否则原样返回。
+
+    force=True：无视余量强制重签（v1.9.125，供「服务端拉取失败自救重试」用——
+    SDK 判定余量充足不代表该直链此刻真的还能拉通，失败时强制换一张新票再试一次）。
+    """
     if not _is_cos_presigned(pdf_url):
         return pdf_url
     end = _cos_sign_end(pdf_url)
     now = time.time()
-    if end is not None and (end - now) >= _PDF_RESIGN_MARGIN:
+    if not force and end is not None and (end - now) >= _PDF_RESIGN_MARGIN:
         return pdf_url                                    # 余量充足，无需重签
     # 尝试按需重签（需要 qcloud_cos + cos 密钥；线上若已随发布带上即可）
     try:
@@ -2257,6 +2261,20 @@ def pdf_proxy(no: str):
     url = _ensure_fresh_pdf_url(no, pdf_url)
     data = _fetch_cos_bytes(url, no)
     if data is None:
+        # v1.9.125 自救重试：强制重签一张新票再拉一次（原票可能在服务端侧已被判失效，
+        #   但客户端余量判定仍显示充足）。
+        fresh = _ensure_fresh_pdf_url(no, url, force=True)
+        if fresh != url:
+            print("[pdf_proxy] 首拉失败，强制重签后重试：%s" % no, flush=True)
+            data = _fetch_cos_bytes(fresh, no)
+            url = fresh
+    if data is None:
+        # v1.9.125 双通道兜底：服务端拉不动（线上沙箱出网受限 / 到 COS 大阪区路由不通）
+        #   → 302 把**预签名直链**交回浏览器，由浏览器直拉 COS（v1.9.123 之前的历史行为，
+        #   浏览器能连到 COS 就能开）。仅对「COS 预签名直链」兜底，本地路径绝不外泄。
+        if _is_cos_presigned(url):
+            print("[pdf_proxy] 服务端拉取失败，回退浏览器直链：%s" % no, flush=True)
+            return redirect(url)
         abort(404, description="PDF 链接已过期且服务端无法重签（无 COS 密钥或无网络），请联系管理员")
     resp = make_response(data)
     resp.headers["Content-Type"] = "application/pdf"
