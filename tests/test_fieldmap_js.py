@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 HARNESS = Path(__file__).resolve().parent / "fieldmap_js_harness.js"
 FIELD_JS = ROOT / "web" / "static" / "fieldmap.js"
-NODE = r"C:\Users\25374\.workbuddy\binaries\node\versions\22.22.2-3\node.exe"
+NODE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe"
 
 
 def test_real_js_fieldmap():

@@ -1,5 +1,5 @@
 === v1.9.5 _read_total 校验 ===
-源码: C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\core\crawler.py
+源码: C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\core\crawler.py
   [OK]   ast 抽到全部目标函数: _parse_total, _read_tab_count, _read_total, _read_zero_note, _safe_text
   [OK]   
   [OK]   A 有结果页取原文: '1～50件 ／ 138件'

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}大阪房源查询系统（本地版）{% endblock %}</title>
+<title>{% block title %}大阪房源查询系统（{{ '线上一版' if public else '线下版' }}）{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
 <link rel="icon" href="data:,">
 <!-- v1.9.20：把「是不是线上只读站」显式告诉前端。番号検索要据此分两条路：
@@ -42,7 +42,7 @@
   <div class="wrap topin">
     <a class="logo" href="{{ url_for('index') }}">
       <span class="logo-mark">大</span>
-      <span class="logo-text"><span data-i18n="logo">大阪房源</span><em data-i18n="logo.em">{{ '线上版' if public else '本地版' }}</em></span>
+      <span class="logo-text"><span data-i18n="logo">大阪房源</span><em data-i18n="logo.em">{{ '线上一版' if public else '线下版' }}</em></span>
     </a>
     <nav>
       {# v1.5.18：对外展示版（OSAKA_PUBLIC=1）只留查询相关的三个入口，

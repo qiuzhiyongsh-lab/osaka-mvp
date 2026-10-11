@@ -26,7 +26,7 @@
 ## 2. 重启前预检（1 分钟）
 
 ```bash
-cd C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
+cd C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
 git status --short          # 应为空 → 没有改了一半的代码
 grep '^VERSION' core/version.py   # 记下版本号，用于重启后核对
 ```
@@ -85,7 +85,7 @@ python tools/_diag_bug12_verify.py   # 若不存在，可用 grep 手动核对
 ## 6. 回滚
 
 ```bash
-cd C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
+cd C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
 git log --oneline -5          # 确认要回到的那个 commit
 # 🚨 禁用 git stash（2026-09-17 血案）
 ```

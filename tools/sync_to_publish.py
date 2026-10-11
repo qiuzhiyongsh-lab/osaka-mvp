@@ -38,8 +38,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-MVP = Path(r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp")
-PUB = Path(r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-house-publish")
+MVP = Path(r"E:\workbuddy\2026-09-11-09-50-22\osaka-mvp")
+PUB = Path(r"E:\workbuddy\2026-09-11-09-50-22\osaka-house-publish")
 # 部署单元（两个目录对应两个**不同的线上 app**，绝不混用）：
 #   app_local    → 2104（2104034688228982784.app.workbuddy.host，现转冷备）
 #   app_final_v3 → v100（osaka-mvp-v100.app.workbuddy.host，2026-10-03 起为生产主地址）

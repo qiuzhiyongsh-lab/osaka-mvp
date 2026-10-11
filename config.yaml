@@ -3,10 +3,6 @@ app:
   mode: live
   output_root: ./data
 schedule:
-  # v1.9.107 / PRD-38 D6（2026-10-02 勇哥拍板「按将来可以正常运行去处理」）：
-  #   改回 true —— 10-01 17:42 的「已停止」来源不明，但**目标是长期自动运行**，
-  #   所以恢复成开机即按窗口发车。发车仍受 window 07:00–23:00(Asia/Tokyo) 约束，
-  #   run_on_start=false ⇒ 重启不会立刻开跑，明早 07:00 后正常发车。
   enabled: true
   mode: random
   interval_hours: 2.0
@@ -17,8 +13,8 @@ schedule:
     start: 07:00
     end: '23:00'
   run_on_start: false
-  random_min_minutes: 90.0
-  random_max_minutes: 120.0
+  random_min_minutes: 50.0
+  random_max_minutes: 70.0
 local_extract:
   enabled: true
   prefer_local: true
@@ -166,7 +162,7 @@ download:
   export_excel: true
   export_daily_page: true
 web:
-  host: 127.0.0.1
+  host: 0.0.0.0
   port: 8765
 selectors:
   collapse_toggle: a:has-text('検索条件を表示')

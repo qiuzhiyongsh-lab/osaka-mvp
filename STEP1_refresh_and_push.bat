@@ -30,7 +30,7 @@ echo   若 REINS 会话失效，窗口会让你手工登录，登完自动继续
 echo   别动鼠标，等它跑完（约数十分钟）
 echo   已成功番号记到 _refresh_done_nos.txt，中断后加 --resume 续跑
 echo.
-"C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt --no-pdf --resume
+"C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe" tools\refresh_by_no.py --file tools\_pseudo_detail_nos.txt --no-pdf --resume
 echo.
 echo 补抓结束，看上方 成功/跳过/失败 计数。
 echo.
@@ -43,7 +43,7 @@ pause >nul
 echo.
 echo 【步骤 4/4】强制全量推线上（离线直推，不需 8765 在线）
 echo.
-"C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe" tools\force_full_push.py
+"C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe" tools\force_full_push.py
 echo.
 echo ============================================================
 echo   全部完成！线上已含 729 条地址更新

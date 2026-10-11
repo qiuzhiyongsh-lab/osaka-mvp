@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}数据抓取设置 · 大阪房源本地版{% endblock %}
+{% block title %}数据抓取设置 · 大阪房源{{ '线上一版' if public else '线下版' }}{% endblock %}
 {% block body %}
 
 <div class="card hero">

@@ -69,8 +69,8 @@ def find_git() -> str:
     if p:
         return p
     for pat in (
-        r"C:\Users\25374\.workbuddy\binaries\PortableGit\**\cmd\git.exe",
-        r"C:\Users\25374\.workbuddy\binaries\PortableGit\**\bin\git.exe",
+        r"C:\Users\Administrator\.workbuddy\binaries\PortableGit\**\cmd\git.exe",
+        r"C:\Users\Administrator\.workbuddy\binaries\PortableGit\**\bin\git.exe",
     ):
         hits = glob.glob(pat, recursive=True)
         if hits:

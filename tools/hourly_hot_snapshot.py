@@ -18,7 +18,7 @@ import sqlite3
 import datetime
 import sys
 
-BASE = r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
+BASE = r"C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
 OUT = os.path.join(BASE, ".backups", "hot")
 LOG = os.path.join(OUT, "snapshot.log")
 ASSETS = ["data/employee.db", "data/ai_pdf_store.db"]

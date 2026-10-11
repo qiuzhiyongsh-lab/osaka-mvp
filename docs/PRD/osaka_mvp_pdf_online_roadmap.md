@@ -2,7 +2,7 @@
 
 > 配套 PRD：`docs/PRD/osaka_mvp_pdf_online_prd.md`
 > 编写：小巴　|　2026-09-22　|　状态：待勇哥确认 Q1–Q3 口径后执行
-> 所有路径基于 `C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\`
+> 所有路径基于 `C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\`
 > 铁律：**动代码先 checkpoint（checkpoint.py）→ 写码不发布 → 勇哥说"发版"才 sync+deploy**
 
 ---
@@ -24,7 +24,7 @@
    → 小巴写入本机 `config.local.yaml`（已 .gitignore，`sync_to_publish` 的 `SECRET_KEYS` 保证其**永不上云**）
 4. **本机装 SDK**（venv，隔离）
    ```bash
-   "C:/Users/25374/.workbuddy/binaries/python/envs/default/Scripts/pip.exe" install cos-python-sdk-v5
+   "C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/pip.exe" install cos-python-sdk-v5
    ```
 
 ---
@@ -60,7 +60,7 @@ cos:
 
 ```bash
 cd osaka-mvp
-"C:/Users/25374/.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/pdf_to_cos.py --backfill
+"C:/Users/Administrator/.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/pdf_to_cos.py --backfill
 ```
 - **全量上传**（勇哥口径"取下来就上云"）：扫描 `data/attachments/*.pdf` **全部上传，不过滤孤儿**；仅对"库内存在对应 `property_no` 且该房源 `has_floorplan=1`/`pdf_path` 非空"的番号写 `pdf_url`（孤儿虽上传但不挂链接，详情页按 F6 隐藏）。
 - 进度日志每 100 份打印；失败计数末尾汇总。

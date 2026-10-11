@@ -5,7 +5,7 @@
 """
 import os, sys, tempfile, json
 
-SRC = r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
+SRC = r"C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
 TMP = tempfile.mkdtemp(prefix="publog_smoke_")
 os.makedirs(os.path.join(TMP, "data"), exist_ok=True)
 os.chdir(TMP)

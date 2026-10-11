@@ -23,7 +23,7 @@ if %errorlevel%==0 (
 echo [OK] 8765 is not running. Good.
 echo.
 
-set "PY=C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+set "PY=C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 echo Using python: %PY%
 echo.

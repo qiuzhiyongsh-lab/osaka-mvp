@@ -10,7 +10,7 @@ echo   It is NOT a re-deploy: no code is transferred.
 echo ==========================================================
 echo.
 
-set "PY=C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+set "PY=C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 echo Using python: %PY%
 echo.

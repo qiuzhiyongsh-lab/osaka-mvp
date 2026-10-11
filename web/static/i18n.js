@@ -25,7 +25,7 @@
       'footer.local': '數據全部保存在本機：',
       'footer.window': '僅在 07:00–23:00 內自動更新（REINS 其餘時間維護）',
       'footer.ver': '版本', 'footer.updated': '更新於',
-      'logo': '大阪房源', 'logo.em': '本地版',
+      'logo': '大阪房源', 'logo.em': '線下版',
       'lang.label': '語言',
 
       'ov.title': '概覽', 'ov.auto': '每 60 秒自動重整',

@@ -5,7 +5,7 @@ import ast, time, sys, subprocess, io, os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CRAWLER = os.path.join(ROOT, "core", "crawler.py")
 RESULT = os.path.join(ROOT, "tools", "_verify_read_total_v194.result.txt")
-PY = r"C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+PY = r"C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 
 out = []
 

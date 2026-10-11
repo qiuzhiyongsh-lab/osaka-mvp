@@ -8,7 +8,7 @@ echo   存档检查点 = 备份房源库 + git 提交当前改动
 echo ============================================
 echo.
 
-set "PY=C://Users//25374//.workbuddy//binaries//python//envs//default//Scripts//python.exe"
+set "PY=C://Users//Administrator//.workbuddy//binaries//python//envs//default//Scripts//python.exe"
 if exist "%PY%" goto RUN
 set "PY=python"
 :RUN

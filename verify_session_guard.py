@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(r"C:/Users/25374/WorkBuddy/2026-09-11-09-50-22/osaka-mvp")
+ROOT = Path(r"C:/Users/Administrator/WorkBuddy/2026-09-11-09-50-22/osaka-mvp")
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-VENV_PY = r"C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+VENV_PY = r"C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 
 
 def test_verify_field_labels_gate(real_db_copy):

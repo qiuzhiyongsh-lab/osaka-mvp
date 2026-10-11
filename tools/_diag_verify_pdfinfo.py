@@ -6,7 +6,7 @@
 """
 import sys, os, re, json, sqlite3
 
-ROOT = r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
+ROOT = r"C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
 os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 

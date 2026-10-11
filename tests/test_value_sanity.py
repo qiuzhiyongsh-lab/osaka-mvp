@@ -17,7 +17,7 @@ import verify_value_sanity as vs
 from core.crawler import _postprocess_list_rec
 
 ROOT = Path(__file__).resolve().parent.parent
-VENV_PY = r"C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+VENV_PY = r"C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 
 
 def _mkdb(tmp_path, rows) -> Path:

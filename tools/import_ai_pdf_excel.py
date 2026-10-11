@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 from core.ai_structure_store import AIStructureStore   # noqa: E402
 from core import ai_score                              # noqa: E402
 
-DEFAULT_XLSX = Path(r"C:\Users\25374\Desktop\大阪房源PDF数据总表.xlsx")
+DEFAULT_XLSX = Path(r"C:\Users\Administrator\Desktop\大阪房源PDF数据总表.xlsx")
 DB_PATH = ROOT / "data" / "ai_pdf_store.db"
 
 # ---------------- 59 列的展示分组（顺序即页面自上而下顺序）----------------

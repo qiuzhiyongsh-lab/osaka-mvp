@@ -2,7 +2,7 @@
 
 > 生成：2026-09-28 · 配套文档：`docs/备份与发版管理规范_2026-09-28.md`
 > 共 **3 个 WorkBuddy 定时任务** + **1 个系统级脚本任务（不烧 AI）**
-> 工作目录（cwds）：`C:\Users\25374\WorkBuddy\2026-09-11-09-50-22`
+> 工作目录（cwds）：`C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22`
 
 ---
 
@@ -49,14 +49,14 @@
 
 - **名称**：`osaka-mvp 每日数据备份与异地上传`
 - **频率**：每天 23:30 ｜ `FREQ=DAILY;BYHOUR=23;BYMINUTE=30`
-- **工作目录**：`C:\Users\25374\WorkBuddy\2026-09-11-09-50-22`
+- **工作目录**：`C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22`
 
 ### 【提示词全文】（复制以下内容）
 
 ```
 【任务】osaka-mvp 每日数据备份与异地上传
 
-【工程路径】C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
+【工程路径】C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
 
 【第一步 · 原子快照】对以下三个 SQLite 库做快照，输出到 .backups/db/：
   - data/jproperty.db       （房源主库，约 98MB）
@@ -99,14 +99,14 @@
 
 - **名称**：`osaka-mvp 每周备份恢复演练与发版合规体检`
 - **频率**：每周一 10:00 ｜ `FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=0`
-- **工作目录**：`C:\Users\25374\WorkBuddy\2026-09-11-09-50-22`
+- **工作目录**：`C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22`
 
 ### 【提示词全文】（复制以下内容）
 
 ```
 【任务】osaka-mvp 每周备份可恢复性演练 + 发版版本确定性体检
 
-【工程路径】C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
+【工程路径】C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
 
 【A · 恢复演练】——没验过恢复的备份等于没备份，这是本任务最重要的部分
 1. 取 .backups/db/ 中最近一份 jproperty 与 employee 快照。
@@ -140,14 +140,14 @@
 
 - **名称**：`osaka-mvp 每月 PDF 原件全量基线`
 - **频率**：每月 1 号 02:30 ｜ `FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=2;BYMINUTE=30`
-- **工作目录**：`C:\Users\25374\WorkBuddy\2026-09-11-09-50-22`
+- **工作目录**：`C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22`
 
 ### 【提示词全文】（复制以下内容）
 
 ```
 【任务】osaka-mvp 每月 PDF 原件全量基线备份
 
-【工程路径】C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
+【工程路径】C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp
 
 【要做的事】
 1. 统计 data/attachments/ 下 PDF 的数量与总体积（2026-09-28 实测 4760 个 / 3.1GB；本次以实测量为准）。
@@ -182,7 +182,7 @@
 """每小时热层快照：employee.db + ai_pdf_store.db（合计约 8.4MB，成本近乎为零）"""
 import os, sqlite3, datetime
 
-BASE = r"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
+BASE = r"C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp"
 OUT  = os.path.join(BASE, ".backups", "hot")
 ASSETS = ["data/employee.db", "data/ai_pdf_store.db"]
 KEEP = 48   # 保留最近 48 份 ≈ 2 天
@@ -214,9 +214,9 @@ for rel in ASSETS:
 
 ```bat
 schtasks /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 ^
-  /TR "\"C:\Users\25374\AppData\Local\Programs\Python\Python313\python.exe\" \"C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\tools\hourly_hot_snapshot.py\"" /F
+  /TR "\"C:\Users\Administrator\AppData\Local\Programs\Python\Python313\python.exe\" \"C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\tools\hourly_hot_snapshot.py\"" /F
 ```
-（若项目用的是托管解释器，把路径换成 `C:\Users\25374\.workbuddy\binaries\python\versions\3.13.12\python.exe`）
+（若项目用的是托管解释器，把路径换成 `C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe`）
 
 ---
 
@@ -242,7 +242,7 @@ schtasks /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 ^
 | 2 | osaka-mvp 每周备份恢复演练与发版合规体检 | `FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=0` | 2026-09-28 10:00 | `e81de105-38ca-4013-a279-4866821138e0` |
 | 3 | osaka-mvp 每月 PDF 原件全量基线 | `FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=2;BYMINUTE=30` | 2026-10-01 02:30 | `431260c5-0491-41be-a9cc-d3e84548b253` |
 
-三个均为 `status=ACTIVE`，工作目录 `C:\Users\25374\WorkBuddy\2026-09-11-09-50-22`。
+三个均为 `status=ACTIVE`，工作目录 `C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22`。
 
 > ⚠️ 任务一的**异地上传目前会报失败**——网盘 MCP 尚未授权（见《需要勇哥配合事项清单》A1/B5）。
 > 在授权前，它仍会完成「本地快照 + sha256 + integrity_check + PDF 增量 + 保留清理」，
@@ -253,7 +253,7 @@ schtasks /Create /TN "osaka_hotsnap" /SC HOURLY /MO 1 ^
 - **注册结果**：`成功创建计划任务 "osaka_hotsnap"`，下次运行 **2026/9/28 02:06**，模式「就绪」。
 - 🟡 **发现一个体验问题**：任务为「只使用交互方式」+ `python.exe` ⇒ **每小时会弹一次黑窗口**（白天用机器会烦）。
   解法：脚本改为**写日志文件**（`pythonw` 无 stdout，print 会抛异常）+ 改用 **`pythonw.exe`** 运行。
-  - ⚠️ **第二版也翻车了**：`schtasks /Change` 会**要求输入账号密码**并在批处理里卡死（`请输入 25374 的密码:`），而 `/Create` **不需要密码**（首次注册成功即证明）。
+  - ⚠️ **第二版也翻车了**：`schtasks /Change` 会**要求输入账号密码**并在批处理里卡死（`请输入 Administrator 的密码:`），而 `/Create` **不需要密码**（首次注册成功即证明）。
     ⇒ 最终改为**幂等版**：`/Delete /F` → `/Create /F`（pythonw），**可重复双击，不会卡住**。`注册…bat` 与 `切换…bat` 内容已统一。
   - 勇哥再做一次：双击 `tools\切换为无窗口模式.bat`（或 `注册每小时热层快照.bat`，两者现完全相同）
   - 日志：`.backups/hot/snapshot.log`（超 2000 行自动只保留后 1000 行）

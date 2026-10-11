@@ -9,7 +9,7 @@ echo ============================================
 echo.
 
 set "PY="
-if exist "C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe" set "PY=C:\Users\25374\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+if exist "C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe" set "PY=C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
 if not defined PY for %%I in (python.exe) do if not defined PY set "PY=%%~$PATH:I"
 if not defined PY goto NOPY
 

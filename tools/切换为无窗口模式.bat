@@ -10,8 +10,8 @@ echo  log file    : .backups hot snapshot.log
 echo ============================================
 echo.
 
-set PYW=C:\Users\25374\AppData\Local\Programs\Python\Python313\pythonw.exe
-set SCRIPT=C:\Users\25374\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\tools\hourly_hot_snapshot.py
+set PYW=C:\Users\Administrator\AppData\Local\Programs\Python\Python313\pythonw.exe
+set SCRIPT=C:\Users\Administrator\WorkBuddy\2026-09-11-09-50-22\osaka-mvp\tools\hourly_hot_snapshot.py
 
 if not exist "%PYW%" (
     echo [ERROR] pythonw not found: %PYW%
